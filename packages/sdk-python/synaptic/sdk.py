@@ -1,0 +1,270 @@
+import asyncio
+import atexit
+import functools
+import inspect
+import threading
+from typing import Any, Callable, Optional
+
+from .config import Config
+from .context import get_current_span, reset_current_span, set_current_span
+from .exporter import HTTPExporter
+from .queue import BoundedQueue
+from .span import Span, SpanContext
+
+
+class SynapticSDK:
+    """Coordinates span capture, async queueing, and async export.
+
+    Owns a background thread that runs an asyncio event loop. Sync and async
+    user code both submit spans via ``call_soon_threadsafe`` onto that loop's
+    queue, so the agent thread is never blocked by I/O.
+    """
+
+    def __init__(self, config: Optional[Config] = None, exporter=None):
+        self._config = config or Config()
+        self._exporter = exporter
+        self._queue: Optional[BoundedQueue] = None
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._loop_thread: Optional[threading.Thread] = None
+        self._flush_task: Optional[asyncio.Task] = None
+        self._stop_flushing = False
+        self._shutdown_complete = False
+        self._ready = threading.Event()
+        self._start_background_loop()
+
+    @property
+    def config(self) -> Config:
+        return self._config
+
+    def _start_background_loop(self) -> None:
+        def run_loop() -> None:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            self._loop = loop
+            self._queue = BoundedQueue(self._config.max_queue_size)
+            if self._exporter is None:
+                self._exporter = HTTPExporter(
+                    host=self._config.host,
+                    api_key=self._config.api_key,
+                    timeout=self._config.export_timeout,
+                )
+            self._flush_task = loop.create_task(self._flush_loop())
+            self._ready.set()
+            try:
+                loop.run_forever()
+            finally:
+                try:
+                    loop.close()
+                except Exception:
+                    pass
+
+        self._loop_thread = threading.Thread(
+            target=run_loop, daemon=True, name="synaptic-flusher"
+        )
+        self._loop_thread.start()
+        self._ready.wait()
+
+    async def _flush_loop(self) -> None:
+        try:
+            while not self._stop_flushing:
+                try:
+                    await asyncio.sleep(self._config.flush_interval)
+                except asyncio.CancelledError:
+                    break
+                if self._stop_flushing:
+                    break
+                await self._drain_and_export()
+        except Exception:
+            pass
+
+    async def _drain_and_export(self) -> None:
+        try:
+            assert self._queue is not None and self._exporter is not None
+            spans = await self._queue.drain(self._config.batch_size)
+            if spans:
+                await self._exporter.export(spans)
+        except Exception:
+            pass
+
+    def submit(self, span: Span) -> bool:
+        """Schedule a span on the background loop. Non-blocking, thread-safe."""
+        if (
+            self._loop is None
+            or self._queue is None
+            or self._shutdown_complete
+            or not self._loop.is_running()
+        ):
+            return False
+        try:
+            self._loop.call_soon_threadsafe(self._queue.put_nowait, span)
+            return True
+        except RuntimeError:
+            return False
+
+    def flush(self) -> None:
+        """Drain the queue and export synchronously. Blocks until done."""
+        if (
+            self._loop is None
+            or self._shutdown_complete
+            or not self._loop.is_running()
+        ):
+            return
+        try:
+            future = asyncio.run_coroutine_threadsafe(
+                self._drain_and_export(), self._loop
+            )
+            future.result(timeout=self._config.export_timeout + 1.0)
+        except Exception:
+            pass
+
+    def shutdown(self) -> None:
+        if self._shutdown_complete:
+            return
+        self._shutdown_complete = True
+        if self._loop is None or not self._loop.is_running():
+            return
+
+        async def _async_shutdown() -> None:
+            self._stop_flushing = True
+            if self._flush_task is not None and not self._flush_task.done():
+                self._flush_task.cancel()
+                try:
+                    await self._flush_task
+                except (asyncio.CancelledError, Exception):
+                    pass
+            await self._drain_and_export()
+            if self._exporter is not None:
+                await self._exporter.close()
+
+        try:
+            future = asyncio.run_coroutine_threadsafe(_async_shutdown(), self._loop)
+            future.result(timeout=5.0)
+        except Exception:
+            pass
+
+        try:
+            self._loop.call_soon_threadsafe(self._loop.stop)
+        except Exception:
+            pass
+
+        if self._loop_thread is not None:
+            self._loop_thread.join(timeout=2.0)
+
+
+_global_sdk: Optional[SynapticSDK] = None
+_global_lock = threading.Lock()
+
+
+def _get_sdk() -> SynapticSDK:
+    global _global_sdk
+    with _global_lock:
+        if _global_sdk is None or _global_sdk._shutdown_complete:
+            _global_sdk = SynapticSDK()
+        return _global_sdk
+
+
+def _set_sdk(sdk: Optional[SynapticSDK]) -> None:
+    global _global_sdk
+    with _global_lock:
+        old = _global_sdk
+        _global_sdk = sdk
+    if old is not None and old is not sdk:
+        old.shutdown()
+
+
+def configure(**kwargs: Any) -> None:
+    """Configure the global SDK. Replaces any previous configuration."""
+    filtered = {k: v for k, v in kwargs.items() if v is not None}
+    config = Config(**filtered)
+    _set_sdk(SynapticSDK(config))
+
+
+def span(name: str, type: str = "custom") -> SpanContext:
+    """Open a span as a context manager."""
+    return SpanContext(_get_sdk(), name, type)
+
+
+def trace(_func: Optional[Callable] = None, *, name: Optional[str] = None, type: str = "custom"):
+    """Decorator that records a span around a function call.
+
+    Works on both sync and async functions (auto-detected).
+    Usage:
+        @trace
+        def f(...): ...
+
+        @trace(name="my_step", type="llm")
+        async def g(...): ...
+    """
+
+    def decorator(fn: Callable) -> Callable:
+        span_name = name or fn.__name__
+
+        if inspect.iscoroutinefunction(fn):
+
+            @functools.wraps(fn)
+            async def async_wrapper(*args, **kwargs):
+                sdk = _get_sdk()
+                cfg = sdk.config
+                parent = get_current_span()
+                s = Span.create(span_name, type, parent=parent)
+                if cfg.capture_inputs:
+                    s.set_input(
+                        {"args": list(args), "kwargs": kwargs}, cfg.max_payload_size
+                    )
+                token = set_current_span(s)
+                try:
+                    result = await fn(*args, **kwargs)
+                    if cfg.capture_outputs:
+                        s.set_output(result, cfg.max_payload_size)
+                    return result
+                except Exception as e:
+                    s.set_error(e)
+                    raise
+                finally:
+                    s.end()
+                    sdk.submit(s)
+                    reset_current_span(token)
+
+            return async_wrapper
+
+        @functools.wraps(fn)
+        def sync_wrapper(*args, **kwargs):
+            sdk = _get_sdk()
+            cfg = sdk.config
+            parent = get_current_span()
+            s = Span.create(span_name, type, parent=parent)
+            if cfg.capture_inputs:
+                s.set_input(
+                    {"args": list(args), "kwargs": kwargs}, cfg.max_payload_size
+                )
+            token = set_current_span(s)
+            try:
+                result = fn(*args, **kwargs)
+                if cfg.capture_outputs:
+                    s.set_output(result, cfg.max_payload_size)
+                return result
+            except Exception as e:
+                s.set_error(e)
+                raise
+            finally:
+                s.end()
+                sdk.submit(s)
+                reset_current_span(token)
+
+        return sync_wrapper
+
+    if _func is None:
+        return decorator
+    return decorator(_func)
+
+
+def _shutdown_at_exit() -> None:
+    sdk = _global_sdk
+    if sdk is not None:
+        try:
+            sdk.shutdown()
+        except Exception:
+            pass
+
+
+atexit.register(_shutdown_at_exit)

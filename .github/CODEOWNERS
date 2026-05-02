@@ -1,0 +1,34 @@
+# CODEOWNERS — auto-assigns reviewers on every PR.
+# Syntax: <pattern> <owner1> <owner2>
+# The last matching pattern wins.
+#
+# Update GitHub usernames before publishing the repo.
+
+# Default owner for everything in the repo
+*                                @amitbidlan
+
+# Documentation
+/docs/                           @amitbidlan
+*.md                             @amitbidlan
+
+# Python SDK
+/packages/sdk-python/            @amitbidlan
+
+# TypeScript SDK
+/packages/sdk-typescript/        @amitbidlan
+
+# Backend API
+/packages/api/                   @amitbidlan
+
+# Dashboard
+/packages/dashboard/             @amitbidlan
+
+# Build, CI, release
+/.github/                        @amitbidlan
+/Dockerfile                      @amitbidlan
+/start.sh                        @amitbidlan
+
+# Security-sensitive areas — extra review required
+/SECURITY.md                     @amitbidlan
+/packages/sdk-python/synaptic/exporter.py    @amitbidlan
+/packages/api/routers/spans.py               @amitbidlan

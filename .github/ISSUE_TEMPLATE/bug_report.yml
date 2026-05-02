@@ -1,0 +1,118 @@
+name: Bug report
+description: Report something that isn't working as expected.
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report.
+        Please fill in as much detail as you can — it helps us reproduce and fix faster.
+
+  - type: checkboxes
+    id: prerequisites
+    attributes:
+      label: Prerequisites
+      description: Confirm you have done these before filing.
+      options:
+        - label: I have searched existing issues and this is not a duplicate.
+          required: true
+        - label: I am running the latest version of Synaptic.
+          required: true
+        - label: This is not a security vulnerability (use the private security advisory flow instead).
+          required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear and concise description of the bug.
+      placeholder: When I run `docker run zistica/synaptic`, the container exits immediately with...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+      placeholder: I expected the dashboard to be available at localhost:3000.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Minimal, runnable steps. Include code snippets if relevant.
+      placeholder: |
+        1. Run `docker run -p 3000:3000 zistica/synaptic`
+        2. Open http://localhost:3000
+        3. See error in console
+      render: bash
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected component
+      multiple: true
+      options:
+        - Python SDK
+        - TypeScript SDK
+        - FastAPI backend
+        - Next.js dashboard
+        - Docker image
+        - Documentation
+        - LangChain integration
+        - CrewAI integration
+        - AutoGen integration
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: input
+    id: synaptic-version
+    attributes:
+      label: Synaptic version
+      placeholder: e.g. 0.1.0, or "main@<commit sha>"
+    validations:
+      required: true
+
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version (if applicable)
+      placeholder: e.g. 3.12.1
+
+  - type: input
+    id: node-version
+    attributes:
+      label: Node version (if applicable)
+      placeholder: e.g. 20.11.0
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Linux
+        - Windows
+        - Docker (Linux container)
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs / stack trace
+      description: Paste any error output. Will be rendered as a code block.
+      render: shell
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context
+      description: Anything else that might help — screenshots, related issues, recent changes.

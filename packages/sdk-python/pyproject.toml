@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "synaptic"
+version = "0.1.0"
+description = "Local-first AI agent observability SDK"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Zistica Inc." }]
+dependencies = [
+    "httpx>=0.24.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+]
+langchain = [
+    "langchain-core>=0.3.0",
+]
+crewai = [
+    "crewai>=0.80.0",
+]
+all = [
+    "langchain-core>=0.3.0",
+    "crewai>=0.80.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["synaptic*"]
+exclude = ["tests*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

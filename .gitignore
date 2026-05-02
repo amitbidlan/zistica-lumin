@@ -1,0 +1,77 @@
+# =============================================================================
+# Synaptic — .gitignore
+# =============================================================================
+
+# --- private / never push to git ---
+# Confidential business + technical docs (Zistica internal)
+docs/
+# Private build log used to seed Claude sessions — not for public consumption
+BUILD_LOG.md
+# Claude Code session artifacts
+.claude/
+CLAUDE.md
+# Any docx (founding docs etc. are private)
+*.docx
+
+# --- secrets / env ---
+.env
+.env.*
+!.env.example
+*.secret
+secrets/
+*.pem
+*.key
+
+# --- python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+.venv/
+venv/
+env/
+ENV/
+
+# --- node / next.js ---
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+.npm
+.pnpm-store/
+
+# --- typescript build output ---
+packages/sdk-typescript/dist/
+
+# --- runtime data ---
+data/
+*.duckdb
+*.duckdb.wal
+*.sqlite
+*.sqlite-journal
+*.db
+
+# --- logs ---
+*.log
+logs/
+
+# --- editor / OS junk ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
+
+# --- build / package ---
+dist/
+build/
+*.tar.gz
+*.zip

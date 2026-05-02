@@ -1,0 +1,131 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Cancel in-progress runs of the same workflow on the same branch — saves
+# CI minutes when pushing rapid-fire commits.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python-sdk:
+    name: Python SDK (sessions 1, 5, 6)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/sdk-python
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: packages/sdk-python/pyproject.toml
+      - name: Install (with langchain extra for integration tests)
+        run: |
+          pip install -e ".[test,langchain]"
+      - name: Run tests
+        run: pytest -v
+
+  python-api:
+    name: FastAPI (session 2)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/api
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: packages/api/requirements.txt
+      - name: Install
+        run: |
+          pip install -r requirements.txt
+          pip install pytest httpx
+      - name: Run tests
+        run: pytest -v
+
+  typescript-sdk:
+    name: TypeScript SDK (session 7)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/sdk-typescript
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: packages/sdk-typescript/package-lock.json
+      - name: Install
+        run: npm install --no-audit --no-fund
+      - name: Build
+        run: npm run build
+      - name: Test
+        run: npm test
+
+  dashboard:
+    name: Next.js dashboard (session 3)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: packages/dashboard/package-lock.json
+      - name: Install
+        run: npm install --no-audit --no-fund
+      - name: Type check
+        run: npx tsc --noEmit
+      - name: Build
+        run: npm run build
+
+  docker:
+    name: Docker image (session 4)
+    runs-on: ubuntu-latest
+    needs: [python-sdk, python-api, typescript-sdk, dashboard]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build image (no push)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          load: true
+          tags: zistica/synaptic:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke-test the container
+        run: |
+          docker run -d --name synaptic-ci -p 3000:3000 -p 8000:8000 zistica/synaptic:ci
+          for i in $(seq 1 30); do
+            sleep 1
+            curl -sf http://127.0.0.1:8000/health >/dev/null 2>&1 && break
+          done
+          # Both ports respond
+          curl -fs http://127.0.0.1:8000/health   | grep -q '"status":"ok"'
+          curl -fs http://127.0.0.1:3000/api/health | grep -q '"status":"ok"'
+          # Dashboard renders
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/traces)" = "200"
+          # Redirect has Location header
+          curl -sI http://127.0.0.1:3000/ | grep -i '^location:' | grep -q '/traces'
+          docker rm -f synaptic-ci
