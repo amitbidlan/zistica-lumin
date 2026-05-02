@@ -28,7 +28,7 @@ English and Japanese both welcome. If you are more comfortable in Japanese — p
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to:
 
-**amit@zistica.com**
+**support@zistica.com**
 
 All reports will be reviewed and investigated. Maintainers are obligated to maintain confidentiality.
 

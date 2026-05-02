@@ -13,7 +13,7 @@
 
 If you find a security vulnerability in Synaptic, please report it privately:
 
-**Email: amit@zistica.com**
+**Email: support@zistica.com**
 **Subject: [SECURITY] Brief description**
 
 Include:
