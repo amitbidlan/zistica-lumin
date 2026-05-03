@@ -118,9 +118,9 @@ test('live indicator title reads "WebSocket connected" when WS is up', async ({ 
   await expect(indicator).toBeVisible();
 });
 
-// ---------- 4. Polling fallback when WebSocket is unreachable ----------
+// ---------- 4. Polling fallback indicator ----------
 
-test('falls back to polling when WebSocket fails to connect', async ({ page }) => {
+test('indicator flips to "polling" when WebSocket fails to connect', async ({ page }) => {
   // Reject every WebSocket upgrade — simulates port 8000 being unreachable
   await page.routeWebSocket('**/ws/traces', (ws) => {
     ws.close({ code: 1011, reason: 'simulated failure for e2e' });
@@ -141,6 +141,92 @@ test('falls back to polling when WebSocket fails to connect', async ({ page }) =
   // Title attribute confirms polling mode
   const indicator = page.locator('[title*="polling"]').first();
   await expect(indicator).toBeVisible();
+});
+
+// ---------- 4b. Polling ACTUALLY fetches new data (not just UI state) ----------
+
+test('polling fallback actually retrieves new traces (not just label)', async ({ page }) => {
+  // Block WS so the dashboard is forced into polling mode
+  await page.routeWebSocket('**/ws/traces', (ws) => {
+    ws.close({ code: 1011, reason: 'forcing polling fallback' });
+  });
+
+  await postSpan([
+    {
+      id: randomUUID(), trace_id: randomUUID(), name: 'polling-real-seed',
+      started_at: nowIso(), ended_at: nowIso(),
+    },
+  ]);
+
+  await page.goto('/traces');
+  await expect(page.getByText('polling').first()).toBeVisible({ timeout: 10_000 });
+
+  // Now post a NEW trace — there is no WS to push it. The dashboard
+  // must catch up via the 5-second polling cycle. Allow up to ~7s
+  // (one polling tick + buffer).
+  const traceName = `polling_data_${Date.now()}`;
+  await postSpan([
+    {
+      id: randomUUID(), trace_id: randomUUID(), name: traceName,
+      started_at: nowIso(), ended_at: nowIso(),
+    },
+  ]);
+
+  await expect(page.getByText(traceName)).toBeVisible({ timeout: 7_000 });
+});
+
+// ---------- 5. Mid-session reconnect: WS recovers WITHOUT page reload ----------
+
+test('mid-session reconnect: WS comes back, catch-up surfaces missed trace', async ({ page }) => {
+  // Default test timeout is 30s; this scenario waits through exponential
+  // backoff (worst case ~31s before the cap). Bump for this test only.
+  test.setTimeout(60_000);
+
+  // Stateful handler — flip the flag mid-test to allow reconnect.
+  // Closure is read fresh on each route invocation, so once flipped to
+  // false, the next reconnect attempt passes through to the real server.
+  let blockWs = true;
+  await page.routeWebSocket('**/ws/traces', async (ws) => {
+    if (blockWs) {
+      ws.close({ code: 1011, reason: 'simulated outage' });
+      return;
+    }
+    await ws.connectToServer();
+  });
+
+  await postSpan([
+    {
+      id: randomUUID(), trace_id: randomUUID(), name: 'midrec-seed',
+      started_at: nowIso(), ended_at: nowIso(),
+    },
+  ]);
+
+  await page.goto('/traces');
+  await expect(page.getByText('polling').first()).toBeVisible({ timeout: 10_000 });
+
+  // Post a trace WHILE the WebSocket is unreachable. The new_trace
+  // push is broadcast but our subscriber misses it.
+  const missedName = `missed_${Date.now()}`;
+  await postSpan([
+    {
+      id: randomUUID(), trace_id: randomUUID(), name: missedName,
+      started_at: nowIso(), ended_at: nowIso(),
+    },
+  ]);
+
+  // Allow future reconnect attempts to pass through. NO page reload:
+  // this proves the dashboard's mid-session reconnect + catch-up
+  // logic works (not just the trivial fresh-load case).
+  blockWs = false;
+
+  // Wait for the hook to retry and succeed. Worst case: ~31s of
+  // exponential backoff.
+  await expect(page.getByText('live').first()).toBeVisible({ timeout: 35_000 });
+
+  // The missed trace must surface — either via the catch-up `mutate`
+  // that fires on disconnected→connected transition, or via polling
+  // having already picked it up. Both code paths are valid.
+  await expect(page.getByText(missedName)).toBeVisible({ timeout: 5_000 });
 });
 
 // ---------- 5. Multiple tabs both update simultaneously ----------
