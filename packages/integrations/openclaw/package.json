@@ -1,0 +1,57 @@
+{
+  "name": "@synaptic/openclaw",
+  "version": "0.1.0",
+  "description": "Synaptic exporter for OpenClaw agents — local-first observability with zero cloud dependency.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/amitbidlan/zistica-synaptic.git",
+    "directory": "packages/integrations/openclaw"
+  },
+  "keywords": [
+    "openclaw",
+    "synaptic",
+    "observability",
+    "tracing",
+    "opentelemetry",
+    "agents",
+    "ai"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./auto": {
+      "types": "./dist/auto.d.ts",
+      "import": "./dist/auto.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@opentelemetry/sdk-trace-base": ">=1.20.0"
+  },
+  "peerDependencies": {
+    "@opentelemetry/api": ">=1.7.0"
+  },
+  "devDependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.6.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
