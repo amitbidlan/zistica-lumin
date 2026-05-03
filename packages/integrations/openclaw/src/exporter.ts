@@ -1,18 +1,18 @@
 /**
- * Synaptic exporter for OpenClaw and any other OTel-based agent framework.
+ * Lumin exporter for OpenClaw and any other OTel-based agent framework.
  *
  * OpenClaw ships OTel telemetry through `@openclaw/diagnostics-otel`.
  * This exporter plugs into that pipeline and converts each batch of
- * OTel spans into Synaptic's native JSON span format, POSTing to
+ * OTel spans into Lumin's native JSON span format, POSTing to
  * `{host}/v1/spans`.
  *
- * Why not OTLP protobuf? Synaptic's API exposes `/v1/spans` (native
+ * Why not OTLP protobuf? Lumin's API exposes `/v1/spans` (native
  * JSON) as the documented ingest path. Routing through native JSON
  * keeps this package self-contained: no protobuf runtime, no schema
  * codegen — minimal install footprint.
  *
- * Resilience (Synaptic Rule 7): the agent must never fail because
- * Synaptic is unreachable. All network errors are swallowed; export()
+ * Resilience (Lumin Rule 7): the agent must never fail because
+ * Lumin is unreachable. All network errors are swallowed; export()
  * always reports success to the OTel pipeline so the SDK doesn't
  * retry indefinitely or surface errors to user code.
  */
@@ -24,10 +24,10 @@ import type {
 import { ExportResultCode, type ExportResult } from '@opentelemetry/core';
 import { SpanKind, SpanStatusCode } from '@opentelemetry/api';
 
-export interface SynapticExporterConfig {
-  /** Synaptic API base URL. Defaults to env SYNAPTIC_HOST or http://localhost:8000. */
+export interface LuminExporterConfig {
+  /** Lumin API base URL. Defaults to env LUMIN_HOST or http://localhost:8000. */
   host?: string;
-  /** Optional API key for hosted Synaptic (sent as Authorization: Bearer). */
+  /** Optional API key for hosted Lumin (sent as Authorization: Bearer). */
   apiKey?: string;
   /** Project tag for grouping. Defaults to "openclaw". */
   project?: string;
@@ -39,7 +39,7 @@ export interface SynapticExporterConfig {
   maxPayloadSize?: number;
 }
 
-interface SynapticSpan {
+interface LuminSpan {
   id: string;
   trace_id: string;
   parent_span_id: string | null;
@@ -136,7 +136,7 @@ export function registerModelPrice(
 
 /**
  * Convert an OTel attribute value to a string suitable for the
- * Synaptic `input` / `output` field. OTel only delivers primitives
+ * Lumin `input` / `output` field. OTel only delivers primitives
  * or arrays of primitives, so the cases are:
  *   - string: pass through (already JSON in most OpenClaw / Vercel
  *     AI conventions — re-stringifying would double-encode)
@@ -201,8 +201,8 @@ function hrTimeToIso(time: [number, number] | undefined | null): string | null {
 }
 
 /**
- * Map an OTel `SpanKind` and the GenAI attributes to a Synaptic
- * span `type`. The mapping mirrors how the Synaptic LangChain /
+ * Map an OTel `SpanKind` and the GenAI attributes to a Lumin
+ * span `type`. The mapping mirrors how the Lumin LangChain /
  * CrewAI / Mastra integrations classify spans elsewhere — keeps
  * the dashboard rendering consistent across frameworks.
  */
@@ -243,16 +243,16 @@ function attrNumber(
   return typeof v === 'number' && Number.isFinite(v) ? v : null;
 }
 
-/** Convert one OTel ReadableSpan to a Synaptic SpanInput. */
-export function otelSpanToSynaptic(
+/** Convert one OTel ReadableSpan to a Lumin SpanInput. */
+export function otelSpanToLumin(
   span: ReadableSpan,
   maxPayloadSize: number = DEFAULT_MAX_PAYLOAD,
-): SynapticSpan {
+): LuminSpan {
   const ctx = span.spanContext();
   const attrs = (span.attributes ?? {}) as Record<string, unknown>;
   const resourceAttrs = ((span.resource as { attributes?: Record<string, unknown> })?.attributes ?? {}) as Record<string, unknown>;
 
-  const synapticType = classifySpanType(span);
+  const luminType = classifySpanType(span);
   const model =
     attrString(attrs, 'gen_ai.response.model') ??
     attrString(attrs, 'gen_ai.request.model');
@@ -296,7 +296,7 @@ export function otelSpanToSynaptic(
     attrs['openclaw.output'] ??
     null;
 
-  // Synaptic native error_message is a string. OTel tracks status code
+  // Lumin native error_message is a string. OTel tracks status code
   // separately from any exception event. Prefer a recorded exception
   // message; fall back to status description.
   let errorMessage: string | null = null;
@@ -331,7 +331,7 @@ export function otelSpanToSynaptic(
   // OpenClaw delivers messages over channels (whatsapp, telegram,
   // discord, slack, …). Surface the channel name as a metadata-only
   // hint by leaving it in attrs (already on the span); we don't
-  // promote it to a top-level field since the Synaptic span shape
+  // promote it to a top-level field since the Lumin span shape
   // doesn't have one.
 
   // OTel SDK has moved from `parentSpanId` to `parentSpanContext.spanId`
@@ -358,7 +358,7 @@ export function otelSpanToSynaptic(
     trace_id: ctx.traceId,
     parent_span_id: parentSpanId,
     name: isThinking ? 'thinking' : span.name,
-    type: isThinking ? 'llm' : synapticType,
+    type: isThinking ? 'llm' : luminType,
     input: finalInput,
     output: finalOutput,
     started_at: hrTimeToIso(span.startTime) ?? new Date().toISOString(),
@@ -379,10 +379,10 @@ export function otelSpanToSynaptic(
 
 /**
  * OTel SpanExporter that ships batches of OpenClaw agent spans to a
- * running Synaptic instance. Drop-in for any OTel pipeline; designed
+ * running Lumin instance. Drop-in for any OTel pipeline; designed
  * to plug into `@openclaw/diagnostics-otel`'s exporter slot.
  */
-export class SynapticExporter implements SpanExporter {
+export class LuminExporter implements SpanExporter {
   private readonly host: string;
   private readonly apiKey: string | undefined;
   private readonly project: string;
@@ -391,16 +391,16 @@ export class SynapticExporter implements SpanExporter {
   private readonly maxPayloadSize: number;
   private shutdownCalled = false;
 
-  constructor(config: SynapticExporterConfig = {}) {
+  constructor(config: LuminExporterConfig = {}) {
     this.host = (
       config.host ??
-      (typeof process !== 'undefined' ? process.env.SYNAPTIC_HOST : undefined) ??
+      (typeof process !== 'undefined' ? process.env.LUMIN_HOST : undefined) ??
       DEFAULT_HOST
     ).replace(/\/+$/, '');
     this.apiKey =
       config.apiKey ??
       (typeof process !== 'undefined'
-        ? process.env.SYNAPTIC_API_KEY
+        ? process.env.LUMIN_API_KEY
         : undefined);
     this.project = config.project ?? DEFAULT_PROJECT;
     this.timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -418,7 +418,7 @@ export class SynapticExporter implements SpanExporter {
     }
     void this.send(spans).then(
       () => resultCallback({ code: ExportResultCode.SUCCESS }),
-      // Synaptic Rule 7: never let a network failure surface to the
+      // Lumin Rule 7: never let a network failure surface to the
       // user. Report SUCCESS even on failure so OTel SDK does not
       // retry indefinitely or throw at the caller.
       () => resultCallback({ code: ExportResultCode.SUCCESS }),
@@ -435,13 +435,13 @@ export class SynapticExporter implements SpanExporter {
 
   /** Serialize and POST the batch. Internal — caller wraps errors. */
   private async send(otelSpans: ReadableSpan[]): Promise<void> {
-    const synapticSpans = otelSpans.map((s) =>
-      otelSpanToSynaptic(s, this.maxPayloadSize),
+    const luminSpans = otelSpans.map((s) =>
+      otelSpanToLumin(s, this.maxPayloadSize),
     );
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'X-Synaptic-Project': this.project,
+      'X-Lumin-Project': this.project,
     };
     if (this.apiKey) {
       headers['Authorization'] = `Bearer ${this.apiKey}`;
@@ -453,7 +453,7 @@ export class SynapticExporter implements SpanExporter {
       const resp = await this.fetchImpl(`${this.host}/v1/spans`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ spans: synapticSpans }),
+        body: JSON.stringify({ spans: luminSpans }),
         signal: controller.signal,
       });
       // Drain body to free socket; ignore status code per Rule 7

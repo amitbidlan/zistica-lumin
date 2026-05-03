@@ -18,8 +18,8 @@ pytest.importorskip("llama_index.core.callbacks.base_handler")
 
 from llama_index.core.callbacks.schema import CBEventType, EventPayload  # noqa: E402
 
-from synaptic.integrations.llama_index import (  # noqa: E402
-    SynapticCallbackHandler,
+from lumin.integrations.llama_index import (  # noqa: E402
+    LuminCallbackHandler,
     _extract_token_counts,
 )
 
@@ -82,7 +82,7 @@ def test_token_counts_input_tokens_zero_anthropic_style():
 def test_embedding_cost_computed_from_input_tokens(sdk):
     """Embedding spans on a known model (text-embedding-3-small) must
     get a non-zero cost computed from tokens_input alone."""
-    h = SynapticCallbackHandler()
+    h = LuminCallbackHandler()
     h.start_trace("emb")
     eid = _ev()
     h.on_event_start(
@@ -122,7 +122,7 @@ def test_deeply_nested_events_all_link_under_root(sdk):
     """A chain of 10 events nested inside a query should all share
     one trace_id. The first event becomes the root; later events
     chain via parent_id."""
-    h = SynapticCallbackHandler()
+    h = LuminCallbackHandler()
     h.start_trace("deep")
     parent_event_id = ""
     expected_chain = []
@@ -159,7 +159,7 @@ def test_deeply_nested_events_all_link_under_root(sdk):
 def test_two_concurrent_traces_are_isolated(sdk):
     """A handler may receive interleaved events from two traces.
     Each event must produce its own span."""
-    h = SynapticCallbackHandler()
+    h = LuminCallbackHandler()
     h.start_trace("trace-A")
     h.start_trace("trace-B")
     a_id = _ev()
@@ -179,7 +179,7 @@ def test_two_concurrent_traces_are_isolated(sdk):
     retrieves = [s for s in spans if s.name == "retrieve"]
     assert len(retrieves) == 2
     # Each is its own root (parent_span_id is None) since no outer
-    # @synaptic.trace was active and parent_id was empty
+    # @lumin.trace was active and parent_id was empty
     assert all(s.parent_span_id is None for s in retrieves)
     # And both can carry distinct query inputs
     inputs = sorted(s.input or "" for s in retrieves)
@@ -192,7 +192,7 @@ def test_two_concurrent_traces_are_isolated(sdk):
 
 def test_llm_event_with_no_payload_at_all(sdk):
     """LlamaIndex sometimes calls on_event_end with payload=None."""
-    h = SynapticCallbackHandler()
+    h = LuminCallbackHandler()
     h.start_trace("t-none")
     e = _ev()
     h.on_event_start(CBEventType.LLM, None, event_id=e)
@@ -205,7 +205,7 @@ def test_llm_event_with_no_payload_at_all(sdk):
 
 def test_retrieve_with_node_get_text_raising_does_not_crash(sdk):
     """A weird node whose get_text() raises must not break the trace."""
-    h = SynapticCallbackHandler()
+    h = LuminCallbackHandler()
     h.start_trace("t-bad-node")
     re = _ev()
     h.on_event_start(CBEventType.RETRIEVE, {EventPayload.QUERY_STR: "q"}, event_id=re)
@@ -228,7 +228,7 @@ def test_retrieve_with_node_get_text_raising_does_not_crash(sdk):
 
 
 def test_llm_with_unknown_model_records_no_cost(sdk):
-    h = SynapticCallbackHandler()
+    h = LuminCallbackHandler()
     h.start_trace("t-unk-model")
     e = _ev()
     h.on_event_start(CBEventType.LLM, {EventPayload.PROMPT: "x"}, event_id=e)
@@ -254,7 +254,7 @@ def test_realistic_query_engine_event_order(sdk):
     """Mirrors the actual order LlamaIndex emits for a vector
     query_engine.query() call: QUERY → RETRIEVE → EMBEDDING (inside)
     → SYNTHESIZE → CHUNKING / TEMPLATING / LLM. All under one root."""
-    h = SynapticCallbackHandler()
+    h = LuminCallbackHandler()
     h.start_trace("query")
     q = _ev()
     h.on_event_start(
@@ -331,7 +331,7 @@ def test_embedding_input_captured_from_end_payload_when_start_was_empty(sdk):
     """LlamaIndex's actual event sequence puts the embedded text in
     the END payload's CHUNKS field, not the start. Earlier versions
     of this handler missed it because they only looked at start."""
-    h = SynapticCallbackHandler()
+    h = LuminCallbackHandler()
     h.start_trace("t-emb-end")
     e = _ev()
     # Start payload has only SERIALIZED (model info) — no chunks
@@ -363,7 +363,7 @@ def test_embedding_input_captured_from_end_payload_when_start_was_empty(sdk):
 def test_agent_step_and_sub_question_and_reranking(sdk):
     """Cover the agent / sub-question / reranking event types — they
     should all classify as type=custom and not crash."""
-    h = SynapticCallbackHandler()
+    h = LuminCallbackHandler()
     h.start_trace("rare")
     for ev_type, expected_name in [
         (CBEventType.AGENT_STEP, "agent_step"),
@@ -385,7 +385,7 @@ def test_agent_step_and_sub_question_and_reranking(sdk):
 def test_exception_event_with_string_error(sdk):
     """Some integrations pass string errors instead of Exception
     objects via the EXCEPTION payload."""
-    h = SynapticCallbackHandler()
+    h = LuminCallbackHandler()
     h.start_trace("err")
     eid = _ev()
     h.on_event_start(CBEventType.EXCEPTION, {}, event_id=eid)
@@ -404,7 +404,7 @@ def test_exception_event_with_string_error(sdk):
 def test_no_start_trace_events_still_emit_spans(sdk):
     """Some users may use the handler outside the trace lifecycle —
     on_event_start without start_trace must still produce a span."""
-    h = SynapticCallbackHandler()
+    h = LuminCallbackHandler()
     eid = _ev()
     h.on_event_start(CBEventType.LLM, {EventPayload.PROMPT: "hi"}, event_id=eid)
     h.on_event_end(
@@ -417,7 +417,7 @@ def test_no_start_trace_events_still_emit_spans(sdk):
 
 def test_end_trace_for_never_started_trace_does_not_crash(sdk):
     """Defensive: pop on missing key shouldn't blow up."""
-    h = SynapticCallbackHandler()
+    h = LuminCallbackHandler()
     h.end_trace("never-started")  # should be a no-op
     h.end_trace(None)
     # No exception = pass
@@ -428,7 +428,7 @@ def test_repeated_start_trace_with_same_id_overwrites_safely(sdk):
     should not crash. The second start replaces the first's outer
     snapshot — that's acceptable since LlamaIndex shouldn't fire
     two starts for one trace_id under normal conditions."""
-    h = SynapticCallbackHandler()
+    h = LuminCallbackHandler()
     h.start_trace("dup")
     h.start_trace("dup")
     eid = _ev()
@@ -441,9 +441,9 @@ def test_repeated_start_trace_with_same_id_overwrites_safely(sdk):
 
 
 def test_chinese_and_emoji_in_query_text(sdk):
-    """Unicode in inputs — Synaptic uses ensure_ascii=False so chars
+    """Unicode in inputs — Lumin uses ensure_ascii=False so chars
     survive end-to-end."""
-    h = SynapticCallbackHandler()
+    h = LuminCallbackHandler()
     h.start_trace("u")
     eid = _ev()
     h.on_event_start(
@@ -463,7 +463,7 @@ def test_chinese_and_emoji_in_query_text(sdk):
 def test_extract_text_chat_response_with_nested_message(sdk):
     """Real LlamaIndex ChatResponse has .message.content — must
     surface the content cleanly, not the Python repr."""
-    h = SynapticCallbackHandler()
+    h = LuminCallbackHandler()
     h.start_trace("chat-real")
     eid = _ev()
     h.on_event_start(CBEventType.LLM, {EventPayload.PROMPT: "hi"}, event_id=eid)
@@ -486,7 +486,7 @@ def test_extract_text_chat_response_with_nested_message(sdk):
 
 def test_extract_text_completion_response_with_text(sdk):
     """CompletionResponse has .text directly."""
-    h = SynapticCallbackHandler()
+    h = LuminCallbackHandler()
     h.start_trace("comp")
     eid = _ev()
     h.on_event_start(CBEventType.LLM, {EventPayload.PROMPT: "hi"}, event_id=eid)
@@ -505,7 +505,7 @@ def test_extract_text_completion_response_with_text(sdk):
 def test_extract_text_dict_with_role_and_content(sdk):
     """Some integrations pass {role, content} dicts. Must extract
     cleanly without dumping Python repr."""
-    h = SynapticCallbackHandler()
+    h = LuminCallbackHandler()
     h.start_trace("dict-msg")
     eid = _ev()
     msgs = [{"role": "system", "content": "be helpful"}, {"role": "user", "content": "hi"}]
@@ -526,7 +526,7 @@ def test_extract_text_dict_with_role_and_content(sdk):
 def test_response_with_message_object_extracts_content(sdk):
     """LLM responses sometimes come as ChatMessage-like objects with
     .content. Extraction should grab the content text."""
-    h = SynapticCallbackHandler()
+    h = LuminCallbackHandler()
     h.start_trace("msg")
     eid = _ev()
     h.on_event_start(CBEventType.LLM, {EventPayload.PROMPT: "hi"}, event_id=eid)
@@ -549,7 +549,7 @@ def test_response_with_message_object_extracts_content(sdk):
 
 def test_function_call_with_simple_tool_dot_name(sdk):
     """A tool that has .name directly (older style)."""
-    h = SynapticCallbackHandler()
+    h = LuminCallbackHandler()
     h.start_trace("fn-direct")
     eid = _ev()
     tool = SimpleNamespace(name="search")
@@ -573,7 +573,7 @@ def test_leaked_spans_are_reaped_in_end_trace_via_trace_map(sdk):
     """A start without an end (exception unwound the stack) leaves
     a span in self._spans. end_trace's trace_map tells us which
     event_ids belong to this trace; we reap those on close."""
-    h = SynapticCallbackHandler()
+    h = LuminCallbackHandler()
     h.start_trace("leak")
     e1 = "leaked-evt-1"
     e2 = "leaked-evt-2"
@@ -604,7 +604,7 @@ def test_leaked_spans_with_no_trace_map_are_kept(sdk):
     """Defensive: if trace_map is None (older LlamaIndex versions
     that don't pass it), don't reap — we can't tell which spans
     belong to which active trace."""
-    h = SynapticCallbackHandler()
+    h = LuminCallbackHandler()
     h.start_trace("no-map")
     h.on_event_start(CBEventType.LLM, {}, event_id="orphan-1")
     h.end_trace("no-map", trace_map=None)
@@ -616,7 +616,7 @@ def test_fine_tuned_openai_model_cost_resolves(sdk):
     """Real production fine-tuned model names look like
     ``ft:gpt-4o:my-org::abc123``. Cost should resolve via the base
     model's price."""
-    h = SynapticCallbackHandler()
+    h = LuminCallbackHandler()
     h.start_trace("ft")
     eid = _ev()
     h.on_event_start(CBEventType.LLM, {EventPayload.PROMPT: "hi"}, event_id=eid)
@@ -640,7 +640,7 @@ def test_fine_tuned_openai_model_cost_resolves(sdk):
 def test_provider_prefixed_model_cost_resolves(sdk):
     """Routers like LiteLLM / OpenRouter pass models as
     ``openai/gpt-4o-mini`` — strip the provider prefix for matching."""
-    h = SynapticCallbackHandler()
+    h = LuminCallbackHandler()
     h.start_trace("router")
     eid = _ev()
     h.on_event_start(CBEventType.LLM, {EventPayload.PROMPT: "hi"}, event_id=eid)
@@ -664,12 +664,12 @@ def test_provider_prefixed_model_cost_resolves(sdk):
 def test_register_custom_model_price(sdk):
     """Users running self-hosted models can register a custom price
     so cost surfaces correctly."""
-    from synaptic.integrations.llama_index import register_model_price, PRICES_PER_1K
+    from lumin.integrations.llama_index import register_model_price, PRICES_PER_1K
 
     original = dict(PRICES_PER_1K)
     try:
         register_model_price("my-self-hosted-llama", 0.0001, 0.0002)
-        h = SynapticCallbackHandler()
+        h = LuminCallbackHandler()
         h.start_trace("self")
         eid = _ev()
         h.on_event_start(CBEventType.LLM, {EventPayload.PROMPT: "x"}, event_id=eid)
@@ -701,7 +701,7 @@ def test_zero_config_uses_add_handler_to_preserve_callback_manager(monkeypatch):
     subclass identity / state), not replace the manager wholesale."""
     from llama_index.core import Settings
     from llama_index.core.callbacks import CallbackManager
-    from synaptic.integrations.llama_index import _maybe_register_global
+    from lumin.integrations.llama_index import _maybe_register_global
 
     class TaggedCallbackManager(CallbackManager):
         """User subclass with extra state we don't want to lose."""
@@ -709,7 +709,7 @@ def test_zero_config_uses_add_handler_to_preserve_callback_manager(monkeypatch):
             super().__init__(handlers or [])
             self.tag = "user-special"
 
-    monkeypatch.setenv("SYNAPTIC_TRACING", "true")
+    monkeypatch.setenv("LUMIN_TRACING", "true")
     user_cm = TaggedCallbackManager([])
     Settings.callback_manager = user_cm
 
@@ -719,7 +719,7 @@ def test_zero_config_uses_add_handler_to_preserve_callback_manager(monkeypatch):
     assert Settings.callback_manager.tag == "user-special"
     # And our handler was added
     handlers = Settings.callback_manager.handlers
-    assert any(isinstance(h, SynapticCallbackHandler) for h in handlers)
+    assert any(isinstance(h, LuminCallbackHandler) for h in handlers)
 
 
 # ---------- payload pathologies ----------
@@ -727,7 +727,7 @@ def test_zero_config_uses_add_handler_to_preserve_callback_manager(monkeypatch):
 
 def test_payload_with_bytes_value_does_not_crash(sdk):
     """Some custom integrations stash bytes in payloads. Don't crash."""
-    h = SynapticCallbackHandler()
+    h = LuminCallbackHandler()
     h.start_trace("bytes")
     eid = _ev()
     h.on_event_start(
@@ -748,7 +748,7 @@ def test_payload_with_bytes_value_does_not_crash(sdk):
 def test_payload_with_circular_reference_does_not_recurse(sdk):
     """A self-referential payload (rare but possible from custom
     code) shouldn't crash _serialize via infinite recursion."""
-    h = SynapticCallbackHandler()
+    h = LuminCallbackHandler()
     h.start_trace("circ")
     eid = _ev()
     bad: dict = {"key": "value"}
@@ -763,7 +763,7 @@ def test_payload_with_circular_reference_does_not_recurse(sdk):
 
 def test_extract_text_handles_deeply_nested_lists(sdk):
     """100-deep nested list of strings shouldn't blow the stack."""
-    h = SynapticCallbackHandler()
+    h = LuminCallbackHandler()
     h.start_trace("deep-list")
     eid = _ev()
     nested: object = "leaf"
@@ -785,7 +785,7 @@ def test_response_raw_is_pydantic_like_object(sdk):
     """Some LLM integrations make response.raw a typed object (not
     a dict). The fallback `getattr(raw, 'usage', None)` path must
     pick up usage data."""
-    h = SynapticCallbackHandler()
+    h = LuminCallbackHandler()
     h.start_trace("pyd")
     eid = _ev()
     h.on_event_start(CBEventType.LLM, {EventPayload.PROMPT: "x"}, event_id=eid)
@@ -811,7 +811,7 @@ def test_response_raw_is_pydantic_like_object(sdk):
 
 def test_handler_coexists_with_another_callback_handler(sdk):
     """When a CallbackManager has multiple handlers (e.g. user has
-    LlamaDebugHandler + Synaptic), our handler must work alongside
+    LlamaDebugHandler + Lumin), our handler must work alongside
     without interfering."""
     from llama_index.core.callbacks.base_handler import BaseCallbackHandler
     other_calls: list = []
@@ -826,7 +826,7 @@ def test_handler_coexists_with_another_callback_handler(sdk):
         def start_trace(self, trace_id=None): other_calls.append(("st", trace_id))
         def end_trace(self, trace_id=None, trace_map=None): other_calls.append(("et", trace_id))
 
-    h = SynapticCallbackHandler()
+    h = LuminCallbackHandler()
     other = CountingHandler()
     # Simulate CallbackManager dispatching to both — both get every callback
     for handler in (h, other):
@@ -839,7 +839,7 @@ def test_handler_coexists_with_another_callback_handler(sdk):
     for handler in (h, other):
         handler.end_trace("multi")
 
-    # Synaptic span emitted
+    # Lumin span emitted
     spans = _drain(sdk)
     assert any(s.name == "llm_call" for s in spans)
     # Other handler also saw all callbacks
@@ -852,7 +852,7 @@ def test_handler_coexists_with_another_callback_handler(sdk):
 
 def test_one_failed_submit_doesnt_lose_subsequent_spans(sdk, monkeypatch):
     """If submit() fails for one span, later spans must still ship."""
-    h = SynapticCallbackHandler()
+    h = LuminCallbackHandler()
     h.start_trace("partial-fail")
 
     real_submit = sdk.submit
@@ -886,14 +886,14 @@ def test_one_failed_submit_doesnt_lose_subsequent_spans(sdk, monkeypatch):
 # ---------- session_id propagation through a trace ----------
 
 
-def test_session_id_propagates_from_synaptic_session_through_llamaindex(sdk):
-    """When an LlamaIndex query runs inside a synaptic.session(),
+def test_session_id_propagates_from_lumin_session_through_llamaindex(sdk):
+    """When an LlamaIndex query runs inside a lumin.session(),
     every emitted span should carry the session_id."""
-    import synaptic
+    import lumin
 
-    h = SynapticCallbackHandler()
-    with synaptic.session(id="session-abc"):
-        @synaptic.trace
+    h = LuminCallbackHandler()
+    with lumin.session(id="session-abc"):
+        @lumin.trace
         def run() -> None:
             h.start_trace("inside")
             eid = _ev()
@@ -919,7 +919,7 @@ def test_child_spans_are_temporally_nested_inside_parents(sdk):
     every child's ended_at must be <= parent's ended_at. This is a
     fundamental invariant of nested spans — if violated, a timeline
     visualization shows children outside their parent's bracket."""
-    h = SynapticCallbackHandler()
+    h = LuminCallbackHandler()
     h.start_trace("nest")
     parent = _ev()
     h.on_event_start(CBEventType.QUERY, {EventPayload.QUERY_STR: "x"}, event_id=parent)
@@ -954,7 +954,7 @@ def test_child_spans_are_temporally_nested_inside_parents(sdk):
 def test_extract_model_falls_back_to_response_model_attribute(sdk):
     """When no MODEL_NAME or SERIALIZED is in payload, the model
     name lives on response.model (some integrations) — must use it."""
-    h = SynapticCallbackHandler()
+    h = LuminCallbackHandler()
     h.start_trace("model-on-resp")
     eid = _ev()
     h.on_event_start(CBEventType.LLM, {EventPayload.PROMPT: "x"}, event_id=eid)
@@ -973,7 +973,7 @@ def test_extract_model_falls_back_to_response_model_attribute(sdk):
 
 def test_extract_model_falls_back_to_response_raw_dict_model(sdk):
     """Some LiteLLM-style responses put model only in response.raw['model']."""
-    h = SynapticCallbackHandler()
+    h = LuminCallbackHandler()
     h.start_trace("model-in-raw")
     eid = _ev()
     h.on_event_start(CBEventType.LLM, {EventPayload.PROMPT: "x"}, event_id=eid)
@@ -995,7 +995,7 @@ def test_extract_model_falls_back_to_response_raw_dict_model(sdk):
 def test_end_trace_trace_map_with_already_closed_events_is_safe(sdk):
     """trace_map references events that completed cleanly — reaping
     must skip them without error."""
-    h = SynapticCallbackHandler()
+    h = LuminCallbackHandler()
     h.start_trace("normal")
     e1 = _ev()
     h.on_event_start(CBEventType.LLM, {}, event_id=e1)
@@ -1011,9 +1011,9 @@ def test_end_trace_trace_map_with_already_closed_events_is_safe(sdk):
 
 def test_handler_unaffected_by_sdk_get_failure(sdk, monkeypatch):
     """If even _get_sdk() raises, the agent must not crash."""
-    h = SynapticCallbackHandler()
+    h = LuminCallbackHandler()
 
-    import synaptic.integrations.llama_index as li_mod
+    import lumin.integrations.llama_index as li_mod
 
     def boom():
         raise RuntimeError("sdk init failed")

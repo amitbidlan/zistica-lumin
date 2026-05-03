@@ -77,7 +77,7 @@ jobs:
         run: npm test
 
   mastra-integration:
-    name: Mastra integration (@synaptic/mastra)
+    name: Mastra integration (@lumin-io/mastra)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -98,7 +98,7 @@ jobs:
         run: npm test
 
   openclaw-integration:
-    name: OpenClaw integration (@synaptic/openclaw)
+    name: OpenClaw integration (@lumin-io/openclaw)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -153,12 +153,12 @@ jobs:
           context: .
           push: false
           load: true
-          tags: zistica/synaptic:ci
+          tags: zistica/lumin:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Smoke-test the container
         run: |
-          docker run -d --name synaptic-ci -p 3000:3000 -p 8000:8000 zistica/synaptic:ci
+          docker run -d --name lumin-ci -p 3000:3000 -p 8000:8000 zistica/lumin:ci
           for i in $(seq 1 30); do
             sleep 1
             curl -sf http://127.0.0.1:8000/health >/dev/null 2>&1 && break
@@ -172,7 +172,7 @@ jobs:
           curl -sI http://127.0.0.1:3000/ | grep -i '^location:' | grep -q '/traces'
       - name: Cleanup container
         if: always()
-        run: docker rm -f synaptic-ci || true
+        run: docker rm -f lumin-ci || true
 
   e2e:
     name: E2E browser tests (Playwright)
@@ -200,11 +200,11 @@ jobs:
           context: .
           push: false
           load: true
-          tags: zistica/synaptic:e2e
+          tags: zistica/lumin:e2e
           cache-from: type=gha
       - name: Start container
         run: |
-          docker run -d --name synaptic-e2e -p 3000:3000 -p 8000:8000 zistica/synaptic:e2e
+          docker run -d --name lumin-e2e -p 3000:3000 -p 8000:8000 zistica/lumin:e2e
           for i in $(seq 1 30); do
             sleep 1
             curl -sf http://127.0.0.1:8000/health >/dev/null 2>&1 && break
@@ -223,4 +223,4 @@ jobs:
           retention-days: 7
       - name: Cleanup
         if: always()
-        run: docker rm -f synaptic-e2e || true
+        run: docker rm -f lumin-e2e || true

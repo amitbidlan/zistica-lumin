@@ -1,16 +1,16 @@
 {
-  "name": "@synaptic/mastra",
+  "name": "@lumin-io/mastra",
   "version": "0.1.0",
-  "description": "Synaptic exporter for Mastra agents — local-first observability with zero cloud dependency.",
+  "description": "Lumin exporter for Mastra agents — local-first observability with zero cloud dependency.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/amitbidlan/zistica-synaptic.git",
+    "url": "https://github.com/amitbidlan/zistica-lumin.git",
     "directory": "packages/integrations/mastra"
   },
   "keywords": [
     "mastra",
-    "synaptic",
+    "lumin",
     "observability",
     "tracing",
     "opentelemetry",

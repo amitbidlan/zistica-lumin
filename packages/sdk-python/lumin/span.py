@@ -36,8 +36,8 @@ class Span:
     started_at: str = field(default_factory=_now_iso)
     ended_at: Optional[str] = None
     error: Optional[str] = None
-    # Optional session grouping — populated from synaptic.session() context
-    # or @synaptic.trace(session_id=...). Default None preserves existing
+    # Optional session grouping — populated from lumin.session() context
+    # or @lumin.trace(session_id=...). Default None preserves existing
     # behavior for callers that don't use sessions.
     session_id: Optional[str] = None
 
@@ -93,7 +93,7 @@ class Span:
 
 
 class SpanContext:
-    """Context manager for a span. Used as `with synaptic.span("name"):`."""
+    """Context manager for a span. Used as `with lumin.span("name"):`."""
 
     def __init__(self, sdk, name: str, type: str = "custom"):
         self._sdk = sdk

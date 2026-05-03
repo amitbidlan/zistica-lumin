@@ -1,25 +1,25 @@
-# Synaptic
+# Lumin
 
 > Local-first AI agent observability. Runs on your laptop. No account. No data leaves your machine.
 
-[![CI](https://github.com/amitbidlan/zistica-synaptic/actions/workflows/ci.yml/badge.svg)](https://github.com/amitbidlan/zistica-synaptic/actions/workflows/ci.yml)
+[![CI](https://github.com/amitbidlan/zistica-lumin/actions/workflows/ci.yml/badge.svg)](https://github.com/amitbidlan/zistica-lumin/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org)
 [![Node](https://img.shields.io/badge/node-18+-green.svg)](https://nodejs.org)
 
 You build an AI agent. It works in testing. You deploy it. A user complains it gave a wrong answer. You have no idea why — which step failed, what data it used, where it went wrong.
 
-Synaptic is a CCTV camera for your AI agent. Add 2 lines of code. Every decision, every tool call, every LLM response — recorded, visible, debuggable.
+Lumin is a CCTV camera for your AI agent. Add 2 lines of code. Every decision, every tool call, every LLM response — recorded, visible, debuggable.
 
 ---
 
 ## Quick start
 
 ```bash
-git clone https://github.com/amitbidlan/zistica-synaptic
-cd zistica-synaptic
-docker build -t synaptic .
-docker run -p 3000:3000 -p 8000:8000 -v $(pwd)/data:/data synaptic
+git clone https://github.com/amitbidlan/zistica-lumin
+cd zistica-lumin
+docker build -t lumin .
+docker run -p 3000:3000 -p 8000:8000 -v $(pwd)/data:/data lumin
 ```
 
 Both ports matter:
@@ -31,9 +31,9 @@ Open <http://localhost:3000> — the dashboard is ready.
 Then in your agent:
 
 ```python
-import synaptic
+import lumin
 
-@synaptic.trace
+@lumin.trace
 def my_agent(question: str) -> str:
     docs = search_documents(question)
     return gpt4_answer(question, docs)
@@ -65,9 +65,9 @@ That's it. No account, no API key, no data leaves your laptop.
 - **Real-time updates** — WebSocket stream pushes traces and spans into the dashboard the moment they're ingested, no refresh; falls back to 5-second polling if the socket can't connect
 - **Cost & token tracking** — automatic per-call breakdown for OpenAI and Anthropic model families
 - **Quality scoring** — bring-your-own evals via `POST /v1/evals`
-- **Framework integrations** — drop-in support for [LangChain](https://github.com/langchain-ai/langchain) (zero-config via `SYNAPTIC_TRACING=true` — see [section](#langchain)), [LlamaIndex](https://github.com/run-llama/llama_index) (`SynapticCallbackHandler` for query engines, retrieval, embeddings — [section](#llamaindex)), [CrewAI](https://github.com/crewAIInc/crewAI) (one-line `instrument_crew()` — [section](#crewai)), [Mastra](https://github.com/mastra-ai/mastra) (TypeScript agents, drop-in `SynapticExporter` — see [`@synaptic/mastra`](packages/integrations/mastra/)), and [Anthropic](https://github.com/anthropics/anthropic-sdk-python) (`instrument_anthropic()` captures Claude extended-thinking blocks as first-class child spans — [section](#anthropic))
+- **Framework integrations** — drop-in support for [LangChain](https://github.com/langchain-ai/langchain) (zero-config via `LUMIN_TRACING=true` — see [section](#langchain)), [LlamaIndex](https://github.com/run-llama/llama_index) (`LuminCallbackHandler` for query engines, retrieval, embeddings — [section](#llamaindex)), [CrewAI](https://github.com/crewAIInc/crewAI) (one-line `instrument_crew()` — [section](#crewai)), [Mastra](https://github.com/mastra-ai/mastra) (TypeScript agents, drop-in `LuminExporter` — see [`@lumin-io/mastra`](packages/integrations/mastra/)), and [Anthropic](https://github.com/anthropics/anthropic-sdk-python) (`instrument_anthropic()` captures Claude extended-thinking blocks as first-class child spans — [section](#anthropic))
 - **Cross-language SDKs** — Python and TypeScript with identical wire format and behavior
-- **Resilient by design** — the agent never fails because Synaptic is down. Spans drop silently if the queue overflows, the exporter is unreachable, or the server returns an error
+- **Resilient by design** — the agent never fails because Lumin is down. Spans drop silently if the queue overflows, the exporter is unreachable, or the server returns an error
 - **Local-first** — single Docker image, DuckDB + SQLite, no external services, no cloud dependency
 - **90-day retention** — automatic cleanup task keeps the database from growing unbounded (configurable via env var)
 
@@ -77,7 +77,7 @@ That's it. No account, no API key, no data leaves your laptop.
 
 ```
    Agent code (Python or TypeScript)
-        │  @synaptic.trace / trace(fn)
+        │  @lumin.trace / trace(fn)
         ▼
    SDK queue (bounded, drop-on-overflow)
         │  background async exporter
@@ -103,8 +103,8 @@ Single Docker container runs the API on `:8000` and the Next.js standalone dashb
 
 | Path | Package | Tests |
 |---|---|---|
-| [`packages/sdk-python/`](packages/sdk-python/) | Python SDK with `@synaptic.trace`, `synaptic.span()`, `synaptic.session()`, integrations | 172 |
-| [`packages/sdk-typescript/`](packages/sdk-typescript/) | `@synaptic/sdk` — peer of the Python SDK | 59 |
+| [`packages/sdk-python/`](packages/sdk-python/) | Python SDK with `@lumin.trace`, `lumin.span()`, `lumin.session()`, integrations | 172 |
+| [`packages/sdk-typescript/`](packages/sdk-typescript/) | `@lumin-io/sdk` — peer of the Python SDK | 59 |
 | [`packages/api/`](packages/api/) | FastAPI ingest + query API, DuckDB storage, WebSocket fanout, session aggregations | 61 |
 | [`packages/dashboard/`](packages/dashboard/) | Next.js 14 dashboard with paginated timeline + session view | build + 21 Playwright E2E |
 
@@ -130,7 +130,7 @@ pip install -e packages/sdk-python[all]         # all integrations
 cd packages/sdk-typescript && npm install && npm run build
 
 # Then in your project, link or install from the path:
-npm install /absolute/path/to/zistica-synaptic/packages/sdk-typescript
+npm install /absolute/path/to/zistica-lumin/packages/sdk-typescript
 ```
 
 ### Whole stack via Docker
@@ -144,11 +144,11 @@ Already covered in [Quick start](#quick-start). One image, both API and dashboar
 ### Python — decorator
 
 ```python
-import synaptic
+import lumin
 
-synaptic.configure(host="http://localhost:8000")  # or set SYNAPTIC_HOST
+lumin.configure(host="http://localhost:8000")  # or set LUMIN_HOST
 
-@synaptic.trace
+@lumin.trace
 def my_agent(input: str) -> str:
     return "hello"
 
@@ -158,7 +158,7 @@ my_agent("test")  # trace appears in the dashboard
 ### Python — context manager (manual span)
 
 ```python
-with synaptic.span("retrieval", type="retrieval") as s:
+with lumin.span("retrieval", type="retrieval") as s:
     results = vector_db.search(query)
     s.set_output({"count": len(results)})
 ```
@@ -166,7 +166,7 @@ with synaptic.span("retrieval", type="retrieval") as s:
 ### TypeScript
 
 ```typescript
-import { configure, trace } from '@synaptic/sdk';
+import { configure, trace } from '@lumin-io/sdk';
 
 configure({ host: 'http://localhost:8000' });
 
@@ -183,8 +183,8 @@ Works with [LangChain](https://github.com/langchain-ai/langchain) (Python). Zero
 
 ```python
 import os
-os.environ["SYNAPTIC_HOST"] = "http://localhost:8000"
-os.environ["SYNAPTIC_TRACING"] = "true"
+os.environ["LUMIN_HOST"] = "http://localhost:8000"
+os.environ["LUMIN_TRACING"] = "true"
 
 from langchain_openai import ChatOpenAI
 ChatOpenAI().invoke("Hello")  # span recorded with model, tokens, cost
@@ -193,9 +193,9 @@ ChatOpenAI().invoke("Hello")  # span recorded with model, tokens, cost
 Or attach the handler explicitly:
 
 ```python
-from synaptic.integrations.langchain import SynapticCallbackHandler
+from lumin.integrations.langchain import LuminCallbackHandler
 
-handler = SynapticCallbackHandler()
+handler = LuminCallbackHandler()
 llm = ChatOpenAI(callbacks=[handler])
 ```
 
@@ -204,7 +204,7 @@ llm = ChatOpenAI(callbacks=[handler])
 For [CrewAI](https://github.com/crewAIInc/crewAI) multi-agent crews:
 
 ```python
-from synaptic.integrations.crewai import instrument_crew
+from lumin.integrations.crewai import instrument_crew
 instrument_crew()
 
 from crewai import Agent, Task, Crew
@@ -220,11 +220,11 @@ crew.kickoff()
 For [LlamaIndex](https://github.com/run-llama/llama_index) RAG pipelines and agents:
 
 ```python
-from synaptic.integrations.llama_index import SynapticCallbackHandler
+from lumin.integrations.llama_index import LuminCallbackHandler
 from llama_index.core import Settings, VectorStoreIndex, Document
 from llama_index.core.callbacks import CallbackManager
 
-handler = SynapticCallbackHandler()
+handler = LuminCallbackHandler()
 Settings.callback_manager = CallbackManager([handler])
 
 index = VectorStoreIndex.from_documents([Document(text="…")])
@@ -241,7 +241,7 @@ index.as_query_engine().query("what is …?")
 For [Anthropic Claude](https://github.com/anthropics/anthropic-sdk-python) — captures extended-thinking blocks as first-class child spans:
 
 ```python
-from synaptic.integrations.anthropic import instrument_anthropic
+from lumin.integrations.anthropic import instrument_anthropic
 instrument_anthropic()
 
 from anthropic import Anthropic
@@ -265,24 +265,24 @@ For [Mastra](https://github.com/mastra-ai/mastra) (TypeScript agent framework). 
 
 ```typescript
 import { Mastra } from '@mastra/core';
-import { synapticConfig } from '@synaptic/mastra';
+import { luminConfig } from '@lumin-io/mastra';
 
 export const mastra = new Mastra({
   agents: { myAgent },
-  observability: synapticConfig({ serviceName: 'my-mastra-app' }),
+  observability: luminConfig({ serviceName: 'my-mastra-app' }),
 });
 ```
 
-See [`packages/integrations/mastra/`](packages/integrations/mastra/) for the dedicated `@synaptic/mastra` package.
+See [`packages/integrations/mastra/`](packages/integrations/mastra/) for the dedicated `@lumin-io/mastra` package.
 
 ### Sessions (multi-turn conversations)
 
 Group several agent calls into one logical conversation:
 
 ```python
-import synaptic
+import lumin
 
-with synaptic.session(name="booking-conversation"):
+with lumin.session(name="booking-conversation"):
     my_agent("Book me a flight to Tokyo")
     my_agent("Make it business class")
     my_agent("Add a hotel for 3 nights")
@@ -293,7 +293,7 @@ Every traced call inside the `with` block is tagged with a shared `session_id`. 
 TypeScript:
 
 ```typescript
-import { withSession, trace } from '@synaptic/sdk';
+import { withSession, trace } from '@lumin-io/sdk';
 
 const myAgent = trace(async (q: string) => '...', { name: 'agent' });
 
@@ -306,11 +306,11 @@ await withSession({ name: 'booking-conversation' }, async () => {
 Or pin a specific session at decoration time:
 
 ```python
-@synaptic.trace(session_id="user-123-conv-456")
+@lumin.trace(session_id="user-123-conv-456")
 def my_agent(q): ...
 ```
 
-Resolution priority for a span's `session_id` (most specific wins): explicit `@trace(session_id=…)` > active `synaptic.session()` context > parent span's `session_id` > `None`. Traces without a `session_id` stay in `/traces` as standalone runs and don't appear under any session.
+Resolution priority for a span's `session_id` (most specific wins): explicit `@trace(session_id=…)` > active `lumin.session()` context > parent span's `session_id` > `None`. Traces without a `session_id` stay in `/traces` as standalone runs and don't appear under any session.
 
 ---
 
@@ -318,14 +318,14 @@ Resolution priority for a span's `session_id` (most specific wins): explicit `@t
 
 | Env var | Default | Effect |
 |---|---|---|
-| `SYNAPTIC_HOST` | `http://localhost:8000` | API endpoint the SDK posts to |
-| `SYNAPTIC_API_KEY` | _(none)_ | Sent as `X-API-Key` header |
-| `SYNAPTIC_PROJECT` | `default` | Project identifier |
-| `SYNAPTIC_TRACING` | _(unset)_ | Set to `true` to auto-attach the LangChain handler |
-| `SYNAPTIC_DATA_DIR` | `./data` (or `/data` in Docker) | Where DuckDB + SQLite files live |
-| `SYNAPTIC_RETENTION_DAYS` | `90` | Max age of traces before automatic cleanup |
-| `SYNAPTIC_CLEANUP_INTERVAL_HOURS` | `24` | How often the cleanup task sweeps |
-| `SYNAPTIC_CLEANUP_ENABLED` | `true` | Set to `false` to disable retention cleanup |
+| `LUMIN_HOST` | `http://localhost:8000` | API endpoint the SDK posts to |
+| `LUMIN_API_KEY` | _(none)_ | Sent as `X-API-Key` header |
+| `LUMIN_PROJECT` | `default` | Project identifier |
+| `LUMIN_TRACING` | _(unset)_ | Set to `true` to auto-attach the LangChain handler |
+| `LUMIN_DATA_DIR` | `./data` (or `/data` in Docker) | Where DuckDB + SQLite files live |
+| `LUMIN_RETENTION_DAYS` | `90` | Max age of traces before automatic cleanup |
+| `LUMIN_CLEANUP_INTERVAL_HOURS` | `24` | How often the cleanup task sweeps |
+| `LUMIN_CLEANUP_ENABLED` | `true` | Set to `false` to disable retention cleanup |
 
 ---
 
@@ -397,4 +397,4 @@ GET    /docs                  # Auto-generated OpenAPI UI
 
 - **Code of Conduct** — see [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Reports to `support@zistica.com`.
 - **Security** — see [SECURITY.md](SECURITY.md). Please report vulnerabilities privately.
-- **Contributing** — see [CONTRIBUTING.md](CONTRIBUTING.md). Good first issues are labeled in the [tracker](https://github.com/amitbidlan/zistica-synaptic/issues).
+- **Contributing** — see [CONTRIBUTING.md](CONTRIBUTING.md). Good first issues are labeled in the [tracker](https://github.com/amitbidlan/zistica-lumin/issues).

@@ -175,8 +175,8 @@ class Database:
 
 
 def default_db() -> Database:
-    """Create the production database from SYNAPTIC_DATA_DIR (or ./data)."""
-    data_dir = Path(os.environ.get("SYNAPTIC_DATA_DIR", "./data"))
+    """Create the production database from LUMIN_DATA_DIR (or ./data)."""
+    data_dir = Path(os.environ.get("LUMIN_DATA_DIR", "./data"))
     data_dir.mkdir(parents=True, exist_ok=True)
     return Database(
         duckdb_path=str(data_dir / "traces.duckdb"),

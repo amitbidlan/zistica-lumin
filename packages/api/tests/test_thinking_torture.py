@@ -15,7 +15,7 @@ from main import app
 
 
 def test_migration_adds_columns_to_legacy_db(tmp_path):
-    """A DB created with an older Synaptic (no span_subtype, no
+    """A DB created with an older Lumin (no span_subtype, no
     thinking_tokens) must be migrated cleanly when the new code opens
     it. ALTER TABLE ... IF NOT EXISTS handles this."""
     duck_path = str(tmp_path / "legacy.duckdb")

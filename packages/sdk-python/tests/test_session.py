@@ -1,12 +1,12 @@
-"""Tests for synaptic.session() — multi-turn session grouping."""
+"""Tests for lumin.session() — multi-turn session grouping."""
 
 import asyncio
 import json
 
 import pytest
 
-import synaptic
-from synaptic import Session
+import lumin
+from lumin import Session
 
 
 # ---------- Session class basics ----------
@@ -42,18 +42,18 @@ def test_explicit_id_wins_over_name():
 
 
 def test_get_current_session_returns_active(sdk):
-    assert synaptic.get_current_session() is None
+    assert lumin.get_current_session() is None
     with Session(id="active") as s:
-        assert synaptic.get_current_session() is s
-    assert synaptic.get_current_session() is None
+        assert lumin.get_current_session() is s
+    assert lumin.get_current_session() is None
 
 
 def test_session_id_propagates_to_traced_function(sdk, captured):
-    @synaptic.trace
+    @lumin.trace
     def my_agent(q):
         return f"answer: {q}"
 
-    with synaptic.session(id="user-1-conv-1"):
+    with lumin.session(id="user-1-conv-1"):
         my_agent("hello")
         my_agent("again")
 
@@ -64,15 +64,15 @@ def test_session_id_propagates_to_traced_function(sdk, captured):
 
 
 def test_session_id_propagates_to_nested_spans(sdk, captured):
-    @synaptic.trace
+    @lumin.trace
     def child():
         return "x"
 
-    @synaptic.trace
+    @lumin.trace
     def parent():
         return child()
 
-    with synaptic.session(id="nested-test"):
+    with lumin.session(id="nested-test"):
         parent()
     sdk.flush()
 
@@ -83,7 +83,7 @@ def test_session_id_propagates_to_nested_spans(sdk, captured):
 
 
 def test_no_session_outside_context(sdk, captured):
-    @synaptic.trace
+    @lumin.trace
     def standalone():
         return 1
 
@@ -93,13 +93,13 @@ def test_no_session_outside_context(sdk, captured):
 
 
 def test_session_only_applies_inside_with(sdk, captured):
-    @synaptic.trace
+    @lumin.trace
     def fn():
         return 1
 
     fn()  # before — no session
 
-    with synaptic.session(id="scoped"):
+    with lumin.session(id="scoped"):
         fn()  # inside — has session
 
     fn()  # after — no session
@@ -110,11 +110,11 @@ def test_session_only_applies_inside_with(sdk, captured):
 
 
 def test_explicit_session_id_on_decorator_overrides_context(sdk, captured):
-    @synaptic.trace(session_id="from-decorator")
+    @lumin.trace(session_id="from-decorator")
     def fn():
         return 1
 
-    with synaptic.session(id="from-context"):
+    with lumin.session(id="from-context"):
         fn()
     sdk.flush()
 
@@ -122,7 +122,7 @@ def test_explicit_session_id_on_decorator_overrides_context(sdk, captured):
 
 
 def test_explicit_session_id_works_outside_context(sdk, captured):
-    @synaptic.trace(session_id="explicit-only")
+    @lumin.trace(session_id="explicit-only")
     def fn():
         return 1
 
@@ -135,12 +135,12 @@ def test_explicit_session_id_works_outside_context(sdk, captured):
 
 
 async def test_async_session_context_manager(sdk, captured):
-    @synaptic.trace
+    @lumin.trace
     async def async_agent(q):
         await asyncio.sleep(0)
         return q
 
-    async with synaptic.session(id="async-session"):
+    async with lumin.session(id="async-session"):
         await async_agent("first")
         await async_agent("second")
     sdk.flush()
@@ -149,12 +149,12 @@ async def test_async_session_context_manager(sdk, captured):
 
 
 async def test_concurrent_async_tasks_share_session_via_contextvar(sdk, captured):
-    @synaptic.trace
+    @lumin.trace
     async def task(name):
         await asyncio.sleep(0.005)
         return name
 
-    async with synaptic.session(id="concurrent-test"):
+    async with lumin.session(id="concurrent-test"):
         await asyncio.gather(task("a"), task("b"), task("c"))
     sdk.flush()
 
@@ -165,13 +165,13 @@ async def test_concurrent_async_tasks_share_session_via_contextvar(sdk, captured
 
 
 def test_nested_session_inner_wins_inside(sdk, captured):
-    @synaptic.trace
+    @lumin.trace
     def fn():
         return 1
 
-    with synaptic.session(id="outer"):
+    with lumin.session(id="outer"):
         fn()  # outer
-        with synaptic.session(id="inner"):
+        with lumin.session(id="inner"):
             fn()  # inner
         fn()  # outer again
     sdk.flush()
@@ -184,11 +184,11 @@ def test_nested_session_inner_wins_inside(sdk, captured):
 
 
 def test_to_dict_includes_session_id(sdk, captured):
-    @synaptic.trace
+    @lumin.trace
     def fn():
         return 1
 
-    with synaptic.session(id="dict-shape"):
+    with lumin.session(id="dict-shape"):
         fn()
     sdk.flush()
 
@@ -198,7 +198,7 @@ def test_to_dict_includes_session_id(sdk, captured):
 
 
 def test_to_dict_session_id_is_none_when_no_session(sdk, captured):
-    @synaptic.trace
+    @lumin.trace
     def fn():
         return 1
 

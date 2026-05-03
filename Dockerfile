@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.6
-# Single-image Synaptic: Python API + Next.js dashboard + Python SDK.
+# Single-image Lumin: Python API + Next.js dashboard + Python SDK.
 #
 # Stage 1 builds the dashboard with Node 20.
 # Stage 2 is the runtime: Python 3.12 with a minimal Node runtime for the
@@ -36,7 +36,7 @@ RUN apt-get update \
 COPY packages/api/requirements.txt /tmp/api-requirements.txt
 RUN pip install --no-cache-dir -r /tmp/api-requirements.txt
 
-# Install the SDK (so users can `pip install` on top and `import synaptic`
+# Install the SDK (so users can `pip install` on top and `import lumin`
 # from inside the container if they want to run agents alongside).
 # Include the `anthropic` extra so the Anthropic integration is importable
 # out of the box — the langchain/crewai integrations stay opt-in via
@@ -52,7 +52,7 @@ COPY --from=dashboard-build /build/.next/standalone/ /app/dashboard/
 
 # Persistent data volume target
 RUN mkdir -p /data
-ENV SYNAPTIC_DATA_DIR=/data
+ENV LUMIN_DATA_DIR=/data
 VOLUME ["/data"]
 
 # Entrypoint script

@@ -1,4 +1,4 @@
-"""CrewAI integration for Synaptic.
+"""CrewAI integration for Lumin.
 
 Call ``instrument_crew()`` once at startup; from then on every
 ``Crew.kickoff()`` is recorded as a root span and every
@@ -7,7 +7,7 @@ are picked up by the LangChain integration (CrewAI uses LangChain
 internally) and nest correctly under the agent span via the SDK's
 contextvars fallback.
 
-    from synaptic.integrations.crewai import instrument_crew
+    from lumin.integrations.crewai import instrument_crew
     instrument_crew()
 
     from crewai import Agent, Task, Crew
@@ -20,7 +20,7 @@ from __future__ import annotations
 import functools
 from typing import Any, Callable, Optional
 
-from synaptic.sdk import span as _open_span
+from lumin.sdk import span as _open_span
 
 
 def _instrument_method(
@@ -32,15 +32,15 @@ def _instrument_method(
     input_fn: Optional[Callable[..., Any]] = None,
     output_fn: Optional[Callable[..., Any]] = None,
 ) -> None:
-    """Wrap ``cls.method_name`` so each call records a Synaptic span.
+    """Wrap ``cls.method_name`` so each call records a Lumin span.
 
     Idempotent: if already wrapped, this is a no-op. The original method is
-    preserved on the wrapper as ``_synaptic_original`` for unwrapping in tests.
+    preserved on the wrapper as ``_lumin_original`` for unwrapping in tests.
     """
     original = getattr(cls, method_name, None)
     if original is None:
         raise AttributeError(f"{cls.__name__!r} has no attribute {method_name!r}")
-    if getattr(original, "_synaptic_wrapped", False):
+    if getattr(original, "_lumin_wrapped", False):
         return
 
     span_type = type  # avoid shadowing the builtin inside the closure
@@ -70,8 +70,8 @@ def _instrument_method(
                     pass
             return result
 
-    wrapped._synaptic_wrapped = True  # type: ignore[attr-defined]
-    wrapped._synaptic_original = original  # type: ignore[attr-defined]
+    wrapped._lumin_wrapped = True  # type: ignore[attr-defined]
+    wrapped._lumin_original = original  # type: ignore[attr-defined]
     setattr(cls, method_name, wrapped)
 
 
@@ -117,7 +117,7 @@ def _agent_output(agent, result, *a, **kw) -> dict:
 
 def instrument_crew(crew_cls: Optional[type] = None, agent_cls: Optional[type] = None) -> None:
     """Monkey-patch CrewAI's ``Crew`` and ``Agent`` so each kickoff and each
-    agent task execution is recorded as a Synaptic span.
+    agent task execution is recorded as a Lumin span.
 
     Idempotent — calling multiple times is safe.
 
@@ -129,7 +129,7 @@ def instrument_crew(crew_cls: Optional[type] = None, agent_cls: Optional[type] =
             from crewai import Agent, Crew
         except ImportError as e:
             raise ImportError(
-                "synaptic.integrations.crewai requires crewai. "
+                "lumin.integrations.crewai requires crewai. "
                 "Install with: pip install crewai"
             ) from e
         crew_cls = crew_cls or Crew

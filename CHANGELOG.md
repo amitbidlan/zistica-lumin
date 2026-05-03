@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Synaptic are documented here.
+All notable changes to Lumin are documented here.
 
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
@@ -10,16 +10,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
-- Initial Python SDK with `@synaptic.trace` decorator
+- Initial Python SDK with `@lumin.trace` decorator
 - FastAPI ingest and query API
 - DuckDB local storage (traces, spans, evals)
 - Next.js dashboard with span timeline
-- Single Docker image: `docker run -p 3000:3000 zistica/synaptic`
+- Single Docker image: `docker run -p 3000:3000 zistica/lumin`
 - LangChain integration
 - CrewAI integration
 - TypeScript SDK
-- Anthropic integration with extended-thinking visualization — `instrument_anthropic()` wraps `Messages.create` (and the streaming `Messages.stream` context manager) and emits a `claude_call` parent span with `thinking` and `response` children. Available in both the Python SDK (`synaptic.integrations.anthropic`) and the TypeScript SDK (`@synaptic/sdk/integrations/anthropic`) with identical wire format. Dashboard renders thinking rows with a brain emoji, violet highlight, and per-trace thinking-vs-response cost breakdown. New `span_subtype` and `thinking_tokens` columns on the spans table (auto-migrated for legacy DBs)
-- LlamaIndex integration — `SynapticCallbackHandler` plugs into `Settings.callback_manager` and ships every LLM call, retrieval step, embedding, and query as a Synaptic span. Captures model/tokens/cost on LLM events and node count + similarity scores on retrievals. Install via `pip install synaptic[llama_index]`
+- Anthropic integration with extended-thinking visualization — `instrument_anthropic()` wraps `Messages.create` (and the streaming `Messages.stream` context manager) and emits a `claude_call` parent span with `thinking` and `response` children. Available in both the Python SDK (`lumin.integrations.anthropic`) and the TypeScript SDK (`@lumin-io/sdk/integrations/anthropic`) with identical wire format. Dashboard renders thinking rows with a brain emoji, violet highlight, and per-trace thinking-vs-response cost breakdown. New `span_subtype` and `thinking_tokens` columns on the spans table (auto-migrated for legacy DBs)
+- LlamaIndex integration — `LuminCallbackHandler` plugs into `Settings.callback_manager` and ships every LLM call, retrieval step, embedding, and query as a Lumin span. Captures model/tokens/cost on LLM events and node count + similarity scores on retrievals. Install via `pip install lumin[llama_index]`
 
 ### Fixed
 - Anthropic integration: `thinking` and `response` child spans were created with `started_at = now()` after `parent.end()` ran, so each child's interval fell strictly after the parent's. Children now inherit the parent's bracket and split it 80/20 (thinking-then-response, sequential, non-overlapping)
@@ -36,4 +36,4 @@ Each release has sections for:
 - **Removed** — removed features
 - **Security** — security fixes (always upgrade immediately)
 
-[Unreleased]: https://github.com/zistica/synaptic/compare/HEAD
+[Unreleased]: https://github.com/zistica/lumin/compare/HEAD

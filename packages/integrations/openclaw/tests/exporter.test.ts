@@ -3,8 +3,8 @@ import { ExportResultCode } from '@opentelemetry/core';
 import { SpanKind, SpanStatusCode } from '@opentelemetry/api';
 import type { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import {
-  SynapticExporter,
-  otelSpanToSynaptic,
+  LuminExporter,
+  otelSpanToLumin,
 } from '../src/exporter.js';
 
 /** Build a ReadableSpan-shaped object good enough for the mapper. */
@@ -44,13 +44,13 @@ function makeSpan(overrides: Partial<ReadableSpan> & {
 
 // ---------- mapper ----------
 
-describe('otelSpanToSynaptic', () => {
+describe('otelSpanToLumin', () => {
   test('basic fields map across', () => {
     const span = makeSpan({
       name: 'agent.run',
       attributes: { 'openclaw.input': 'hello' },
     });
-    const out = otelSpanToSynaptic(span);
+    const out = otelSpanToLumin(span);
     expect(out.id).toBe('bbbbbbbbbbbbbbbb');
     expect(out.trace_id).toBe('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
     expect(out.name).toBe('agent.run');
@@ -70,7 +70,7 @@ describe('otelSpanToSynaptic', () => {
         'gen_ai.usage.output_tokens': 500,
       },
     });
-    const out = otelSpanToSynaptic(span);
+    const out = otelSpanToLumin(span);
     expect(out.type).toBe('llm');
     expect(out.provider).toBe('anthropic');
     expect(out.model).toBe('claude-sonnet-4-20250514');
@@ -90,7 +90,7 @@ describe('otelSpanToSynaptic', () => {
       },
     });
     // gpt-4o-mini: $0.00015 in, $0.0006 out per 1k → 0.00015 + 0.0006 = 0.00075
-    expect(otelSpanToSynaptic(span).cost_usd).toBeCloseTo(0.00075, 6);
+    expect(otelSpanToLumin(span).cost_usd).toBeCloseTo(0.00075, 6);
   });
 
   test('cost null for unknown model', () => {
@@ -101,7 +101,7 @@ describe('otelSpanToSynaptic', () => {
         'gen_ai.usage.output_tokens': 50,
       },
     });
-    expect(otelSpanToSynaptic(span).cost_usd).toBeNull();
+    expect(otelSpanToLumin(span).cost_usd).toBeNull();
   });
 
   test('fine-tuned model name normalizes (ft:gpt-4o:org::abc)', () => {
@@ -112,7 +112,7 @@ describe('otelSpanToSynaptic', () => {
         'gen_ai.usage.output_tokens': 500,
       },
     });
-    expect(otelSpanToSynaptic(span).cost_usd).toBeGreaterThan(0);
+    expect(otelSpanToLumin(span).cost_usd).toBeGreaterThan(0);
   });
 
   test('thinking text triggers span_subtype=thinking and renames span', () => {
@@ -127,7 +127,7 @@ describe('otelSpanToSynaptic', () => {
           'Let me reason carefully through this problem step by step…',
       },
     });
-    const out = otelSpanToSynaptic(span);
+    const out = otelSpanToLumin(span);
     expect(out.span_subtype).toBe('thinking');
     expect(out.name).toBe('thinking');
     expect(out.thinking_tokens).toBeGreaterThan(0);
@@ -144,7 +144,7 @@ describe('otelSpanToSynaptic', () => {
         merge: () => undefined,
       } as never,
     });
-    expect(otelSpanToSynaptic(span).session_id).toBe('tg:user_42');
+    expect(otelSpanToLumin(span).session_id).toBe('tg:user_42');
   });
 
   test('span attribute beats resource attribute for session_id', () => {
@@ -155,7 +155,7 @@ describe('otelSpanToSynaptic', () => {
         merge: () => undefined,
       } as never,
     });
-    expect(otelSpanToSynaptic(span).session_id).toBe('span-level');
+    expect(otelSpanToLumin(span).session_id).toBe('span-level');
   });
 
   test('tool span: gen_ai.tool.name yields type=tool', () => {
@@ -166,19 +166,19 @@ describe('otelSpanToSynaptic', () => {
         'gen_ai.tool.type': 'function',
       },
     });
-    const out = otelSpanToSynaptic(span);
+    const out = otelSpanToLumin(span);
     expect(out.type).toBe('tool');
     expect(out.tool_name).toBe('web_search');
   });
 
   test('SpanKind.INTERNAL with no GenAI attrs → custom', () => {
     const span = makeSpan({ kind: SpanKind.INTERNAL });
-    expect(otelSpanToSynaptic(span).type).toBe('custom');
+    expect(otelSpanToLumin(span).type).toBe('custom');
   });
 
   test('parent_span_id propagates', () => {
     const span = makeSpan({ parentSpanId: 'cccccccccccccccc' });
-    expect(otelSpanToSynaptic(span).parent_span_id).toBe('cccccccccccccccc');
+    expect(otelSpanToLumin(span).parent_span_id).toBe('cccccccccccccccc');
   });
 
   test('exception event → error', () => {
@@ -195,19 +195,19 @@ describe('otelSpanToSynaptic', () => {
         },
       ],
     });
-    expect(otelSpanToSynaptic(span).error).toBe('tool unreachable');
+    expect(otelSpanToLumin(span).error).toBe('tool unreachable');
   });
 
   test('OTel ERROR status with no exception event → status.message', () => {
     const span = makeSpan({
       status: { code: SpanStatusCode.ERROR, message: 'connection refused' },
     });
-    expect(otelSpanToSynaptic(span).error).toBe('connection refused');
+    expect(otelSpanToLumin(span).error).toBe('connection refused');
   });
 
   test('OK status → error is null', () => {
     const span = makeSpan({ status: { code: SpanStatusCode.OK } });
-    expect(otelSpanToSynaptic(span).error).toBeNull();
+    expect(otelSpanToLumin(span).error).toBeNull();
   });
 
   test('openclaw-style input/output captured', () => {
@@ -217,7 +217,7 @@ describe('otelSpanToSynaptic', () => {
         'openclaw.output': 'It is sunny, 24°C.',
       },
     });
-    const out = otelSpanToSynaptic(span);
+    const out = otelSpanToLumin(span);
     expect(out.input).toContain('Tokyo');
     expect(out.output).toContain('24°C');
   });
@@ -234,7 +234,7 @@ describe('otelSpanToSynaptic', () => {
         'ai.response.text': 'It is sunny.',
       },
     });
-    const out = otelSpanToSynaptic(span);
+    const out = otelSpanToLumin(span);
     expect(out.input).toBe(promptJson);
     expect(out.output).toBe('It is sunny.');
   });
@@ -249,7 +249,7 @@ describe('otelSpanToSynaptic', () => {
         'gen_ai.tool.name': 'web_search',
       },
     });
-    const out = otelSpanToSynaptic(span);
+    const out = otelSpanToLumin(span);
     expect(out.type).toBe('tool');
     expect(out.tool_name).toBe('web_search');
     expect(out.input).toBe(argsJson);
@@ -263,7 +263,7 @@ describe('otelSpanToSynaptic', () => {
         'gen_ai.completion': 'c',
       },
     });
-    const out = otelSpanToSynaptic(span);
+    const out = otelSpanToLumin(span);
     expect(out.input).toContain('p');
     expect(out.output).toContain('c');
   });
@@ -274,7 +274,7 @@ describe('otelSpanToSynaptic', () => {
         'gen_ai.prompt': ['system: be helpful', 'user: hello'],
       },
     });
-    const out = otelSpanToSynaptic(span);
+    const out = otelSpanToLumin(span);
     expect(out.input).toBe('system: be helpful\nuser: hello');
   });
 
@@ -282,21 +282,21 @@ describe('otelSpanToSynaptic', () => {
     const span = makeSpan({
       attributes: { 'openclaw.input': 42 },
     });
-    expect(otelSpanToSynaptic(span).input).toBe('42');
+    expect(otelSpanToLumin(span).input).toBe('42');
   });
 
   test('session_id resolves from openclaw conventions', () => {
-    const a = otelSpanToSynaptic(
+    const a = otelSpanToLumin(
       makeSpan({ attributes: { 'session.id': 's-1' } }),
     );
     expect(a.session_id).toBe('s-1');
 
-    const b = otelSpanToSynaptic(
+    const b = otelSpanToLumin(
       makeSpan({ attributes: { 'gen_ai.conversation.id': 'c-2' } }),
     );
     expect(b.session_id).toBe('c-2');
 
-    const c = otelSpanToSynaptic(
+    const c = otelSpanToLumin(
       makeSpan({ attributes: { 'openclaw.session_id': 's-3' } }),
     );
     expect(c.session_id).toBe('s-3');
@@ -304,7 +304,7 @@ describe('otelSpanToSynaptic', () => {
     // OpenClaw delivers via channels (whatsapp, telegram, …); the
     // channel id can stand in as a session id when no explicit
     // session is set.
-    const d = otelSpanToSynaptic(
+    const d = otelSpanToLumin(
       makeSpan({ attributes: { 'openclaw.channel.id': 'tg:abc' } }),
     );
     expect(d.session_id).toBe('tg:abc');
@@ -313,7 +313,7 @@ describe('otelSpanToSynaptic', () => {
   test('large input is truncated to maxPayloadSize', () => {
     const huge = 'x'.repeat(50_000);
     const span = makeSpan({ attributes: { 'openclaw.input': huge } });
-    const out = otelSpanToSynaptic(span, 1024);
+    const out = otelSpanToLumin(span, 1024);
     expect(out.input).not.toBeNull();
     expect(out.input!.length).toBeLessThanOrEqual(1024);
   });
@@ -325,7 +325,7 @@ describe('otelSpanToSynaptic', () => {
         'gen_ai.usage.input_tokens': 'not-a-number' as unknown as number,
       },
     });
-    const out = otelSpanToSynaptic(span);
+    const out = otelSpanToLumin(span);
     expect(out.model).toBeNull();
     expect(out.tokens_input).toBeNull();
   });
@@ -333,10 +333,10 @@ describe('otelSpanToSynaptic', () => {
 
 // ---------- exporter ----------
 
-describe('SynapticExporter', () => {
+describe('LuminExporter', () => {
   let originalHost: string | undefined;
   beforeEach(() => {
-    originalHost = process.env.SYNAPTIC_HOST;
+    originalHost = process.env.LUMIN_HOST;
   });
 
   test('export() POSTs to /v1/spans with project=openclaw by default', async () => {
@@ -347,7 +347,7 @@ describe('SynapticExporter', () => {
       return new Response('{"accepted":1}', { status: 200 });
     };
 
-    const exporter = new SynapticExporter({
+    const exporter = new LuminExporter({
       host: 'http://localhost:9999',
       fetchImpl: fakeFetch,
     });
@@ -364,7 +364,7 @@ describe('SynapticExporter', () => {
     expect(body.spans).toHaveLength(1);
     expect(body.spans[0].name).toBe('test_span');
     const headers = captured.init?.headers as Record<string, string>;
-    expect(headers['X-Synaptic-Project']).toBe('openclaw');
+    expect(headers['X-Lumin-Project']).toBe('openclaw');
   });
 
   test('explicit project overrides default', async () => {
@@ -373,13 +373,13 @@ describe('SynapticExporter', () => {
       captured.headers = init?.headers as Record<string, string>;
       return new Response('{}');
     };
-    const exporter = new SynapticExporter({
+    const exporter = new LuminExporter({
       host: 'http://x',
       project: 'my-bot',
       fetchImpl: fakeFetch,
     });
     await new Promise((r) => exporter.export([makeSpan()], r));
-    expect(captured.headers!['X-Synaptic-Project']).toBe('my-bot');
+    expect(captured.headers!['X-Lumin-Project']).toBe('my-bot');
   });
 
   test('Authorization header set when apiKey provided', async () => {
@@ -388,7 +388,7 @@ describe('SynapticExporter', () => {
       captured.headers = init?.headers as Record<string, string>;
       return new Response('{}');
     };
-    const exporter = new SynapticExporter({
+    const exporter = new LuminExporter({
       host: 'http://x',
       apiKey: 'secret-token',
       fetchImpl: fakeFetch,
@@ -401,7 +401,7 @@ describe('SynapticExporter', () => {
     const fakeFetch: typeof fetch = async () => {
       throw new Error('ECONNREFUSED');
     };
-    const exporter = new SynapticExporter({
+    const exporter = new LuminExporter({
       host: 'http://unreachable',
       fetchImpl: fakeFetch,
     });
@@ -414,7 +414,7 @@ describe('SynapticExporter', () => {
   test('non-2xx response is swallowed too — agent never sees it', async () => {
     const fakeFetch: typeof fetch = async () =>
       new Response('boom', { status: 500 });
-    const exporter = new SynapticExporter({
+    const exporter = new LuminExporter({
       host: 'http://x',
       fetchImpl: fakeFetch,
     });
@@ -430,7 +430,7 @@ describe('SynapticExporter', () => {
       called = true;
       return new Response('');
     };
-    const exporter = new SynapticExporter({
+    const exporter = new LuminExporter({
       host: 'http://x',
       fetchImpl: fakeFetch,
     });
@@ -447,7 +447,7 @@ describe('SynapticExporter', () => {
       posted += 1;
       return new Response('');
     };
-    const exporter = new SynapticExporter({
+    const exporter = new LuminExporter({
       host: 'http://x',
       fetchImpl: fakeFetch,
     });
@@ -456,14 +456,14 @@ describe('SynapticExporter', () => {
     expect(posted).toBe(0);
   });
 
-  test('SYNAPTIC_HOST env var is the default when host not given', async () => {
-    process.env.SYNAPTIC_HOST = 'http://envhost:7777';
+  test('LUMIN_HOST env var is the default when host not given', async () => {
+    process.env.LUMIN_HOST = 'http://envhost:7777';
     const captured: { url: string } = { url: '' };
     const fakeFetch: typeof fetch = async (url) => {
       captured.url = String(url);
       return new Response('');
     };
-    const exporter = new SynapticExporter({ fetchImpl: fakeFetch });
+    const exporter = new LuminExporter({ fetchImpl: fakeFetch });
     await new Promise((r) => exporter.export([makeSpan()], r));
     expect(captured.url).toBe('http://envhost:7777/v1/spans');
   });
@@ -474,7 +474,7 @@ describe('SynapticExporter', () => {
       captured.url = String(url);
       return new Response('');
     };
-    const exporter = new SynapticExporter({
+    const exporter = new LuminExporter({
       host: 'http://x:8000/',
       fetchImpl: fakeFetch,
     });
@@ -490,7 +490,7 @@ describe('SynapticExporter', () => {
           reject(new Error('AbortError')),
         );
       });
-    const exporter = new SynapticExporter({
+    const exporter = new LuminExporter({
       host: 'http://hang',
       timeoutMs: 50,
       fetchImpl: fakeFetch,
@@ -505,8 +505,8 @@ describe('SynapticExporter', () => {
   });
 
   test.each([['cleanup']])('cleanup', () => {
-    if (originalHost === undefined) delete process.env.SYNAPTIC_HOST;
-    else process.env.SYNAPTIC_HOST = originalHost;
+    if (originalHost === undefined) delete process.env.LUMIN_HOST;
+    else process.env.LUMIN_HOST = originalHost;
     expect(true).toBe(true);
   });
 });

@@ -1,6 +1,6 @@
-# Contributing to Synaptic
+# Contributing to Lumin
 
-First off — thank you. Seriously. Every bug report, every PR, every Discord message makes Synaptic better for everyone building AI agents.
+First off — thank you. Seriously. Every bug report, every PR, every Discord message makes Lumin better for everyone building AI agents.
 
 This document tells you everything you need to know to contribute.
 
@@ -38,7 +38,7 @@ You do not have to write code to contribute. All of these matter:
 - Report a bug you found
 - Improve documentation or fix a typo
 - Answer a question in Discord
-- Share Synaptic with someone who builds AI agents
+- Share Lumin with someone who builds AI agents
 
 **If you are comfortable with code:**
 - Pick up a `good first issue` from GitHub Issues
@@ -73,8 +73,8 @@ Before starting, comment on the issue: "I'd like to work on this." This prevents
 
 ```bash
 # Fork on GitHub, then:
-git clone https://github.com/YOUR_USERNAME/synaptic.git
-cd synaptic
+git clone https://github.com/YOUR_USERNAME/lumin.git
+cd lumin
 git checkout -b your-branch-name
 
 # Branch naming:
@@ -87,7 +87,7 @@ git checkout -b your-branch-name
 **Step 4: Read the docs**
 
 Before touching any code, read:
-- `docs/Synaptic_Technical.md` — architecture decisions are already made, follow them
+- `docs/Lumin_Technical.md` — architecture decisions are already made, follow them
 - `docs/Development_Rules.md` — non-negotiable rules for this codebase
 
 **Step 5: Make your change, test it, open a PR**
@@ -109,8 +109,8 @@ See sections below for details.
 
 ```bash
 # Clone your fork
-git clone https://github.com/YOUR_USERNAME/synaptic.git
-cd synaptic
+git clone https://github.com/YOUR_USERNAME/lumin.git
+cd lumin
 
 # Install Python SDK in dev mode
 pip install -e "packages/sdk-python[dev]"
@@ -129,8 +129,8 @@ pytest packages/sdk-python/tests/ -v
 
 ```bash
 # Option 1: Docker (recommended — runs everything)
-docker build -t zistica/synaptic .
-docker run -p 3000:3000 zistica/synaptic
+docker build -t zistica/lumin .
+docker run -p 3000:3000 zistica/lumin
 
 # Option 2: Run services separately (for development)
 # Terminal 1 — API
@@ -141,10 +141,10 @@ cd packages/dashboard && npm run dev
 
 # Terminal 3 — Test your change
 python -c "
-import synaptic
-synaptic.configure(host='http://localhost:8000')
+import lumin
+lumin.configure(host='http://localhost:8000')
 
-@synaptic.trace
+@lumin.trace
 def test_agent(input):
     return 'hello'
 
@@ -159,8 +159,8 @@ print('Open http://localhost:3000 to see the trace')
 
 ### Rules (non-negotiable)
 
-**1. Agent must never fail because of Synaptic.**
-If Synaptic is down, the agent keeps running. Spans are dropped silently. No exception ever reaches agent code. This is the most important rule.
+**1. Agent must never fail because of Lumin.**
+If Lumin is down, the agent keeps running. Spans are dropped silently. No exception ever reaches agent code. This is the most important rule.
 
 **2. Tests required.**
 Every change needs tests. No exceptions. PRs without tests will not be merged.
@@ -202,7 +202,7 @@ ruff check packages/sdk-python/
 ruff check packages/api/
 
 # Type check
-mypy packages/sdk-python/synaptic/
+mypy packages/sdk-python/lumin/
 
 # If you changed the dashboard
 cd packages/dashboard && npm run build
@@ -241,7 +241,7 @@ Your PR description must include:
 ### After your PR is merged
 
 - Your name goes in CHANGELOG.md
-- You are officially a Synaptic contributor
+- You are officially a Lumin contributor
 - Say hi in Discord `#contributors`
 
 ---
@@ -255,7 +255,7 @@ Use the **Bug Report** template when opening an issue. Include:
 1. What you did
 2. What you expected to happen
 3. What actually happened
-4. Your environment (OS, Python version, Synaptic version)
+4. Your environment (OS, Python version, Lumin version)
 5. Minimal code to reproduce the bug
 
 A bug report without reproduction steps will be closed.
@@ -284,7 +284,7 @@ Do not open GitHub issues for questions. Use:
 Format: `type(scope): description`
 
 ```
-feat(sdk):     add @synaptic.trace support for async generators
+feat(sdk):     add @lumin.trace support for async generators
 fix(api):      handle missing ended_at field in span ingestion
 test(sdk):     add context propagation tests for concurrent tasks
 docs(readme):  add Helicone comparison to competitive table
@@ -306,7 +306,7 @@ Rules:
 
 | Channel | For |
 |---|---|
-| Discord `#help` | Questions about using Synaptic |
+| Discord `#help` | Questions about using Lumin |
 | Discord `#contributing` | Questions about contributing |
 | GitHub Issues | Bug reports, feature requests |
 | GitHub Discussions | Architecture discussions, big ideas |
@@ -317,6 +317,6 @@ Discord invite: **[link coming soon]**
 
 ## Thank You
 
-Every contribution matters — from fixing a typo to adding a new framework integration. Synaptic is better because of people like you.
+Every contribution matters — from fixing a typo to adding a new framework integration. Lumin is better because of people like you.
 
 Built by [Zistica](https://zistica.com) · Apache 2.0 License

@@ -1,15 +1,15 @@
 import asyncio
 
-import synaptic
-from synaptic.context import get_current_span
+import lumin
+from lumin.context import get_current_span
 
 
 def test_nested_sync_spans_have_correct_parent(sdk, captured):
-    @synaptic.trace
+    @lumin.trace
     def child():
         return "child"
 
-    @synaptic.trace
+    @lumin.trace
     def parent():
         return child()
 
@@ -28,15 +28,15 @@ def test_nested_sync_spans_have_correct_parent(sdk, captured):
 
 
 def test_three_levels_of_nesting(sdk, captured):
-    @synaptic.trace
+    @lumin.trace
     def level3():
         return 3
 
-    @synaptic.trace
+    @lumin.trace
     def level2():
         return level3()
 
-    @synaptic.trace
+    @lumin.trace
     def level1():
         return level2()
 
@@ -56,9 +56,9 @@ def test_three_levels_of_nesting(sdk, captured):
 
 
 def test_span_context_manager_nests_under_decorator(sdk, captured):
-    @synaptic.trace
+    @lumin.trace
     def parent():
-        with synaptic.span("inner_block", type="retrieval"):
+        with lumin.span("inner_block", type="retrieval"):
             pass
 
     parent()
@@ -74,7 +74,7 @@ def test_span_context_manager_nests_under_decorator(sdk, captured):
 
 
 def test_get_current_span_returns_active_span(sdk):
-    @synaptic.trace
+    @lumin.trace
     def fn():
         current = get_current_span()
         assert current is not None
@@ -84,7 +84,7 @@ def test_get_current_span_returns_active_span(sdk):
 
 
 def test_after_function_exits_no_current_span(sdk):
-    @synaptic.trace
+    @lumin.trace
     def fn():
         return 1
 
@@ -95,17 +95,17 @@ def test_after_function_exits_no_current_span(sdk):
 async def test_concurrent_async_tasks_have_isolated_contexts(sdk, captured):
     results = {}
 
-    @synaptic.trace
+    @lumin.trace
     async def task_a():
         await asyncio.sleep(0.01)
-        with synaptic.span("inner_a"):
+        with lumin.span("inner_a"):
             current = get_current_span()
             results["a"] = current.name
 
-    @synaptic.trace
+    @lumin.trace
     async def task_b():
         await asyncio.sleep(0.01)
-        with synaptic.span("inner_b"):
+        with lumin.span("inner_b"):
             current = get_current_span()
             results["b"] = current.name
 

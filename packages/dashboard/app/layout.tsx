@@ -5,12 +5,12 @@ import Logo from '@/components/Logo';
 
 export const metadata: Metadata = {
   title: {
-    default: 'Synaptic — local-first AI agent observability',
-    template: '%s · Synaptic',
+    default: 'Lumin — local-first AI agent observability',
+    template: '%s · Lumin',
   },
   description:
     'Add 2 lines of code, see every step your agent takes. Runs entirely on your laptop. No account, no credit card, no data leaves your machine.',
-  applicationName: 'Synaptic',
+  applicationName: 'Lumin',
   authors: [{ name: 'Zistica Inc.' }],
   keywords: [
     'ai',
@@ -42,7 +42,7 @@ export default function RootLayout({
             >
               <Logo className="h-6 w-6" />
               <span className="font-semibold tracking-tight text-base">
-                Synaptic
+                Lumin
               </span>
               <span className="text-[var(--muted)] text-xs hidden sm:inline">
                 local-first agent observability
@@ -71,7 +71,7 @@ export default function RootLayout({
                 API
               </a>
               <a
-                href="https://github.com/zistica/synaptic"
+                href="https://github.com/zistica/lumin"
                 target="_blank"
                 rel="noreferrer"
                 className="text-[var(--muted)] hover:text-[var(--foreground)] transition-colors"
@@ -80,7 +80,7 @@ export default function RootLayout({
               </a>
               <span
                 className="font-mono text-[10px] uppercase tracking-wider px-1.5 py-0.5 border border-[var(--border)] rounded text-[var(--muted)]"
-                title={`Synaptic ${VERSION}`}
+                title={`Lumin ${VERSION}`}
               >
                 v{VERSION}
               </span>

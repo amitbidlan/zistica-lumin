@@ -11,7 +11,7 @@
 
 **Do NOT open a public GitHub issue for security vulnerabilities.**
 
-If you find a security vulnerability in Synaptic, please report it privately:
+If you find a security vulnerability in Lumin, please report it privately:
 
 **Email: support@zistica.com**
 **Subject: [SECURITY] Brief description**
@@ -44,4 +44,4 @@ Out of scope:
 
 ## Our Commitment
 
-Synaptic is local-first. By design, your agent data never leaves your machine in the default configuration. If you find any behavior that contradicts this — please report it immediately. This is the most critical security property of Synaptic.
+Lumin is local-first. By design, your agent data never leaves your machine in the default configuration. If you find any behavior that contradicts this — please report it immediately. This is the most critical security property of Lumin.

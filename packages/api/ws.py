@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import WebSocket
 
-logger = logging.getLogger("synaptic.ws")
+logger = logging.getLogger("lumin.ws")
 
 
 class ConnectionManager:

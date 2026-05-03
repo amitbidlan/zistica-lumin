@@ -1,10 +1,10 @@
 import json
 
-import synaptic
+import lumin
 
 
 def test_sync_decorator_captures_span(sdk, captured):
-    @synaptic.trace
+    @lumin.trace
     def my_agent(x: str) -> str:
         return f"hello {x}"
 
@@ -24,7 +24,7 @@ def test_sync_decorator_captures_span(sdk, captured):
 
 
 def test_sync_decorator_serializes_input_and_output(sdk, captured):
-    @synaptic.trace
+    @lumin.trace
     def add(a: int, b: int) -> int:
         return a + b
 
@@ -38,7 +38,7 @@ def test_sync_decorator_serializes_input_and_output(sdk, captured):
 
 
 def test_sync_decorator_records_exception(sdk, captured):
-    @synaptic.trace
+    @lumin.trace
     def boom():
         raise ValueError("bad")
 
@@ -56,7 +56,7 @@ def test_sync_decorator_records_exception(sdk, captured):
 
 
 def test_decorator_with_explicit_name_and_type(sdk, captured):
-    @synaptic.trace(name="custom_step", type="tool")
+    @lumin.trace(name="custom_step", type="tool")
     def step():
         return "ok"
 
@@ -68,7 +68,7 @@ def test_decorator_with_explicit_name_and_type(sdk, captured):
 
 
 def test_to_dict_has_required_fields(sdk, captured):
-    @synaptic.trace
+    @lumin.trace
     def f():
         return 1
 

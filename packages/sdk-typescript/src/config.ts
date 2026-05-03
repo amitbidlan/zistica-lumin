@@ -1,4 +1,4 @@
-export interface SynapticConfig {
+export interface LuminConfig {
   host?: string;
   apiKey?: string | null;
   project?: string;
@@ -11,7 +11,7 @@ export interface SynapticConfig {
   exportTimeoutMs?: number;
 }
 
-export type ResolvedConfig = Required<SynapticConfig>;
+export type ResolvedConfig = Required<LuminConfig>;
 
 function envOr(name: string, fallback: string): string {
   const v = process.env[name];
@@ -25,9 +25,9 @@ function envOrNull(name: string): string | null {
 
 export function defaultConfig(): ResolvedConfig {
   return {
-    host: envOr('SYNAPTIC_HOST', 'http://localhost:8000'),
-    apiKey: envOrNull('SYNAPTIC_API_KEY'),
-    project: envOr('SYNAPTIC_PROJECT', 'default'),
+    host: envOr('LUMIN_HOST', 'http://localhost:8000'),
+    apiKey: envOrNull('LUMIN_API_KEY'),
+    project: envOr('LUMIN_PROJECT', 'default'),
     captureInputs: true,
     captureOutputs: true,
     maxPayloadSize: 10_240,
@@ -38,7 +38,7 @@ export function defaultConfig(): ResolvedConfig {
   };
 }
 
-export function resolveConfig(opts: SynapticConfig = {}): ResolvedConfig {
+export function resolveConfig(opts: LuminConfig = {}): ResolvedConfig {
   const base = defaultConfig();
   // Drop undefined values so callers can pass partial overrides without
   // accidentally erasing env-based defaults.

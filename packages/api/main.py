@@ -10,7 +10,7 @@ from db import Database, get_db
 from routers import evals, sessions, spans, traces
 from ws import manager as ws_manager
 
-logger = logging.getLogger("synaptic.api")
+logger = logging.getLogger("lumin.api")
 
 
 # --- retention config ---
@@ -18,21 +18,21 @@ logger = logging.getLogger("synaptic.api")
 
 def _retention_days() -> int:
     try:
-        return max(0, int(os.environ.get("SYNAPTIC_RETENTION_DAYS", "90")))
+        return max(0, int(os.environ.get("LUMIN_RETENTION_DAYS", "90")))
     except ValueError:
         return 90
 
 
 def _cleanup_interval_seconds() -> int:
     try:
-        hours = max(1, int(os.environ.get("SYNAPTIC_CLEANUP_INTERVAL_HOURS", "24")))
+        hours = max(1, int(os.environ.get("LUMIN_CLEANUP_INTERVAL_HOURS", "24")))
     except ValueError:
         hours = 24
     return hours * 3600
 
 
 def _cleanup_enabled() -> bool:
-    return os.environ.get("SYNAPTIC_CLEANUP_ENABLED", "true").lower() in (
+    return os.environ.get("LUMIN_CLEANUP_ENABLED", "true").lower() in (
         "1",
         "true",
         "yes",
@@ -85,7 +85,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(
-    title="Synaptic API",
+    title="Lumin API",
     description="Local-first AI agent observability — ingest and query API",
     version="0.1.0",
     lifespan=lifespan,

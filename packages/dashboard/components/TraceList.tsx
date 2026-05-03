@@ -17,7 +17,7 @@ import { useTraceStream, WSMessage } from '@/lib/websocket';
 const COLS = 'grid grid-cols-[1fr_180px_100px_120px_100px_80px] gap-4 px-3 py-2';
 const PAGE_SIZES = [15, 25, 50, 100];
 const PAGE_SIZE_DEFAULT = 15;
-const PAGE_SIZE_STORAGE_KEY = 'synaptic.pageSize';
+const PAGE_SIZE_STORAGE_KEY = 'lumin.pageSize';
 
 function readStoredPageSize(): number {
   if (typeof window === 'undefined') return PAGE_SIZE_DEFAULT;
@@ -132,7 +132,7 @@ export default function TraceList() {
     return (
       <div className="text-[var(--muted)]">
         No traces yet. Run an agent with{' '}
-        <code className="font-mono">@synaptic.trace</code> to see them here.
+        <code className="font-mono">@lumin.trace</code> to see them here.
       </div>
     );
   }

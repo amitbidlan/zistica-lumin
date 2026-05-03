@@ -1,10 +1,10 @@
-"""Live demo: Claude extended thinking → Synaptic dashboard.
+"""Live demo: Claude extended thinking → Lumin dashboard.
 
 Prereqs:
-  1. Synaptic running on localhost:8000 (docker run synaptic, or
-     `uvicorn synaptic_api.main:app` from packages/api)
+  1. Lumin running on localhost:8000 (docker run lumin, or
+     `uvicorn lumin_api.main:app` from packages/api)
   2. ``ANTHROPIC_API_KEY`` exported
-  3. ``pip install anthropic synaptic[anthropic]``
+  3. ``pip install anthropic lumin[anthropic]``
 
 Run:
   python examples/test_thinking.py
@@ -22,22 +22,22 @@ from __future__ import annotations
 import os
 import time
 
-import synaptic
-from synaptic.integrations.anthropic import instrument_anthropic
+import lumin
+from lumin.integrations.anthropic import instrument_anthropic
 
 
 def main() -> None:
     if not os.environ.get("ANTHROPIC_API_KEY"):
         raise SystemExit("Set ANTHROPIC_API_KEY before running this demo.")
 
-    synaptic.init(api_url=os.environ.get("SYNAPTIC_API_URL", "http://localhost:8000"))
+    lumin.init(api_url=os.environ.get("LUMIN_API_URL", "http://localhost:8000"))
     instrument_anthropic()
 
     from anthropic import Anthropic
 
     client = Anthropic()
 
-    @synaptic.trace
+    @lumin.trace
     def reason_about(question: str) -> str:
         response = client.messages.create(
             model="claude-opus-4-20250514",

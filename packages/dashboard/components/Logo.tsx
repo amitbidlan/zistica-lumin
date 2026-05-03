@@ -1,4 +1,4 @@
-/** Synaptic logo: a 3-node trace tree (parent + 2 children).
+/** Lumin logo: a 3-node trace tree (parent + 2 children).
  *  Thematically: the product visualizes trace trees, so the mark
  *  literally is a trace tree. Colors match the SpanRow type badges
  *  (blue root, violet for llm, cyan for tool).
@@ -10,7 +10,7 @@ export default function Logo({ className = 'h-5 w-5' }: { className?: string }) 
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       className={className}
-      aria-label="Synaptic"
+      aria-label="Lumin"
       role="img"
     >
       <path

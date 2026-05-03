@@ -17,7 +17,7 @@ from .queue import BoundedQueue
 from .span import Span, SpanContext
 
 
-class SynapticSDK:
+class LuminSDK:
     """Coordinates span capture, async queueing, and async export.
 
     Owns a background thread that runs an asyncio event loop. Sync and async
@@ -64,7 +64,7 @@ class SynapticSDK:
                     pass
 
         self._loop_thread = threading.Thread(
-            target=run_loop, daemon=True, name="synaptic-flusher"
+            target=run_loop, daemon=True, name="lumin-flusher"
         )
         self._loop_thread.start()
         self._ready.wait()
@@ -156,19 +156,19 @@ class SynapticSDK:
             self._loop_thread.join(timeout=2.0)
 
 
-_global_sdk: Optional[SynapticSDK] = None
+_global_sdk: Optional[LuminSDK] = None
 _global_lock = threading.Lock()
 
 
-def _get_sdk() -> SynapticSDK:
+def _get_sdk() -> LuminSDK:
     global _global_sdk
     with _global_lock:
         if _global_sdk is None or _global_sdk._shutdown_complete:
-            _global_sdk = SynapticSDK()
+            _global_sdk = LuminSDK()
         return _global_sdk
 
 
-def _set_sdk(sdk: Optional[SynapticSDK]) -> None:
+def _set_sdk(sdk: Optional[LuminSDK]) -> None:
     global _global_sdk
     with _global_lock:
         old = _global_sdk
@@ -181,7 +181,7 @@ def configure(**kwargs: Any) -> None:
     """Configure the global SDK. Replaces any previous configuration."""
     filtered = {k: v for k, v in kwargs.items() if v is not None}
     config = Config(**filtered)
-    _set_sdk(SynapticSDK(config))
+    _set_sdk(LuminSDK(config))
 
 
 def span(name: str, type: str = "custom") -> SpanContext:
@@ -194,7 +194,7 @@ def _resolve_session_id(
 ) -> Optional[str]:
     """Pick the session_id to attach to a new span.
 
-    Priority: explicit @trace(session_id=...) > active synaptic.session()
+    Priority: explicit @trace(session_id=...) > active lumin.session()
     context > parent span's session_id (so children inherit). None means
     "no session" and the field is omitted from storage.
     """

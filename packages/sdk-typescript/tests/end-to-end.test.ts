@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { createServer, IncomingMessage, ServerResponse, Server } from 'node:http';
 import { trace } from '../src/trace.js';
-import { SynapticSDK, setSDK } from '../src/sdk.js';
+import { LuminSDK, setSDK } from '../src/sdk.js';
 import { resolveConfig } from '../src/config.js';
 
 interface RecordedRequest {
@@ -54,7 +54,7 @@ function startStubServer(): Promise<{
 
 describe('end-to-end: SDK posts to a real HTTP server', () => {
   let close: (() => Promise<void>) | null = null;
-  let sdk: SynapticSDK | null = null;
+  let sdk: LuminSDK | null = null;
 
   afterEach(async () => {
     if (sdk) {
@@ -72,7 +72,7 @@ describe('end-to-end: SDK posts to a real HTTP server', () => {
     const server = await startStubServer();
     close = server.close;
 
-    sdk = new SynapticSDK(
+    sdk = new LuminSDK(
       resolveConfig({
         host: `http://127.0.0.1:${server.port}`,
         flushIntervalMs: 3_600_000,
@@ -123,7 +123,7 @@ describe('end-to-end: SDK posts to a real HTTP server', () => {
     const server = await startStubServer();
     close = server.close;
 
-    sdk = new SynapticSDK(
+    sdk = new LuminSDK(
       resolveConfig({
         host: `http://127.0.0.1:${server.port}`,
         flushIntervalMs: 3_600_000, // background flusher would never fire

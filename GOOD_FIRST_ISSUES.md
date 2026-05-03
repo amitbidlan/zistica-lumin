@@ -15,13 +15,13 @@ Add labels as specified.
 **Body:**
 ```
 ## What
-Add a Synaptic integration for the Haystack agent framework.
+Add a Lumin integration for the Haystack agent framework.
 
 ## Why
 Haystack is widely used for RAG pipelines. Users have requested it.
 
 ## What to build
-File: `packages/sdk-python/synaptic/integrations/haystack.py`
+File: `packages/sdk-python/lumin/integrations/haystack.py`
 
 Should capture:
 - Every Pipeline.run() call as a root trace
@@ -31,17 +31,17 @@ Should capture:
 
 ## How to test
 ```python
-from synaptic.integrations.haystack import instrument_haystack
+from lumin.integrations.haystack import instrument_haystack
 instrument_haystack()
 
 from haystack import Pipeline
 # ... your pipeline code
 pipeline.run({"query": "test"})
-# Trace should appear in Synaptic dashboard
+# Trace should appear in Lumin dashboard
 ```
 
 ## Reference
-Look at `packages/sdk-python/synaptic/integrations/langchain.py` for how an existing integration works.
+Look at `packages/sdk-python/lumin/integrations/langchain.py` for how an existing integration works.
 
 ## Acceptance criteria
 - [ ] Integration file created at the path above
@@ -67,7 +67,7 @@ When a span uses an Anthropic Claude model, calculate and store the cost_usd.
 Currently cost_usd is None for Anthropic models. Users want to track Claude costs.
 
 ## What to build
-File: `packages/sdk-python/synaptic/cost.py`
+File: `packages/sdk-python/lumin/cost.py`
 
 Add Claude model pricing:
 - claude-3-5-sonnet-20241022: input $3/M tokens, output $15/M tokens
@@ -87,25 +87,25 @@ Reference: https://www.anthropic.com/pricing
 
 ## ISSUE 3
 
-**Title:** Improve error message when Synaptic server is unreachable
+**Title:** Improve error message when Lumin server is unreachable
 
 **Labels:** `good first issue`, `dx`
 
 **Body:**
 ```
 ## What
-When the Synaptic server is not running and a developer tries to use the SDK,
+When the Lumin server is not running and a developer tries to use the SDK,
 show a helpful message instead of silently dropping spans.
 
 ## Current behavior
-Spans are dropped silently. Developer has no idea Synaptic is not running.
+Spans are dropped silently. Developer has no idea Lumin is not running.
 
 ## Desired behavior
 Log a single warning (only once, not on every span) like:
 ```
-[Synaptic] Cannot connect to http://localhost:8000. 
+[Lumin] Cannot connect to http://localhost:8000. 
 Spans will be dropped until the server is available.
-Run: docker run -p 3000:3000 zistica/synaptic
+Run: docker run -p 3000:3000 zistica/lumin
 ```
 
 ## Rules
@@ -114,7 +114,7 @@ Run: docker run -p 3000:3000 zistica/synaptic
 - Warning goes to Python logging module at WARNING level, not print()
 
 ## File to edit
-`packages/sdk-python/synaptic/exporter.py`
+`packages/sdk-python/lumin/exporter.py`
 
 ## Acceptance criteria
 - [ ] Warning logged exactly once when server is unreachable
@@ -181,7 +181,7 @@ File: `packages/sdk-python/tests/integrations/test_crewai.py`
 Test should:
 1. Create a simple CrewAI crew with one agent and one task
 2. Run the crew
-3. Verify the trace was created in Synaptic
+3. Verify the trace was created in Lumin
 4. Verify the spans have correct parent-child relationship
 5. Verify LLM span has model and token info
 
@@ -210,7 +210,7 @@ Test should:
 Create a Japanese version of the README: `README.ja.md`
 
 ## Why
-Synaptic targets Japanese enterprise users. A Japanese README makes
+Lumin targets Japanese enterprise users. A Japanese README makes
 the project more accessible to Japanese developers.
 
 ## What to write
@@ -243,13 +243,13 @@ Technical terms:
 **Body:**
 ```
 ## What
-Add a Synaptic integration for LlamaIndex.
+Add a Lumin integration for LlamaIndex.
 
 ## Why
-LlamaIndex is widely used for RAG. Many Synaptic users also use LlamaIndex.
+LlamaIndex is widely used for RAG. Many Lumin users also use LlamaIndex.
 
 ## What to build
-File: `packages/sdk-python/synaptic/integrations/llama_index.py`
+File: `packages/sdk-python/lumin/integrations/llama_index.py`
 
 LlamaIndex has a callback system. Use it to capture:
 - Query engine calls as root traces
@@ -259,10 +259,10 @@ LlamaIndex has a callback system. Use it to capture:
 
 ## Reference
 - LlamaIndex callback docs: https://docs.llamaindex.ai/en/stable/module_guides/observability/
-- Look at existing integrations in `packages/sdk-python/synaptic/integrations/`
+- Look at existing integrations in `packages/sdk-python/lumin/integrations/`
 
 ## This is harder than a `good first issue`
-If you have not contributed to Synaptic before, start with a `good first issue` first.
+If you have not contributed to Lumin before, start with a `good first issue` first.
 
 ## Acceptance criteria
 - [ ] Integration works with LlamaIndex SimpleDirectoryReader + VectorStoreIndex
@@ -275,14 +275,14 @@ If you have not contributed to Synaptic before, start with a `good first issue` 
 
 ## HOW TO CREATE THESE ON GITHUB
 
-1. Go to `github.com/zistica/synaptic/issues/new`
+1. Go to `github.com/zistica/lumin/issues/new`
 2. Copy the Title and Body from above
 3. Add the Labels listed (create labels first if they don't exist)
 4. Submit
 
 ## LABELS TO CREATE FIRST
 
-Go to github.com/zistica/synaptic/labels and create these:
+Go to github.com/zistica/lumin/labels and create these:
 
 | Label | Color | Description |
 |---|---|---|

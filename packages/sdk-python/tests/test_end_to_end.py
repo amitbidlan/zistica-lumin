@@ -7,10 +7,10 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
-import synaptic
-import synaptic.sdk as sdk_module
-from synaptic.config import Config
-from synaptic.sdk import SynapticSDK
+import lumin
+import lumin.sdk as sdk_module
+from lumin.config import Config
+from lumin.sdk import LuminSDK
 
 
 class _RecordingHandler(BaseHTTPRequestHandler):
@@ -62,12 +62,12 @@ def test_real_post_hits_v1_spans_endpoint(stub_server):
         flush_interval=3600.0,
         export_timeout=2.0,
     )
-    sdk = SynapticSDK(config=config)
+    sdk = LuminSDK(config=config)
     previous = sdk_module._global_sdk
     sdk_module._global_sdk = sdk
     try:
 
-        @synaptic.trace
+        @lumin.trace
         def my_agent(x: str) -> str:
             return f"hello {x}"
 
@@ -119,12 +119,12 @@ def test_atexit_style_flush_via_shutdown(stub_server):
         flush_interval=3600.0,  # background flusher would never fire
         export_timeout=2.0,
     )
-    sdk = SynapticSDK(config=config)
+    sdk = LuminSDK(config=config)
     previous = sdk_module._global_sdk
     sdk_module._global_sdk = sdk
     try:
 
-        @synaptic.trace
+        @lumin.trace
         def quick():
             return 1
 

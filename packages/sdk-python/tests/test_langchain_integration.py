@@ -15,8 +15,8 @@ from langchain_core.outputs import (  # noqa: E402
     LLMResult,
 )
 
-from synaptic.integrations.langchain import (  # noqa: E402
-    SynapticCallbackHandler,
+from lumin.integrations.langchain import (  # noqa: E402
+    LuminCallbackHandler,
     _compute_cost,
     _ExtSpan,
 )
@@ -58,7 +58,7 @@ def _drain(sdk):
 
 
 def test_chat_model_invocation_creates_llm_span(sdk):
-    handler = SynapticCallbackHandler()
+    handler = LuminCallbackHandler()
     run_id = uuid4()
 
     handler.on_chat_model_start(
@@ -78,7 +78,7 @@ def test_chat_model_invocation_creates_llm_span(sdk):
 
 
 def test_llm_span_has_model_tokens_and_cost(sdk):
-    handler = SynapticCallbackHandler()
+    handler = LuminCallbackHandler()
     run_id = uuid4()
 
     handler.on_chat_model_start(
@@ -101,7 +101,7 @@ def test_llm_span_has_model_tokens_and_cost(sdk):
 
 def test_completion_style_on_llm_start(sdk):
     """Non-chat LLMs go through on_llm_start, not on_chat_model_start."""
-    handler = SynapticCallbackHandler()
+    handler = LuminCallbackHandler()
     run_id = uuid4()
 
     handler.on_llm_start(
@@ -121,7 +121,7 @@ def test_completion_style_on_llm_start(sdk):
 
 
 def test_llm_span_with_unknown_model_has_null_cost(sdk):
-    handler = SynapticCallbackHandler()
+    handler = LuminCallbackHandler()
     run_id = uuid4()
     handler.on_chat_model_start(
         serialized=_serialized_chat_openai("some-unknown-model-v9"),
@@ -137,7 +137,7 @@ def test_llm_span_with_unknown_model_has_null_cost(sdk):
 
 
 def test_llm_error_records_error_in_span(sdk):
-    handler = SynapticCallbackHandler()
+    handler = LuminCallbackHandler()
     run_id = uuid4()
     handler.on_chat_model_start(
         serialized=_serialized_chat_openai(),
@@ -156,7 +156,7 @@ def test_llm_error_records_error_in_span(sdk):
 
 
 def test_tool_call_creates_child_span_under_chain(sdk):
-    handler = SynapticCallbackHandler()
+    handler = LuminCallbackHandler()
     chain_id = uuid4()
     tool_id = uuid4()
 
@@ -189,7 +189,7 @@ def test_tool_call_creates_child_span_under_chain(sdk):
 
 
 def test_three_level_nesting_chain_llm_tool(sdk):
-    handler = SynapticCallbackHandler()
+    handler = LuminCallbackHandler()
     chain_id = uuid4()
     llm_id = uuid4()
     tool_id = uuid4()
@@ -225,7 +225,7 @@ def test_three_level_nesting_chain_llm_tool(sdk):
 
 
 def test_tool_error_records_error(sdk):
-    handler = SynapticCallbackHandler()
+    handler = LuminCallbackHandler()
     run_id = uuid4()
     handler.on_tool_start(
         serialized={"name": "failing_tool"},
@@ -239,7 +239,7 @@ def test_tool_error_records_error(sdk):
 
 
 def test_chain_error_records_error(sdk):
-    handler = SynapticCallbackHandler()
+    handler = LuminCallbackHandler()
     run_id = uuid4()
     handler.on_chain_start(serialized={"name": "MyChain"}, inputs={}, run_id=run_id)
     handler.on_chain_error(RuntimeError("chain crashed"), run_id=run_id)
@@ -255,7 +255,7 @@ def test_real_chat_model_invoke_records_span_with_explicit_handler(sdk):
     without making an external API call."""
     from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
 
-    handler = SynapticCallbackHandler()
+    handler = LuminCallbackHandler()
     llm = FakeMessagesListChatModel(responses=[AIMessage(content="Paris")])
 
     response = llm.invoke("What is the capital of France?", config={"callbacks": [handler]})
@@ -273,22 +273,22 @@ def test_real_chat_model_invoke_records_span_with_explicit_handler(sdk):
 # ---------- Auto-registration via env var ----------
 
 
-def test_register_configure_hook_is_registered_for_synaptic_tracing():
+def test_register_configure_hook_is_registered_for_lumin_tracing():
     """The integration registers its hook at import time."""
     from langchain_core.tracers.context import _configure_hooks
 
     found = False
     for entry in _configure_hooks:
         # Hook entries are tuples; the env_var is one of them
-        if "SYNAPTIC_TRACING" in entry:
+        if "LUMIN_TRACING" in entry:
             found = True
             break
-    assert found, "SynapticCallbackHandler hook not registered for SYNAPTIC_TRACING"
+    assert found, "LuminCallbackHandler hook not registered for LUMIN_TRACING"
 
 
-def test_synaptic_tracing_env_var_attaches_handler(sdk, monkeypatch):
-    """With SYNAPTIC_TRACING=true, invoking a chain should auto-attach our handler."""
-    monkeypatch.setenv("SYNAPTIC_TRACING", "true")
+def test_lumin_tracing_env_var_attaches_handler(sdk, monkeypatch):
+    """With LUMIN_TRACING=true, invoking a chain should auto-attach our handler."""
+    monkeypatch.setenv("LUMIN_TRACING", "true")
     from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
 
     llm = FakeMessagesListChatModel(responses=[AIMessage(content="hello")])

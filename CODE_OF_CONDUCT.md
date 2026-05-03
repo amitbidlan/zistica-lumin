@@ -2,7 +2,7 @@
 
 ## Our Pledge
 
-Synaptic is an open, welcoming community. We pledge to make participation in this project a harassment-free experience for everyone, regardless of age, body size, disability, ethnicity, gender identity, level of experience, nationality, personal appearance, race, religion, or sexual identity.
+Lumin is an open, welcoming community. We pledge to make participation in this project a harassment-free experience for everyone, regardless of age, body size, disability, ethnicity, gender identity, level of experience, nationality, personal appearance, race, religion, or sexual identity.
 
 English and Japanese both welcome. If you are more comfortable in Japanese — please use it.
 

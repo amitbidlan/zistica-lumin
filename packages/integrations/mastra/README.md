@@ -1,39 +1,39 @@
-# @synaptic/mastra
+# @lumin-io/mastra
 
 > Debug your Mastra agents locally. No account. No cloud. No telemetry leaving your laptop.
 
-`@synaptic/mastra` plugs the Mastra agent framework into [Synaptic](https://github.com/amitbidlan/zistica-synaptic) — an open-source, local-first AI observability stack. Spans from your Mastra agents stream into a Synaptic dashboard at `http://localhost:3000` with full timeline, token counts, cost, and tool-call inspection.
+`@lumin-io/mastra` plugs the Mastra agent framework into [Lumin](https://github.com/amitbidlan/zistica-lumin) — an open-source, local-first AI observability stack. Spans from your Mastra agents stream into a Lumin dashboard at `http://localhost:3000` with full timeline, token counts, cost, and tool-call inspection.
 
 ## Install
 
 ```bash
-npm install @synaptic/mastra
+npm install @lumin-io/mastra
 ```
 
-You also need a running Synaptic instance:
+You also need a running Lumin instance:
 
 ```bash
-docker run -p 3000:3000 -p 8000:8000 zistica/synaptic
+docker run -p 3000:3000 -p 8000:8000 zistica/lumin
 ```
 
 ## Usage — explicit (recommended for Mastra)
 
-Mastra builds its OTel tracer provider during `new Mastra(...)`. Modern OpenTelemetry doesn't allow attaching span processors after construction, so the supported way to wire Synaptic into Mastra is the `observability.configs.*.exporters` array — a one-liner via `synapticConfig()`:
+Mastra builds its OTel tracer provider during `new Mastra(...)`. Modern OpenTelemetry doesn't allow attaching span processors after construction, so the supported way to wire Lumin into Mastra is the `observability.configs.*.exporters` array — a one-liner via `luminConfig()`:
 
 ```typescript
 import { Mastra } from '@mastra/core';
-import { synapticConfig } from '@synaptic/mastra';
+import { luminConfig } from '@lumin-io/mastra';
 
 export const mastra = new Mastra({
   agents: { myAgent },
-  observability: synapticConfig({ serviceName: 'my-mastra-app' }),
+  observability: luminConfig({ serviceName: 'my-mastra-app' }),
 });
 ```
 
-The helper reads `SYNAPTIC_HOST`, `SYNAPTIC_API_KEY`, and `SYNAPTIC_SERVICE_NAME` from the environment, so the rest is just:
+The helper reads `LUMIN_HOST`, `LUMIN_API_KEY`, and `LUMIN_SERVICE_NAME` from the environment, so the rest is just:
 
 ```bash
-export SYNAPTIC_HOST=http://localhost:8000
+export LUMIN_HOST=http://localhost:8000
 ```
 
 Run your agent, open `http://localhost:3000`, the trace appears.
@@ -44,16 +44,16 @@ If you want to control every option:
 
 ```typescript
 import { Mastra } from '@mastra/core';
-import { SynapticExporter } from '@synaptic/mastra';
+import { LuminExporter } from '@lumin-io/mastra';
 
 export const mastra = new Mastra({
   agents: { myAgent },
   observability: {
     configs: {
-      synaptic: {
+      lumin: {
         serviceName: 'my-mastra-app',
         exporters: [
-          new SynapticExporter({
+          new LuminExporter({
             host: 'http://localhost:8000', // default
           }),
         ],
@@ -68,14 +68,14 @@ export const mastra = new Mastra({
 For frameworks running on older OTel SDK versions whose `TracerProvider` still exposes a public `addSpanProcessor`, you can opt in with a single import line and an env var:
 
 ```bash
-export SYNAPTIC_TRACING=true
+export LUMIN_TRACING=true
 ```
 
 ```typescript
-import '@synaptic/mastra/auto';
+import '@lumin-io/mastra/auto';
 ```
 
-This path is best-effort — if the runtime uses modern OTel (where processors must be set at provider construction), the install silently no-ops and you should fall back to `synapticConfig()` above. Mastra v1+ is the modern-OTel case.
+This path is best-effort — if the runtime uses modern OTel (where processors must be set at provider construction), the install silently no-ops and you should fall back to `luminConfig()` above. Mastra v1+ is the modern-OTel case.
 
 ## What you get in the dashboard
 
@@ -89,24 +89,24 @@ This path is best-effort — if the runtime uses modern OTel (where processors m
 
 | Option | Env var | Default | Description |
 |---|---|---|---|
-| `host` | `SYNAPTIC_HOST` | `http://localhost:8000` | Synaptic API base URL |
-| `apiKey` | `SYNAPTIC_API_KEY` | _none_ | Optional bearer token for hosted Synaptic |
-| `project` | — | `mastra` | Project tag (sent as `X-Synaptic-Project`) |
+| `host` | `LUMIN_HOST` | `http://localhost:8000` | Lumin API base URL |
+| `apiKey` | `LUMIN_API_KEY` | _none_ | Optional bearer token for hosted Lumin |
+| `project` | — | `mastra` | Project tag (sent as `X-Lumin-Project`) |
 | `timeoutMs` | — | `5000` | Per-export network timeout |
-| `serviceName` | `SYNAPTIC_SERVICE_NAME` | `mastra-app` | Mastra observability service name |
+| `serviceName` | `LUMIN_SERVICE_NAME` | `mastra-app` | Mastra observability service name |
 
 ## Why not Langfuse / Braintrust / Arize?
 
-Those are great if you're OK shipping every prompt and response to a SaaS. Synaptic is for when you can't or don't want to:
+Those are great if you're OK shipping every prompt and response to a SaaS. Lumin is for when you can't or don't want to:
 
-- **Air-gapped or sensitive data** — Synaptic runs entirely on your laptop or your VPC.
+- **Air-gapped or sensitive data** — Lumin runs entirely on your laptop or your VPC.
 - **Zero account / zero billing** — clone the repo, `docker run`, done.
 - **Apache 2.0** — fork it.
-- **Same Mastra-side ergonomics** — `@synaptic/mastra` mirrors `@mastra/langfuse` so the swap is one line.
+- **Same Mastra-side ergonomics** — `@lumin-io/mastra` mirrors `@mastra/langfuse` so the swap is one line.
 
 ## Resilience
 
-Per [Synaptic's Rule 7](https://github.com/amitbidlan/zistica-synaptic/blob/main/docs/Development_Rules.md), the agent **never fails because of Synaptic**. If the API is unreachable, returns 5xx, or the network hangs, the export reports success to the OTel pipeline and your agent keeps running. Spans drop silently.
+Per [Lumin's Rule 7](https://github.com/amitbidlan/zistica-lumin/blob/main/docs/Development_Rules.md), the agent **never fails because of Lumin**. If the API is unreachable, returns 5xx, or the network hangs, the export reports success to the OTel pipeline and your agent keeps running. Spans drop silently.
 
 ## License
 
