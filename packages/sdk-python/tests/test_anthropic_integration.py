@@ -383,6 +383,35 @@ def test_streaming_does_not_record_when_user_exits_with_exception(sdk):
     assert len(spans) == 0
 
 
+def test_child_spans_temporally_nested_inside_parent(sdk):
+    """Regression for a bug found by trace audit — every child's
+    [started_at, ended_at] interval must fall inside the parent's
+    interval. Originally children were created with `now()` after
+    `parent.end()` ran, putting them strictly after the parent's
+    bracket and breaking the timeline-nesting invariant."""
+    Cls = _make_messages_class(_response_with_thinking)
+    AsyncCls = _make_async_messages_class(_response_with_thinking)
+    instrument_anthropic(messages_cls=Cls, async_messages_cls=AsyncCls)
+
+    Cls().create(model="claude-opus-4-20250514", messages=[])
+    spans = _drain(sdk)
+    by_name = {s.name: s for s in spans}
+    parent = by_name["claude_call"]
+    for child_name in ("thinking", "response"):
+        if child_name not in by_name:
+            continue
+        c = by_name[child_name]
+        assert c.started_at >= parent.started_at, (
+            f"{child_name}.started_at={c.started_at} < parent.started_at={parent.started_at}"
+        )
+        assert c.ended_at <= parent.ended_at, (
+            f"{child_name}.ended_at={c.ended_at} > parent.ended_at={parent.ended_at}"
+        )
+    # And: thinking ends where response starts (sequential, not overlapping)
+    if "thinking" in by_name and "response" in by_name:
+        assert by_name["thinking"].ended_at == by_name["response"].started_at
+
+
 def test_to_dict_shape_for_thinking_span(sdk):
     Cls = _make_messages_class(_response_with_thinking)
     AsyncCls = _make_async_messages_class(_response_with_thinking)
