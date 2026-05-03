@@ -141,6 +141,23 @@ def _extract_blocks(response: Any) -> Tuple[List[Any], List[Any]]:
     return thinking, text
 
 
+def _midpoint(start: Optional[str], end: Optional[str], fraction: float = 0.5) -> Optional[str]:
+    """Return the ISO-8601 timestamp `fraction` of the way from
+    `start` to `end`. Used to split a parent span's interval into
+    sequential child intervals when Anthropic doesn't tell us the
+    exact thinking-vs-response boundary."""
+    if start is None or end is None:
+        return end or start
+    try:
+        from datetime import datetime
+        s = datetime.fromisoformat(start.replace("Z", "+00:00"))
+        e = datetime.fromisoformat(end.replace("Z", "+00:00"))
+        delta = (e - s) * fraction
+        return (s + delta).isoformat()
+    except Exception:
+        return end
+
+
 def _block_text(block: Any, key: str) -> str:
     """Pull the inner text from a content block — works for both the
     typed ``ContentBlock`` objects and dict-shaped blocks."""
@@ -201,21 +218,26 @@ def _record_call(
         response_text = "".join(_block_text(b, "text") for b in text_blocks)
         parent.output = _serialize({"text": response_text})
         parent.end()
-        # Backdate started_at so the duration looks right (parent.end()
-        # uses now()). We adjusted started_at via the timing measurement.
-        # _ExtSpan exposes started_at from Span; we reset both to bracket
-        # the actual call.
-        # NOTE: keeping the auto-set started_at is acceptable; duration_ms
-        # is computed by the API from started_at and ended_at, so what
-        # matters is that ended_at > started_at and they bracket the call.
+        # Snapshot parent's interval. Children must fall WITHIN it
+        # so trace timelines render correctly. Without this, each
+        # child gets `now()` for started_at — strictly *after*
+        # parent.ended_at — and audit invariants break.
+        parent_started = parent.started_at
+        parent_ended = parent.ended_at
 
         sdk = _get_sdk()
         sdk.submit(parent)
 
         # Thinking span: one combined span aggregating all thinking
-        # blocks (Anthropic typically returns a single block, but the
-        # API allows multiple — we sum their text and tokens so the
-        # dashboard renders one row).
+        # blocks. Anthropic doesn't break thinking out of the wall
+        # clock — we don't know exactly when thinking ended and
+        # response began. Treat them as a sequence inside the
+        # parent's interval: thinking covers the FIRST 80% of the
+        # call (Claude spends most of the latency reasoning), and
+        # the response span covers the LAST 20%. This is a heuristic
+        # but it keeps the visual ordering correct in the timeline.
+        thinking_split = _midpoint(parent_started, parent_ended, 0.8)
+
         if thinking_blocks:
             thinking_span = _make_span(parent, "thinking", type="llm", subtype="thinking")
             thinking_span.model = model
@@ -224,7 +246,8 @@ def _record_call(
             thinking_span.input = _serialize({"thinking": thinking_text_total})
             # Thinking is billed at the output rate per Anthropic
             thinking_span.cost_usd = _compute_cost(model, 0, thinking_tokens_est)
-            thinking_span.end()
+            thinking_span.started_at = parent_started
+            thinking_span.ended_at = thinking_split
             sdk.submit(thinking_span)
 
         # Response span: final text answer
@@ -242,7 +265,10 @@ def _record_call(
                 model, 0, response_span.tokens_output
             )
             response_span.output = _serialize({"text": response_text})
-            response_span.end()
+            # If we had thinking, response starts where thinking ended.
+            # Otherwise, response covers the full parent interval.
+            response_span.started_at = thinking_split if thinking_blocks else parent_started
+            response_span.ended_at = parent_ended
             sdk.submit(response_span)
     except Exception:
         # Best-effort — agent must never see exceptions from Synaptic.
