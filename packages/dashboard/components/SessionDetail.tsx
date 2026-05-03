@@ -18,14 +18,16 @@ export default function SessionDetail({ id }: { id: string }) {
   const sessionKey = `/v1/sessions/${encodeURIComponent(id)}`;
   const { mutate } = useSWRConfig();
 
-  // Re-fetch the session when a new trace arrives that belongs to it
+  // Refetch the session when a new trace arrives that belongs to it.
+  // We deliberately do NOT refetch on every new_span — most spans belong
+  // to traces in OTHER sessions, and we don't have membership info from
+  // the message alone. Inner span counts inside an open turn won't update
+  // live (acceptable for v1 — the user can collapse + re-expand the turn
+  // to refresh, or open the trace in its own page where spans stream live).
   const wsState = useTraceStream(
     useCallback(
       (msg: WSMessage) => {
-        if (
-          (msg.type === 'new_trace' && msg.trace.session_id === id) ||
-          (msg.type === 'new_span' && msg.trace_id /* could be in this session */)
-        ) {
+        if (msg.type === 'new_trace' && msg.trace.session_id === id) {
           mutate(sessionKey);
         }
       },

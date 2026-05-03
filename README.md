@@ -61,6 +61,7 @@ That's it. No account, no API key, no data leaves your laptop.
 ## What you get
 
 - **Span timeline** — every LLM call, tool invocation, retrieval, and custom span rendered as an indented tree, click any span to expand its input/output JSON
+- **Multi-turn sessions** — group related traces under a single conversation; the dashboard's `/sessions` view shows turns in chronological order with aggregate cost, duration, and quality
 - **Real-time updates** — WebSocket stream pushes traces and spans into the dashboard the moment they're ingested, no refresh; falls back to 5-second polling if the socket can't connect
 - **Cost & token tracking** — automatic per-call breakdown for OpenAI and Anthropic model families
 - **Quality scoring** — bring-your-own evals via `POST /v1/evals`
@@ -102,10 +103,10 @@ Single Docker container runs the API on `:8000` and the Next.js standalone dashb
 
 | Path | Package | Tests |
 |---|---|---|
-| [`packages/sdk-python/`](packages/sdk-python/) | Python SDK with `@synaptic.trace`, `synaptic.span()`, integrations | 56 |
-| [`packages/sdk-typescript/`](packages/sdk-typescript/) | `@synaptic/sdk` — peer of the Python SDK | 31 |
-| [`packages/api/`](packages/api/) | FastAPI ingest + query API, DuckDB storage, WebSocket fanout | 37 |
-| [`packages/dashboard/`](packages/dashboard/) | Next.js 14 dashboard with paginated timeline | build + 7 Playwright E2E |
+| [`packages/sdk-python/`](packages/sdk-python/) | Python SDK with `@synaptic.trace`, `synaptic.span()`, `synaptic.session()`, integrations | 72 |
+| [`packages/sdk-typescript/`](packages/sdk-typescript/) | `@synaptic/sdk` — peer of the Python SDK | 46 |
+| [`packages/api/`](packages/api/) | FastAPI ingest + query API, DuckDB storage, WebSocket fanout, session aggregations | 46 |
+| [`packages/dashboard/`](packages/dashboard/) | Next.js 14 dashboard with paginated timeline + session view | build + 13 Playwright E2E |
 
 ---
 
@@ -210,6 +211,43 @@ crew.kickoff()
 # LLM calls inside agents -> grandchildren (via the LangChain integration)
 ```
 
+### Sessions (multi-turn conversations)
+
+Group several agent calls into one logical conversation:
+
+```python
+import synaptic
+
+with synaptic.session(name="booking-conversation"):
+    my_agent("Book me a flight to Tokyo")
+    my_agent("Make it business class")
+    my_agent("Add a hotel for 3 nights")
+```
+
+Every traced call inside the `with` block is tagged with a shared `session_id`. The dashboard groups them under `/sessions` with aggregate cost / duration / quality. Click into a session to see the turns in order, click any turn to expand its full span tree.
+
+TypeScript:
+
+```typescript
+import { withSession, trace } from '@synaptic/sdk';
+
+const myAgent = trace(async (q: string) => '...', { name: 'agent' });
+
+await withSession({ name: 'booking-conversation' }, async () => {
+  await myAgent('Book me a flight');
+  await myAgent('Make it business class');
+});
+```
+
+Or pin a specific session at decoration time:
+
+```python
+@synaptic.trace(session_id="user-123-conv-456")
+def my_agent(q): ...
+```
+
+Resolution priority for a span's `session_id` (most specific wins): explicit `@trace(session_id=…)` > active `synaptic.session()` context > parent span's `session_id` > `None`. Traces without a `session_id` stay in `/traces` as standalone runs and don't appear under any session.
+
 ---
 
 ## Configuration
@@ -266,6 +304,8 @@ POST   /v1/traces             # Manual upsert
 GET    /v1/traces             # Paginated list (?limit=&offset=)
 GET    /v1/traces/{id}        # Single trace
 GET    /v1/traces/{id}/spans  # All spans for a trace
+GET    /v1/sessions           # Sessions, derived via GROUP BY session_id
+GET    /v1/sessions/{id}      # Session detail with all traces in order
 POST   /v1/evals              # Submit a quality score
 WS     /ws/traces             # Real-time fanout — new_trace + new_span events
 GET    /health                # Liveness check
