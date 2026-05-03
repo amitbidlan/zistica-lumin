@@ -57,6 +57,8 @@ export type Span = {
   error_message: string | null;
   tool_name: string | null;
   metadata: unknown;
+  span_subtype: 'thinking' | 'response' | null;
+  thinking_tokens: number | null;
 };
 
 export const fetcher = async (path: string) => {

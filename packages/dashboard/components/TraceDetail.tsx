@@ -128,6 +128,7 @@ export default function TraceDetail({ id }: { id: string }) {
           <Metric label="Total cost" value={formatCost(trace.total_cost_usd)} />
           <Metric label="Quality" value={formatScore(trace.quality_score)} />
         </div>
+        <ThinkingBreakdown spans={spans} />
       </header>
 
       <section>
@@ -153,6 +154,47 @@ function Metric({ label, value }: { label: string; value: string }) {
         {label}
       </div>
       <div className="font-mono">{value}</div>
+    </div>
+  );
+}
+
+function ThinkingBreakdown({ spans }: { spans: Span[] }) {
+  let thinkingTokens = 0;
+  let responseTokens = 0;
+  let thinkingCost = 0;
+  let responseCost = 0;
+  for (const s of spans) {
+    if (s.span_subtype === 'thinking') {
+      thinkingTokens += s.thinking_tokens ?? 0;
+      thinkingCost += s.cost_usd ?? 0;
+    } else if (s.span_subtype === 'response') {
+      responseTokens += s.tokens_output ?? 0;
+      responseCost += s.cost_usd ?? 0;
+    }
+  }
+  if (thinkingTokens === 0 && responseTokens === 0) return null;
+
+  return (
+    <div
+      className="mt-4 pt-3 border-t border-[var(--border)] grid grid-cols-2 md:grid-cols-4 gap-4 text-sm"
+      data-testid="thinking-breakdown"
+    >
+      <Metric
+        label="Thinking tokens"
+        value={thinkingTokens > 0 ? `~${thinkingTokens.toLocaleString()}` : '—'}
+      />
+      <Metric
+        label="Thinking cost"
+        value={thinkingCost > 0 ? formatCost(thinkingCost) : '—'}
+      />
+      <Metric
+        label="Response tokens"
+        value={responseTokens > 0 ? responseTokens.toLocaleString() : '—'}
+      />
+      <Metric
+        label="Response cost"
+        value={responseCost > 0 ? formatCost(responseCost) : '—'}
+      />
     </div>
   );
 }

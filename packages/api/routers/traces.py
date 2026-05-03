@@ -98,6 +98,8 @@ def _row_to_span(row: dict) -> Span:
         error_message=row.get("error_message"),
         tool_name=row.get("tool_name"),
         metadata=metadata,
+        span_subtype=row.get("span_subtype"),
+        thinking_tokens=row.get("thinking_tokens"),
     )
 
 

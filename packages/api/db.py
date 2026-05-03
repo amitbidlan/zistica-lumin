@@ -44,7 +44,9 @@ CREATE TABLE IF NOT EXISTS spans (
     status VARCHAR DEFAULT 'ok',
     error_message VARCHAR,
     tool_name VARCHAR,
-    metadata JSON
+    metadata JSON,
+    span_subtype VARCHAR,
+    thinking_tokens INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS evals (
@@ -81,6 +83,18 @@ class Database:
                 stmt = stmt.strip()
                 if stmt:
                     self._duck.execute(stmt)
+            # Migrations for databases created before columns were added.
+            # IF NOT EXISTS on ALTER COLUMN is supported in DuckDB >= 0.10
+            # but we still wrap each ALTER in try/except as defense in
+            # depth — the SDK must never fail because of schema fiddling.
+            for migration in (
+                "ALTER TABLE spans ADD COLUMN IF NOT EXISTS span_subtype VARCHAR",
+                "ALTER TABLE spans ADD COLUMN IF NOT EXISTS thinking_tokens INTEGER",
+            ):
+                try:
+                    self._duck.execute(migration)
+                except Exception:
+                    pass
 
     def execute(self, query: str, params: Sequence[Any] = ()) -> None:
         with self._lock:

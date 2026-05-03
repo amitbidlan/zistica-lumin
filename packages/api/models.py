@@ -34,6 +34,12 @@ class SpanInput(BaseModel):
     metadata: Optional[dict] = None
     # Session grouping — propagates to the trace row when a root span lands
     session_id: Optional[str] = None
+    # Claude extended-thinking support: span_subtype is "thinking" |
+    # "response" | null. thinking_tokens estimates tokens spent in the
+    # thinking phase (output_tokens in Anthropic usage rolls up everything,
+    # so we estimate from content length).
+    span_subtype: Optional[str] = None
+    thinking_tokens: Optional[int] = None
 
 
 class IngestRequest(BaseModel):
@@ -98,6 +104,8 @@ class Span(BaseModel):
     error_message: Optional[str] = None
     tool_name: Optional[str] = None
     metadata: Optional[Any] = None
+    span_subtype: Optional[str] = None
+    thinking_tokens: Optional[int] = None
 
 
 class Session(BaseModel):

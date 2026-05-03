@@ -65,7 +65,7 @@ That's it. No account, no API key, no data leaves your laptop.
 - **Real-time updates** — WebSocket stream pushes traces and spans into the dashboard the moment they're ingested, no refresh; falls back to 5-second polling if the socket can't connect
 - **Cost & token tracking** — automatic per-call breakdown for OpenAI and Anthropic model families
 - **Quality scoring** — bring-your-own evals via `POST /v1/evals`
-- **Framework integrations** — drop-in support for [LangChain](#langchain) (zero-config via `SYNAPTIC_TRACING=true`) and [CrewAI](#crewai) (one-line `instrument_crew()`)
+- **Framework integrations** — drop-in support for [LangChain](#langchain) (zero-config via `SYNAPTIC_TRACING=true`), [CrewAI](#crewai) (one-line `instrument_crew()`), and [Anthropic](#anthropic) (`instrument_anthropic()` — captures Claude extended-thinking blocks as first-class child spans)
 - **Cross-language SDKs** — Python and TypeScript with identical wire format and behavior
 - **Resilient by design** — the agent never fails because Synaptic is down. Spans drop silently if the queue overflows, the exporter is unreachable, or the server returns an error
 - **Local-first** — single Docker image, DuckDB + SQLite, no external services, no cloud dependency
@@ -103,10 +103,10 @@ Single Docker container runs the API on `:8000` and the Next.js standalone dashb
 
 | Path | Package | Tests |
 |---|---|---|
-| [`packages/sdk-python/`](packages/sdk-python/) | Python SDK with `@synaptic.trace`, `synaptic.span()`, `synaptic.session()`, integrations | 72 |
-| [`packages/sdk-typescript/`](packages/sdk-typescript/) | `@synaptic/sdk` — peer of the Python SDK | 46 |
-| [`packages/api/`](packages/api/) | FastAPI ingest + query API, DuckDB storage, WebSocket fanout, session aggregations | 46 |
-| [`packages/dashboard/`](packages/dashboard/) | Next.js 14 dashboard with paginated timeline + session view | build + 13 Playwright E2E |
+| [`packages/sdk-python/`](packages/sdk-python/) | Python SDK with `@synaptic.trace`, `synaptic.span()`, `synaptic.session()`, integrations | 101 |
+| [`packages/sdk-typescript/`](packages/sdk-typescript/) | `@synaptic/sdk` — peer of the Python SDK | 59 |
+| [`packages/api/`](packages/api/) | FastAPI ingest + query API, DuckDB storage, WebSocket fanout, session aggregations | 59 |
+| [`packages/dashboard/`](packages/dashboard/) | Next.js 14 dashboard with paginated timeline + session view | build + 21 Playwright E2E |
 
 ---
 
@@ -118,7 +118,8 @@ Single Docker container runs the API on `:8000` and the Next.js standalone dashb
 pip install -e packages/sdk-python              # core only
 pip install -e packages/sdk-python[langchain]   # + LangChain integration
 pip install -e packages/sdk-python[crewai]      # + CrewAI integration
-pip install -e packages/sdk-python[all]         # both integrations
+pip install -e packages/sdk-python[anthropic]   # + Anthropic integration
+pip install -e packages/sdk-python[all]         # all integrations
 ```
 
 ### TypeScript SDK
@@ -209,6 +210,27 @@ crew.kickoff()
 # crew.kickoff -> root span
 # each agent.execute_task -> child span
 # LLM calls inside agents -> grandchildren (via the LangChain integration)
+```
+
+### Anthropic
+
+```python
+from synaptic.integrations.anthropic import instrument_anthropic
+instrument_anthropic()
+
+from anthropic import Anthropic
+client = Anthropic()
+client.messages.create(
+    model="claude-opus-4-20250514",
+    max_tokens=16000,
+    thinking={"type": "enabled", "budget_tokens": 10000},
+    messages=[{"role": "user", "content": "..."}],
+)
+# claude_call -> parent (model, tokens, cost)
+#   thinking -> child (reasoning text, ~thinking tokens, output-rate cost)
+#   response -> child (final text, response tokens, cost)
+# Dashboard renders thinking rows with a brain emoji + per-trace
+# thinking-vs-response cost breakdown.
 ```
 
 ### Sessions (multi-turn conversations)
