@@ -130,6 +130,61 @@ def test_post_traces_creates_trace_directly(client):
     assert response.json()["name"] == "manual"
 
 
+def test_trace_total_cost_is_aggregated_from_child_spans(client):
+    """When only spans are POSTed (no explicit /v1/traces upsert),
+    GET /v1/traces/{id} should still report total_cost_usd as the
+    sum of child span costs — previously it returned 0."""
+    client.post(
+        "/v1/spans",
+        json={
+            "spans": [
+                {
+                    "id": "p", "trace_id": "agg-1", "name": "claude_call",
+                    "type": "llm",
+                    "started_at": "2026-05-02T10:00:00Z",
+                    "ended_at": "2026-05-02T10:00:03Z",
+                    "tokens_input": 100, "tokens_output": 50, "cost_usd": 0.01,
+                },
+                {
+                    "id": "c", "trace_id": "agg-1", "parent_span_id": "p",
+                    "name": "tool", "type": "tool",
+                    "started_at": "2026-05-02T10:00:01Z",
+                    "ended_at": "2026-05-02T10:00:02Z",
+                    "tokens_input": 10, "tokens_output": 5, "cost_usd": 0.0001,
+                },
+            ]
+        },
+    )
+    body = client.get("/v1/traces/agg-1").json()
+    assert body["total_cost_usd"] == 0.0101
+    # tokens: 100+50 + 10+5 = 165
+    assert body["total_tokens"] == 165
+
+
+def test_explicit_trace_total_overrides_smaller_aggregate(client):
+    """When the user POSTs /v1/traces with an explicit total higher
+    than the span sum, the explicit value wins (GREATEST semantics)."""
+    client.post(
+        "/v1/spans",
+        json={
+            "spans": [{
+                "id": "s", "trace_id": "agg-2", "name": "x", "type": "llm",
+                "started_at": "2026-05-02T10:00:00Z",
+                "ended_at": "2026-05-02T10:00:01Z",
+                "cost_usd": 0.001,
+            }]
+        },
+    )
+    client.post("/v1/traces", json={
+        "id": "agg-2", "name": "manual",
+        "started_at": "2026-05-02T10:00:00Z",
+        "ended_at": "2026-05-02T10:00:01Z",
+        "total_cost_usd": 99.99,
+    })
+    body = client.get("/v1/traces/agg-2").json()
+    assert body["total_cost_usd"] == 99.99
+
+
 def test_post_eval_creates_eval(client):
     _post_span(client, id="t", trace_id="t")
     response = client.post(
