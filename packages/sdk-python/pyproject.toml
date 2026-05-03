@@ -28,10 +28,14 @@ crewai = [
 anthropic = [
     "anthropic>=0.30.0",
 ]
+llama_index = [
+    "llama-index-core>=0.10.0",
+]
 all = [
     "langchain-core>=0.3.0",
     "crewai>=0.80.0",
     "anthropic>=0.30.0",
+    "llama-index-core>=0.10.0",
 ]
 
 [tool.setuptools.packages.find]

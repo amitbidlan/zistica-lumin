@@ -65,7 +65,7 @@ That's it. No account, no API key, no data leaves your laptop.
 - **Real-time updates** — WebSocket stream pushes traces and spans into the dashboard the moment they're ingested, no refresh; falls back to 5-second polling if the socket can't connect
 - **Cost & token tracking** — automatic per-call breakdown for OpenAI and Anthropic model families
 - **Quality scoring** — bring-your-own evals via `POST /v1/evals`
-- **Framework integrations** — drop-in support for [LangChain](#langchain) (zero-config via `SYNAPTIC_TRACING=true`), [CrewAI](#crewai) (one-line `instrument_crew()`), and [Anthropic](#anthropic) (`instrument_anthropic()` — captures Claude extended-thinking blocks as first-class child spans)
+- **Framework integrations** — drop-in support for [LangChain](#langchain) (zero-config via `SYNAPTIC_TRACING=true`), [CrewAI](#crewai) (one-line `instrument_crew()`), [LlamaIndex](#llamaindex) (`SynapticCallbackHandler` for query engines, retrieval, and embeddings), and [Anthropic](#anthropic) (`instrument_anthropic()` — captures Claude extended-thinking blocks as first-class child spans)
 - **Cross-language SDKs** — Python and TypeScript with identical wire format and behavior
 - **Resilient by design** — the agent never fails because Synaptic is down. Spans drop silently if the queue overflows, the exporter is unreachable, or the server returns an error
 - **Local-first** — single Docker image, DuckDB + SQLite, no external services, no cloud dependency
@@ -103,7 +103,7 @@ Single Docker container runs the API on `:8000` and the Next.js standalone dashb
 
 | Path | Package | Tests |
 |---|---|---|
-| [`packages/sdk-python/`](packages/sdk-python/) | Python SDK with `@synaptic.trace`, `synaptic.span()`, `synaptic.session()`, integrations | 101 |
+| [`packages/sdk-python/`](packages/sdk-python/) | Python SDK with `@synaptic.trace`, `synaptic.span()`, `synaptic.session()`, integrations | 171 |
 | [`packages/sdk-typescript/`](packages/sdk-typescript/) | `@synaptic/sdk` — peer of the Python SDK | 59 |
 | [`packages/api/`](packages/api/) | FastAPI ingest + query API, DuckDB storage, WebSocket fanout, session aggregations | 59 |
 | [`packages/dashboard/`](packages/dashboard/) | Next.js 14 dashboard with paginated timeline + session view | build + 21 Playwright E2E |
@@ -119,6 +119,7 @@ pip install -e packages/sdk-python              # core only
 pip install -e packages/sdk-python[langchain]   # + LangChain integration
 pip install -e packages/sdk-python[crewai]      # + CrewAI integration
 pip install -e packages/sdk-python[anthropic]   # + Anthropic integration
+pip install -e packages/sdk-python[llama_index] # + LlamaIndex integration
 pip install -e packages/sdk-python[all]         # all integrations
 ```
 
@@ -210,6 +211,25 @@ crew.kickoff()
 # crew.kickoff -> root span
 # each agent.execute_task -> child span
 # LLM calls inside agents -> grandchildren (via the LangChain integration)
+```
+
+### LlamaIndex
+
+```python
+from synaptic.integrations.llama_index import SynapticCallbackHandler
+from llama_index.core import Settings, VectorStoreIndex, Document
+from llama_index.core.callbacks import CallbackManager
+
+handler = SynapticCallbackHandler()
+Settings.callback_manager = CallbackManager([handler])
+
+index = VectorStoreIndex.from_documents([Document(text="…")])
+index.as_query_engine().query("what is …?")
+# query (root)
+#   retrieve (retrieval)  -- retrieved nodes + similarity scores
+#     embedding (embedding) -- query embedding model + tokens
+#   synthesize (custom)
+#     llm_call (llm)       -- model, tokens, cost
 ```
 
 ### Anthropic
