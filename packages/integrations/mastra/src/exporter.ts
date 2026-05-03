@@ -67,17 +67,47 @@ const DEFAULT_TIMEOUT_MS = 5_000;
 const DEFAULT_PROJECT = 'mastra';
 const DEFAULT_MAX_PAYLOAD = 10_240;
 
-/** Convert a value of any shape to a JSON string with size cap. */
+/**
+ * Convert an OTel attribute value to a string suitable for the
+ * Synaptic `input` / `output` field. OTel only delivers primitives
+ * or arrays of primitives, so the cases are:
+ *   - string: pass through (already JSON in most Mastra/Vercel
+ *     conventions — re-stringifying would double-encode)
+ *   - array of strings: join with newlines (each Vercel-style
+ *     prompt message is its own array element)
+ *   - other primitives: String(value)
+ *   - object (rare; only if the SDK ever surfaces them): JSON.stringify
+ *
+ * Always capped at maxSize.
+ */
 function serialize(value: unknown, maxSize: number): string | null {
   if (value === null || value === undefined) return null;
   let s: string;
-  try {
-    s = JSON.stringify(value);
-    if (s === undefined) s = String(value);
-  } catch {
+  if (typeof value === 'string') {
+    s = value;
+  } else if (Array.isArray(value)) {
+    s = value
+      .map((v) => (typeof v === 'string' ? v : safeStringify(v)))
+      .join('\n');
+  } else if (
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    typeof value === 'bigint'
+  ) {
     s = String(value);
+  } else {
+    s = safeStringify(value);
   }
   return s.length > maxSize ? s.slice(0, maxSize) : s;
+}
+
+function safeStringify(v: unknown): string {
+  try {
+    const result = JSON.stringify(v);
+    return result === undefined ? String(v) : result;
+  } catch {
+    return String(v);
+  }
 }
 
 /** OTel `[seconds, nanos]` HrTime → ISO-8601 string in UTC. */
@@ -151,16 +181,29 @@ export function otelSpanToSynaptic(
   const tokensOut = attrNumber(attrs, 'gen_ai.usage.output_tokens');
   const toolName = attrString(attrs, 'gen_ai.tool.name');
 
-  // OTel surfaces the prompt and completion via either
-  // `gen_ai.prompt`/`gen_ai.completion` (older convention) or
-  // `gen_ai.input.messages`/`gen_ai.output.messages` (newer). We
-  // accept either.
+  // OTel attribute values must be primitives or arrays of primitives —
+  // object values are silently dropped by the SDK. So we look for
+  // attributes Mastra and the Vercel AI SDK actually emit: strings
+  // (often JSON-encoded), arrays of strings, or simple scalars.
+  //
+  // Order of preference reflects how widely each key is used in the
+  // Mastra/Vercel-AI ecosystem:
+  //   ai.prompt.messages / ai.response.text  — Vercel AI SDK (Mastra)
+  //   gen_ai.input.messages / .output.messages — newer OTel GenAI
+  //   gen_ai.prompt / .completion              — older OTel GenAI
+  //   ai.toolCall.args / .result               — Vercel AI tool calls
+  //   mastra.input / mastra.output             — pre-stringified
   const input =
+    attrs['ai.prompt.messages'] ??
+    attrs['ai.toolCall.args'] ??
     attrs['gen_ai.input.messages'] ??
     attrs['gen_ai.prompt'] ??
     attrs['mastra.input'] ??
     null;
   const output =
+    attrs['ai.response.text'] ??
+    attrs['ai.response.object'] ??
+    attrs['ai.toolCall.result'] ??
     attrs['gen_ai.output.messages'] ??
     attrs['gen_ai.completion'] ??
     attrs['mastra.output'] ??
