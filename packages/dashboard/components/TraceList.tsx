@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
 import {
   Trace,
@@ -88,6 +88,18 @@ export default function TraceList() {
     // Don't flicker "Loading…" when navigating between pages.
     keepPreviousData: true,
   });
+
+  // Catch-up revalidation: events broadcast during a WS disconnect are
+  // gone from the live stream. When we reconnect, force a one-shot
+  // refetch so any traces that landed during the gap appear before the
+  // next push-driven update.
+  const prevWsState = useRef(wsState);
+  useEffect(() => {
+    if (prevWsState.current !== 'connected' && wsState === 'connected') {
+      mutate(swrKey);
+    }
+    prevWsState.current = wsState;
+  }, [wsState, swrKey, mutate]);
 
   if (error) {
     return (

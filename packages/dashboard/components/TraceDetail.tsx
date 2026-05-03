@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
 import {
   Span,
@@ -18,8 +18,6 @@ import SpanTimeline from './SpanTimeline';
 export default function TraceDetail({ id }: { id: string }) {
   const traceKey = `/v1/traces/${id}`;
   const spansKey = `/v1/traces/${id}/spans`;
-  const traceQ = useSWR<Trace>(traceKey, fetcher);
-  const spansQ = useSWR<Span[]>(spansKey, fetcher);
   const { mutate } = useSWRConfig();
 
   // Subscribe to real-time span events for THIS trace. New spans are
@@ -47,6 +45,26 @@ export default function TraceDetail({ id }: { id: string }) {
       [id, spansKey, traceKey, mutate],
     ),
   );
+
+  // Polling fallback: when WS is down, refresh every 5s so the timeline
+  // doesn't go stale. When WS is connected, no polling — pushes are
+  // authoritative.
+  const refreshInterval = wsState !== 'connected' ? 5000 : 0;
+  const traceQ = useSWR<Trace>(traceKey, fetcher, { refreshInterval });
+  const spansQ = useSWR<Span[]>(spansKey, fetcher, { refreshInterval });
+
+  // Catch-up revalidation: when WS transitions disconnected → connected,
+  // events that arrived during the gap have already been lost from the
+  // pushed stream. Force a one-shot revalidation so the cache catches up
+  // to whatever the API has, then resume live updates from there.
+  const prevWsState = useRef(wsState);
+  useEffect(() => {
+    if (prevWsState.current !== 'connected' && wsState === 'connected') {
+      mutate(traceKey);
+      mutate(spansKey);
+    }
+    prevWsState.current = wsState;
+  }, [wsState, traceKey, spansKey, mutate]);
 
   if (traceQ.error) {
     return (
@@ -76,7 +94,7 @@ export default function TraceDetail({ id }: { id: string }) {
           title={
             wsState === 'connected'
               ? 'WebSocket connected — new spans appear live'
-              : 'WebSocket unavailable — manual refresh required'
+              : 'WebSocket unavailable — polling every 5s'
           }
         >
           <span
@@ -86,7 +104,7 @@ export default function TraceDetail({ id }: { id: string }) {
                 : 'inline-block h-1.5 w-1.5 rounded-full bg-slate-500'
             }
           />
-          {wsState === 'connected' ? 'live' : 'offline'}
+          {wsState === 'connected' ? 'live' : 'polling'}
         </span>
       </div>
 
