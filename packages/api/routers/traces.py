@@ -63,6 +63,28 @@ def _row_to_trace(row: dict) -> Trace:
     )
 
 
+# SQL fragment that aggregates cost + tokens from a trace's spans
+# and returns the larger of the user-supplied value (set via POST
+# /v1/traces) or the computed sum. Lets the trace list and detail
+# show meaningful totals even when only spans were ingested.
+_TRACE_WITH_AGGREGATES = """
+SELECT
+    t.*,
+    GREATEST(
+        COALESCE(t.total_cost_usd, 0),
+        COALESCE((SELECT SUM(cost_usd) FROM spans WHERE trace_id = t.id), 0)
+    ) AS total_cost_usd,
+    GREATEST(
+        COALESCE(t.total_tokens, 0),
+        COALESCE((
+            SELECT SUM(COALESCE(tokens_input, 0) + COALESCE(tokens_output, 0))
+            FROM spans WHERE trace_id = t.id
+        ), 0)
+    ) AS total_tokens
+FROM traces t
+"""
+
+
 def _row_to_span(row: dict) -> Span:
     started = row.get("started_at")
     ended = row.get("ended_at")
@@ -162,11 +184,7 @@ def list_traces(
     db: Database = Depends(get_db),
 ) -> List[Trace]:
     rows = db.fetchall_dict(
-        """
-        SELECT * FROM traces
-        ORDER BY started_at DESC
-        LIMIT ? OFFSET ?
-        """,
+        _TRACE_WITH_AGGREGATES + " ORDER BY t.started_at DESC LIMIT ? OFFSET ?",
         [limit, offset],
     )
     return [_row_to_trace(r) for r in rows]
@@ -174,7 +192,9 @@ def list_traces(
 
 @router.get("/v1/traces/{trace_id}", response_model=Trace)
 def get_trace(trace_id: str, db: Database = Depends(get_db)) -> Trace:
-    row = db.fetchone_dict("SELECT * FROM traces WHERE id = ?", [trace_id])
+    row = db.fetchone_dict(
+        _TRACE_WITH_AGGREGATES + " WHERE t.id = ?", [trace_id]
+    )
     if row is None:
         raise HTTPException(status_code=404, detail="trace not found")
     return _row_to_trace(row)
