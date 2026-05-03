@@ -4,10 +4,11 @@ import os
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from db import Database, get_db
 from routers import evals, spans, traces
+from ws import manager as ws_manager
 
 logger = logging.getLogger("synaptic.api")
 
@@ -59,6 +60,11 @@ async def _cleanup_loop(db: Database, retention_days: int, interval_seconds: int
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    # Register the running event loop so sync handlers (which run in the
+    # threadpool) can schedule WebSocket broadcasts on it via
+    # asyncio.run_coroutine_threadsafe.
+    ws_manager.set_loop(asyncio.get_event_loop())
+
     cleanup_task: asyncio.Task[None] | None = None
     if _cleanup_enabled():
         try:
@@ -93,3 +99,23 @@ app.include_router(evals.router)
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.websocket("/ws/traces")
+async def ws_traces(websocket: WebSocket) -> None:
+    """Real-time trace + span fanout. The dashboard subscribes here and
+    receives ``new_trace`` / ``new_span`` messages as agents post spans.
+    Server-to-client only — incoming messages are ignored (we still drain
+    them so the socket stays alive)."""
+    await ws_manager.connect(websocket)
+    try:
+        # Block until the client disconnects. We don't expect inbound
+        # messages, but draining keeps the socket honest.
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        logger.exception("websocket handler error")
+    finally:
+        await ws_manager.disconnect(websocket)
