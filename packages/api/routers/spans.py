@@ -131,26 +131,37 @@ def _upsert_trace_from_span(db: Database, span: SpanInput) -> bool:
     if span.parent_span_id is None:
         db.execute(
             """
-            INSERT INTO traces (id, name, input, output, started_at, ended_at, ingest_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO traces (
+                id, name, input, output, started_at, ended_at, session_id, ingest_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (id) DO UPDATE SET
                 name = EXCLUDED.name,
                 input = EXCLUDED.input,
                 output = EXCLUDED.output,
                 started_at = EXCLUDED.started_at,
                 ended_at = EXCLUDED.ended_at,
+                session_id = COALESCE(EXCLUDED.session_id, traces.session_id),
                 ingest_at = EXCLUDED.ingest_at
             """,
-            [trace_id, span.name, span.input, span.output, started_at, ended_at, ingest_at],
+            [
+                trace_id, span.name, span.input, span.output,
+                started_at, ended_at, span.session_id, ingest_at,
+            ],
         )
     else:
+        # Stub upsert from a non-root span. Don't overwrite the trace if it
+        # exists — but DO populate session_id on the stub so the orphan
+        # trace shows up in its session right away (the eventual root span
+        # will COALESCE the same id).
         db.execute(
             """
-            INSERT INTO traces (id, started_at, ingest_at)
-            VALUES (?, ?, ?)
-            ON CONFLICT (id) DO NOTHING
+            INSERT INTO traces (id, started_at, session_id, ingest_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT (id) DO UPDATE SET
+                session_id = COALESCE(traces.session_id, EXCLUDED.session_id)
             """,
-            [trace_id, started_at, ingest_at],
+            [trace_id, started_at, span.session_id, ingest_at],
         )
 
     return is_new_trace

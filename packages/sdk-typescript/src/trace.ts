@@ -1,10 +1,24 @@
-import { spanStorage, getCurrentSpan } from './context.js';
+import { spanStorage, getCurrentSpan, getCurrentSession } from './context.js';
 import { Span } from './span.js';
 import { getSDK } from './sdk.js';
 
 export interface TraceOptions {
   name?: string;
   type?: string;
+  /** Pin every invocation to a specific session id. Overrides any active
+   *  session() context. */
+  sessionId?: string;
+}
+
+function resolveSessionId(
+  explicit: string | undefined,
+  parent: Span | null,
+): string | null {
+  if (explicit) return explicit;
+  const current = getCurrentSession();
+  if (current) return current.id;
+  if (parent && parent.session_id) return parent.session_id;
+  return null;
 }
 
 /** Wrap an async function so each invocation records a Synaptic span.
@@ -23,6 +37,7 @@ export function trace<T extends (...args: unknown[]) => Promise<unknown>>(
     const cfg = sdk.config;
     const parent = getCurrentSpan() ?? null;
     const s = Span.create(spanName, spanType, parent);
+    s.session_id = resolveSessionId(options.sessionId, parent);
 
     if (cfg.captureInputs) {
       // Match Python SDK: capture as { args: [...] }
@@ -65,6 +80,7 @@ export function span(name: string, options: { type?: string } = {}): SpanHandle 
   const sdk = getSDK();
   const parent = getCurrentSpan() ?? null;
   const s = Span.create(name, options.type ?? 'custom', parent);
+  s.session_id = resolveSessionId(undefined, parent);
   let ended = false;
 
   return {
@@ -101,6 +117,7 @@ export async function withSpan<T>(
   const sdk = getSDK();
   const parent = getCurrentSpan() ?? null;
   const s = Span.create(name, options.type ?? 'custom', parent);
+  s.session_id = resolveSessionId(undefined, parent);
 
   return spanStorage.run(s, async () => {
     try {

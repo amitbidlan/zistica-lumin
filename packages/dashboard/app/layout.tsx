@@ -56,6 +56,12 @@ export default function RootLayout({
               >
                 Traces
               </Link>
+              <Link
+                href="/sessions"
+                className="text-[var(--muted)] hover:text-[var(--foreground)] transition-colors"
+              >
+                Sessions
+              </Link>
               <a
                 href="/api/docs"
                 target="_blank"
