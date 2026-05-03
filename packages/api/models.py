@@ -106,6 +106,7 @@ class Span(BaseModel):
     metadata: Optional[Any] = None
     span_subtype: Optional[str] = None
     thinking_tokens: Optional[int] = None
+    session_id: Optional[str] = None
 
 
 class Session(BaseModel):

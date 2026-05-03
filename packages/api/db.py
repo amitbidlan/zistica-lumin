@@ -46,7 +46,8 @@ CREATE TABLE IF NOT EXISTS spans (
     tool_name VARCHAR,
     metadata JSON,
     span_subtype VARCHAR,
-    thinking_tokens INTEGER
+    thinking_tokens INTEGER,
+    session_id VARCHAR
 );
 
 CREATE TABLE IF NOT EXISTS evals (
@@ -90,6 +91,7 @@ class Database:
             for migration in (
                 "ALTER TABLE spans ADD COLUMN IF NOT EXISTS span_subtype VARCHAR",
                 "ALTER TABLE spans ADD COLUMN IF NOT EXISTS thinking_tokens INTEGER",
+                "ALTER TABLE spans ADD COLUMN IF NOT EXISTS session_id VARCHAR",
             ):
                 try:
                     self._duck.execute(migration)
