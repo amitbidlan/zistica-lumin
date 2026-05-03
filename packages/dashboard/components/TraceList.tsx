@@ -90,12 +90,12 @@ export default function TraceList() {
   });
 
   // Catch-up revalidation: events broadcast during a WS disconnect are
-  // gone from the live stream. When we reconnect, force a one-shot
-  // refetch so any traces that landed during the gap appear before the
-  // next push-driven update.
+  // gone from the live stream. When we reconnect from a *disconnect*
+  // (not the initial 'connecting' state — SWR's initial fetch already
+  // covers that path), force a one-shot refetch.
   const prevWsState = useRef(wsState);
   useEffect(() => {
-    if (prevWsState.current !== 'connected' && wsState === 'connected') {
+    if (prevWsState.current === 'disconnected' && wsState === 'connected') {
       mutate(swrKey);
     }
     prevWsState.current = wsState;

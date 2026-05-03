@@ -57,9 +57,12 @@ export default function TraceDetail({ id }: { id: string }) {
   // events that arrived during the gap have already been lost from the
   // pushed stream. Force a one-shot revalidation so the cache catches up
   // to whatever the API has, then resume live updates from there.
+  // Skipped on the initial 'connecting' → 'connected' transition because
+  // the SWR initial fetch is already in-flight; revalidating again would
+  // be a redundant network round-trip on every page load.
   const prevWsState = useRef(wsState);
   useEffect(() => {
-    if (prevWsState.current !== 'connected' && wsState === 'connected') {
+    if (prevWsState.current === 'disconnected' && wsState === 'connected') {
       mutate(traceKey);
       mutate(spansKey);
     }
