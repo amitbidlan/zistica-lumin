@@ -128,4 +128,57 @@ jobs:
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/traces)" = "200"
           # Redirect has Location header
           curl -sI http://127.0.0.1:3000/ | grep -i '^location:' | grep -q '/traces'
-          docker rm -f synaptic-ci
+      - name: Cleanup container
+        if: always()
+        run: docker rm -f synaptic-ci || true
+
+  e2e:
+    name: E2E browser tests (Playwright)
+    runs-on: ubuntu-latest
+    needs: docker
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: packages/dashboard/package-lock.json
+      - name: Install dashboard deps
+        working-directory: packages/dashboard
+        run: npm install --no-audit --no-fund
+      - name: Install Playwright browsers
+        working-directory: packages/dashboard
+        run: npx playwright install --with-deps chromium
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build container (cache hit from docker job)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          load: true
+          tags: zistica/synaptic:e2e
+          cache-from: type=gha
+      - name: Start container
+        run: |
+          docker run -d --name synaptic-e2e -p 3000:3000 -p 8000:8000 zistica/synaptic:e2e
+          for i in $(seq 1 30); do
+            sleep 1
+            curl -sf http://127.0.0.1:8000/health >/dev/null 2>&1 && break
+          done
+      - name: Run Playwright tests
+        working-directory: packages/dashboard
+        run: npm run test:e2e
+      - name: Upload Playwright artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            packages/dashboard/playwright-report/
+            packages/dashboard/test-results/
+          retention-days: 7
+      - name: Cleanup
+        if: always()
+        run: docker rm -f synaptic-e2e || true

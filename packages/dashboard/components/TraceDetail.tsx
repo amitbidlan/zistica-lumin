@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import useSWR from 'swr';
+import { useCallback, useEffect, useRef } from 'react';
+import useSWR, { useSWRConfig } from 'swr';
 import {
   Span,
   Trace,
@@ -11,11 +12,68 @@ import {
   formatScore,
   formatStartedAt,
 } from '@/lib/api';
+import { useTraceStream, WSMessage } from '@/lib/websocket';
 import SpanTimeline from './SpanTimeline';
 
 export default function TraceDetail({ id }: { id: string }) {
-  const traceQ = useSWR<Trace>(`/v1/traces/${id}`, fetcher);
-  const spansQ = useSWR<Span[]>(`/v1/traces/${id}/spans`, fetcher);
+  const traceKey = `/v1/traces/${id}`;
+  const spansKey = `/v1/traces/${id}/spans`;
+  const { mutate } = useSWRConfig();
+
+  // Subscribe to real-time span events for THIS trace. New spans are
+  // appended to the SWR cache, which re-renders SpanTimeline with the
+  // new node nested under its parent.
+  const wsState = useTraceStream(
+    useCallback(
+      (msg: WSMessage) => {
+        if (msg.type === 'new_span' && msg.trace_id === id) {
+          mutate<Span[]>(
+            spansKey,
+            (current) => {
+              if (!current) return [msg.span];
+              if (current.some((s) => s.id === msg.span.id)) return current;
+              return [...current, msg.span];
+            },
+            { revalidate: false },
+          );
+        } else if (msg.type === 'new_trace' && msg.trace.id === id) {
+          // Trace metadata might update too (e.g. ended_at when the root
+          // span finally lands after orphan children).
+          mutate<Trace>(traceKey, msg.trace, { revalidate: false });
+        }
+      },
+      [id, spansKey, traceKey, mutate],
+    ),
+  );
+
+  // Polling fallback: when WS is down, refresh every 5s so the timeline
+  // doesn't go stale. When WS is connected, no polling — pushes are
+  // authoritative.
+  const refreshInterval = wsState !== 'connected' ? 5000 : 0;
+  const traceQ = useSWR<Trace>(traceKey, fetcher, { refreshInterval });
+  const spansQ = useSWR<Span[]>(spansKey, fetcher, { refreshInterval });
+
+  // Catch-up revalidation: when we reach 'connected' and the session
+  // has *ever* gone through 'disconnected', force a one-shot refetch
+  // so any spans broadcast during the gap surface in the cache.
+  //
+  // We track "ever was disconnected" via a ref rather than checking
+  // immediate previous state — React may render the transient
+  // 'connecting' state between 'disconnected' and 'connected' (more
+  // visible on slower runners like CI), which would otherwise mask
+  // the disconnect→connect transition. First connect (mount → connected,
+  // never disconnected) skips the mutate — SWR's initial fetch already
+  // covered that path.
+  const wasDisconnected = useRef(false);
+  useEffect(() => {
+    if (wsState === 'disconnected') {
+      wasDisconnected.current = true;
+    } else if (wsState === 'connected' && wasDisconnected.current) {
+      mutate(traceKey);
+      mutate(spansKey);
+      wasDisconnected.current = false;
+    }
+  }, [wsState, traceKey, spansKey, mutate]);
 
   if (traceQ.error) {
     return (
@@ -33,13 +91,30 @@ export default function TraceDetail({ id }: { id: string }) {
 
   return (
     <div className="space-y-6">
-      <div>
+      <div className="flex items-center justify-between">
         <Link
           href="/traces"
           className="text-[var(--muted)] text-xs hover:text-[var(--foreground)]"
         >
           ← All traces
         </Link>
+        <span
+          className="inline-flex items-center gap-1 text-xs text-[var(--muted)]"
+          title={
+            wsState === 'connected'
+              ? 'WebSocket connected — new spans appear live'
+              : 'WebSocket unavailable — polling every 5s'
+          }
+        >
+          <span
+            className={
+              wsState === 'connected'
+                ? 'inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse'
+                : 'inline-block h-1.5 w-1.5 rounded-full bg-slate-500'
+            }
+          />
+          {wsState === 'connected' ? 'live' : 'polling'}
+        </span>
       </div>
 
       <header className="border border-[var(--border)] rounded p-4">

@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends
 
 from db import Database, get_db
 from models import IngestRequest, IngestResponse, SpanInput
+from routers.traces import _row_to_span, _row_to_trace
+from ws import manager as ws_manager
 
 router = APIRouter()
 
@@ -108,16 +110,23 @@ def _utc_now_naive() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-def _upsert_trace_from_span(db: Database, span: SpanInput) -> None:
+def _upsert_trace_from_span(db: Database, span: SpanInput) -> bool:
     """Auto-create or update the parent trace based on the span.
 
     - Root spans (no parent) populate the trace fully.
     - Non-root spans only insert a stub if the trace doesn't exist yet.
+
+    Returns True if a brand-new trace row was created (so callers can
+    broadcast a ``new_trace`` event), False if an existing trace was
+    updated (or left untouched).
     """
     trace_id = span.trace_id or span.id
     started_at = _parse_ts(span.started_at)
     ended_at = _parse_ts(span.ended_at)
     ingest_at = _utc_now_naive()
+
+    pre_existing = db.fetchone("SELECT 1 FROM traces WHERE id = ?", [trace_id])
+    is_new_trace = pre_existing is None
 
     if span.parent_span_id is None:
         db.execute(
@@ -144,12 +153,63 @@ def _upsert_trace_from_span(db: Database, span: SpanInput) -> None:
             [trace_id, started_at, ingest_at],
         )
 
+    return is_new_trace
+
+
+def _broadcast_after_insert(db: Database, span: SpanInput, is_new_trace: bool) -> None:
+    """Best-effort: emit ``new_span`` (always) and ``new_trace`` whenever
+    the trace's user-visible state meaningfully changes.
+
+    "Meaningfully changes" means either:
+      - The trace row was just created (e.g. an orphan child span made a
+        stub), so the dashboard hasn't seen this trace_id yet; OR
+      - A root span (parent_span_id is None) arrived. Even if the trace
+        already existed as a stub, the root populates name/input/output/
+        ended_at — the dashboard needs to update its cached row.
+
+    Skipping the second case (which an earlier version did) left the
+    dashboard showing a permanent stub when an orphan child landed
+    before its root.
+
+    Failures are swallowed — broadcast must never affect ingest.
+    """
+    try:
+        trace_id = span.trace_id or span.id
+
+        span_row = db.fetchone_dict("SELECT * FROM spans WHERE id = ?", [span.id])
+        if span_row is not None:
+            ws_manager.broadcast_threadsafe(
+                {
+                    "type": "new_span",
+                    "trace_id": trace_id,
+                    "span": _row_to_span(span_row).model_dump(mode="json"),
+                }
+            )
+
+        is_root = span.parent_span_id is None
+        if is_new_trace or is_root:
+            trace_row = db.fetchone_dict(
+                "SELECT * FROM traces WHERE id = ?", [trace_id]
+            )
+            if trace_row is not None:
+                ws_manager.broadcast_threadsafe(
+                    {
+                        "type": "new_trace",
+                        "trace": _row_to_trace(trace_row).model_dump(mode="json"),
+                    }
+                )
+    except Exception:
+        # Swallow — broadcast is best-effort. Rule 7 generalized: ingest
+        # must never break because of an observability subsystem.
+        pass
+
 
 @router.post("/v1/spans", response_model=IngestResponse)
 def ingest_spans(payload: IngestRequest, db: Database = Depends(get_db)) -> IngestResponse:
     accepted = 0
     for span in payload.spans:
         _insert_span(db, span)
-        _upsert_trace_from_span(db, span)
+        is_new_trace = _upsert_trace_from_span(db, span)
+        _broadcast_after_insert(db, span, is_new_trace)
         accepted += 1
     return IngestResponse(accepted=accepted)

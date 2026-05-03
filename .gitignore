@@ -75,3 +75,4 @@ dist/
 build/
 *.tar.gz
 *.zip
+/package-lock.json

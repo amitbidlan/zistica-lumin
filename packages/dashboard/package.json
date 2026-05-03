@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install --with-deps chromium"
   },
   "dependencies": {
     "next": "14.2.18",
@@ -14,6 +16,7 @@
     "swr": "2.2.5"
   },
   "devDependencies": {
+    "@playwright/test": "1.49.1",
     "@types/node": "20.11.30",
     "@types/react": "18.3.12",
     "@types/react-dom": "18.3.1",

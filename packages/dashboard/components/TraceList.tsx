@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
-import useSWR from 'swr';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import useSWR, { useSWRConfig } from 'swr';
 import {
   Trace,
   deriveStatus,
@@ -12,6 +12,7 @@ import {
   formatScore,
   formatStartedAt,
 } from '@/lib/api';
+import { useTraceStream, WSMessage } from '@/lib/websocket';
 
 const COLS = 'grid grid-cols-[1fr_180px_100px_120px_100px_80px] gap-4 px-3 py-2';
 const PAGE_SIZES = [15, 25, 50, 100];
@@ -54,18 +55,59 @@ export default function TraceList() {
   // Fetch one extra row beyond the page so we can detect "is there a next
   // page" without making a separate count query.
   const offset = page * pageSize;
-  const { data, error, isLoading } = useSWR<Trace[]>(
-    `/v1/traces?limit=${pageSize + 1}&offset=${offset}`,
-    fetcher,
-    {
-      // Auto-refresh only on page 1. On deeper pages, refreshing would
-      // shift the offset window as new traces arrive (insert pushes
-      // existing rows down) — would feel jittery.
-      refreshInterval: page === 0 ? 5000 : 0,
-      // Don't flicker "Loading…" when navigating between pages.
-      keepPreviousData: true,
-    },
+  const swrKey = `/v1/traces?limit=${pageSize + 1}&offset=${offset}`;
+  const { mutate } = useSWRConfig();
+
+  // Real-time updates via WebSocket. When connected, we don't need to
+  // poll. When disconnected, fall back to 5-second polling on page 0.
+  const wsState = useTraceStream(
+    useCallback(
+      (msg: WSMessage) => {
+        // Only apply trace inserts on page 0 — on deeper pages, prepending
+        // would shift the offset window and feel jittery.
+        if (msg.type !== 'new_trace' || page !== 0) return;
+        mutate<Trace[]>(
+          swrKey,
+          (current) => {
+            if (!current) return [msg.trace];
+            if (current.some((t) => t.id === msg.trace.id)) return current;
+            // Keep the +1 probe semantic: page contains pageSize+1 entries
+            return [msg.trace, ...current].slice(0, pageSize + 1);
+          },
+          { revalidate: false },
+        );
+      },
+      [page, pageSize, swrKey, mutate],
+    ),
   );
+
+  const { data, error, isLoading } = useSWR<Trace[]>(swrKey, fetcher, {
+    // Polling is the FALLBACK. Only run it when WS is not connected and
+    // the user is on page 0 (deeper pages don't auto-update either way).
+    refreshInterval: page === 0 && wsState !== 'connected' ? 5000 : 0,
+    // Don't flicker "Loading…" when navigating between pages.
+    keepPreviousData: true,
+  });
+
+  // Catch-up revalidation: when we reach 'connected' and the session
+  // has *ever* gone through 'disconnected', force a one-shot refetch
+  // so any traces broadcast during the gap surface in the cache.
+  //
+  // We track "ever was disconnected" rather than checking immediate
+  // previous state because React may render the transient 'connecting'
+  // state between 'disconnected' and 'connected' (more visible on
+  // slower runners like CI), which would otherwise mask the transition.
+  // First connect (mount → connected, never disconnected) skips the
+  // mutate — SWR's initial fetch already covered that path.
+  const wasDisconnected = useRef(false);
+  useEffect(() => {
+    if (wsState === 'disconnected') {
+      wasDisconnected.current = true;
+    } else if (wsState === 'connected' && wasDisconnected.current) {
+      mutate(swrKey);
+      wasDisconnected.current = false;
+    }
+  }, [wsState, swrKey, mutate]);
 
   if (error) {
     return (
@@ -153,9 +195,22 @@ export default function TraceList() {
             {' · page '}
             {page + 1}
             {page === 0 && (
-              <span className="ml-2 inline-flex items-center gap-1">
-                <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                live
+              <span
+                className="ml-2 inline-flex items-center gap-1"
+                title={
+                  wsState === 'connected'
+                    ? 'WebSocket connected — real-time updates'
+                    : 'WebSocket unavailable — polling every 5s'
+                }
+              >
+                <span
+                  className={
+                    wsState === 'connected'
+                      ? 'inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse'
+                      : 'inline-block h-1.5 w-1.5 rounded-full bg-slate-500'
+                  }
+                />
+                {wsState === 'connected' ? 'live' : 'polling'}
               </span>
             )}
           </span>
