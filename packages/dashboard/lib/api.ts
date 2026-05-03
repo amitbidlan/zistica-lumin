@@ -21,6 +21,22 @@ export type Trace = {
   ingest_at: string | null;
 };
 
+export type Session = {
+  session_id: string;
+  trace_count: number;
+  total_duration_ms: number;
+  total_cost_usd: number;
+  total_tokens: number;
+  quality_score: number | null;
+  first_seen: string | null;
+  last_seen: string | null;
+  wall_duration_ms: number | null;
+};
+
+export type SessionDetail = Session & {
+  traces: Trace[];
+};
+
 export type Span = {
   id: string;
   trace_id: string;

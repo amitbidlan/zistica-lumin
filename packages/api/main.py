@@ -7,7 +7,7 @@ from typing import AsyncIterator
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from db import Database, get_db
-from routers import evals, spans, traces
+from routers import evals, sessions, spans, traces
 from ws import manager as ws_manager
 
 logger = logging.getLogger("synaptic.api")
@@ -93,6 +93,7 @@ app = FastAPI(
 
 app.include_router(spans.router)
 app.include_router(traces.router)
+app.include_router(sessions.router)
 app.include_router(evals.router)
 
 

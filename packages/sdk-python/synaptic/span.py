@@ -36,6 +36,10 @@ class Span:
     started_at: str = field(default_factory=_now_iso)
     ended_at: Optional[str] = None
     error: Optional[str] = None
+    # Optional session grouping — populated from synaptic.session() context
+    # or @synaptic.trace(session_id=...). Default None preserves existing
+    # behavior for callers that don't use sessions.
+    session_id: Optional[str] = None
 
     @classmethod
     def create(
@@ -84,6 +88,7 @@ class Span:
             "started_at": self.started_at,
             "ended_at": self.ended_at,
             "error": self.error,
+            "session_id": self.session_id,
         }
 
 

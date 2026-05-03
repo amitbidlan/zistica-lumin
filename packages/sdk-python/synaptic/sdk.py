@@ -6,7 +6,12 @@ import threading
 from typing import Any, Callable, Optional
 
 from .config import Config
-from .context import get_current_span, reset_current_span, set_current_span
+from .context import (
+    get_current_session,
+    get_current_span,
+    reset_current_span,
+    set_current_span,
+)
 from .exporter import HTTPExporter
 from .queue import BoundedQueue
 from .span import Span, SpanContext
@@ -184,7 +189,32 @@ def span(name: str, type: str = "custom") -> SpanContext:
     return SpanContext(_get_sdk(), name, type)
 
 
-def trace(_func: Optional[Callable] = None, *, name: Optional[str] = None, type: str = "custom"):
+def _resolve_session_id(
+    explicit: Optional[str], parent: Optional[Span]
+) -> Optional[str]:
+    """Pick the session_id to attach to a new span.
+
+    Priority: explicit @trace(session_id=...) > active synaptic.session()
+    context > parent span's session_id (so children inherit). None means
+    "no session" and the field is omitted from storage.
+    """
+    if explicit is not None:
+        return explicit
+    current = get_current_session()
+    if current is not None:
+        return current.id
+    if parent is not None and parent.session_id:
+        return parent.session_id
+    return None
+
+
+def trace(
+    _func: Optional[Callable] = None,
+    *,
+    name: Optional[str] = None,
+    type: str = "custom",
+    session_id: Optional[str] = None,
+):
     """Decorator that records a span around a function call.
 
     Works on both sync and async functions (auto-detected).
@@ -194,6 +224,9 @@ def trace(_func: Optional[Callable] = None, *, name: Optional[str] = None, type:
 
         @trace(name="my_step", type="llm")
         async def g(...): ...
+
+        @trace(session_id="user-123-conv-456")
+        def h(...): ...   # always tagged with this session
     """
 
     def decorator(fn: Callable) -> Callable:
@@ -207,6 +240,7 @@ def trace(_func: Optional[Callable] = None, *, name: Optional[str] = None, type:
                 cfg = sdk.config
                 parent = get_current_span()
                 s = Span.create(span_name, type, parent=parent)
+                s.session_id = _resolve_session_id(session_id, parent)
                 if cfg.capture_inputs:
                     s.set_input(
                         {"args": list(args), "kwargs": kwargs}, cfg.max_payload_size
@@ -233,6 +267,7 @@ def trace(_func: Optional[Callable] = None, *, name: Optional[str] = None, type:
             cfg = sdk.config
             parent = get_current_span()
             s = Span.create(span_name, type, parent=parent)
+            s.session_id = _resolve_session_id(session_id, parent)
             if cfg.capture_inputs:
                 s.set_input(
                     {"args": list(args), "kwargs": kwargs}, cfg.max_payload_size

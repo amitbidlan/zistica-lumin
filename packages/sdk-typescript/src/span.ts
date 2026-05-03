@@ -11,6 +11,9 @@ export interface SpanData {
   started_at: string;
   ended_at: string | null;
   error: string | null;
+  /** Optional session grouping. Populated from the current session() context
+   *  or via trace(fn, { sessionId }). Default null preserves prior behavior. */
+  session_id: string | null;
 }
 
 function serialize(value: unknown, maxSize: number): string | null {
@@ -40,6 +43,7 @@ export class Span {
   output: string | null = null;
   ended_at: string | null = null;
   error: string | null = null;
+  session_id: string | null = null;
 
   private constructor(
     id: string,
@@ -98,6 +102,7 @@ export class Span {
       started_at: this.started_at,
       ended_at: this.ended_at,
       error: this.error,
+      session_id: this.session_id,
     };
   }
 }

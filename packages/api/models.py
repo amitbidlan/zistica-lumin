@@ -32,6 +32,8 @@ class SpanInput(BaseModel):
     cost_usd: Optional[float] = None
     tool_name: Optional[str] = None
     metadata: Optional[dict] = None
+    # Session grouping — propagates to the trace row when a root span lands
+    session_id: Optional[str] = None
 
 
 class IngestRequest(BaseModel):
@@ -96,6 +98,25 @@ class Span(BaseModel):
     error_message: Optional[str] = None
     tool_name: Optional[str] = None
     metadata: Optional[Any] = None
+
+
+class Session(BaseModel):
+    session_id: str
+    trace_count: int = 0
+    total_duration_ms: int = 0
+    total_cost_usd: float = 0.0
+    total_tokens: int = 0
+    quality_score: Optional[float] = None
+    first_seen: Optional[datetime] = None
+    last_seen: Optional[datetime] = None
+    # Wall-clock duration of the session — last_seen − first_seen — distinct
+    # from total_duration_ms which sums per-trace durations (and may overlap
+    # if turns ran concurrently).
+    wall_duration_ms: Optional[int] = None
+
+
+class SessionDetail(Session):
+    traces: List[Trace] = []
 
 
 class EvalCreate(BaseModel):
