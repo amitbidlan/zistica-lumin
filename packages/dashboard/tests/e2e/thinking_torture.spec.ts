@@ -99,15 +99,16 @@ test('thinking span with empty reasoning text shows (empty) without crashing', a
 
 test('100KB reasoning text renders without hanging the page', async ({ page }) => {
   const traceId = `torture-huge-${randomUUID()}`;
+  const parentId = `p-${randomUUID()}`;
   const huge = 'REASONING-TOKEN '.repeat(6500); // ~100KB
   await postSpans([
     {
-      id: `p-${randomUUID()}`, trace_id: traceId,
+      id: parentId, trace_id: traceId,
       name: 'claude_call', type: 'llm',
       started_at: nowIso(0), ended_at: nowIso(1000),
     },
     {
-      id: `t-${randomUUID()}`, trace_id: traceId,
+      id: `t-${randomUUID()}`, trace_id: traceId, parent_span_id: parentId,
       name: 'thinking', type: 'llm',
       started_at: nowIso(0), ended_at: nowIso(500),
       span_subtype: 'thinking',
@@ -170,14 +171,15 @@ test('thinking, tool, and response children all render with correct badges', asy
 
 test('trace with thinking but no response renders thinking row + breakdown', async ({ page }) => {
   const traceId = `torture-streaming-${randomUUID()}`;
+  const parentId = `p-${randomUUID()}`;
   await postSpans([
     {
-      id: `p-${randomUUID()}`, trace_id: traceId,
+      id: parentId, trace_id: traceId,
       name: 'claude_call', type: 'llm',
       started_at: nowIso(0), ended_at: nowIso(2000),
     },
     {
-      id: `t-${randomUUID()}`, trace_id: traceId,
+      id: `t-${randomUUID()}`, trace_id: traceId, parent_span_id: parentId,
       name: 'thinking', type: 'llm',
       started_at: nowIso(0), ended_at: nowIso(2000),
       span_subtype: 'thinking', thinking_tokens: 500,
@@ -217,15 +219,16 @@ test('unknown span_subtype falls through to default rendering without crashing',
 
 test('unicode and emoji in reasoning render correctly', async ({ page }) => {
   const traceId = `torture-unicode-${randomUUID()}`;
+  const parentId = `p-${randomUUID()}`;
   const reasoning = '推論 → なぜ 2+2=4? 🧠✓ こたえ: ４';
   await postSpans([
     {
-      id: `p-${randomUUID()}`, trace_id: traceId,
+      id: parentId, trace_id: traceId,
       name: 'claude_call', type: 'llm',
       started_at: nowIso(0), ended_at: nowIso(1000),
     },
     {
-      id: `t-${randomUUID()}`, trace_id: traceId,
+      id: `t-${randomUUID()}`, trace_id: traceId, parent_span_id: parentId,
       name: 'thinking', type: 'llm',
       started_at: nowIso(0), ended_at: nowIso(500),
       span_subtype: 'thinking', thinking_tokens: 50,
