@@ -42,6 +42,18 @@ That's it. No account, no API key, no data leaves your laptop.
 
 ---
 
+## Preview
+
+![Trace list — paginated, auto-refreshing every 5 seconds](assets/dashboard-trace.png)
+
+*Trace list — every agent run on a paginated, live-refreshing table.*
+
+![Trace detail — span timeline with expanded input/output](assets/dashboard-details.png)
+
+*Trace detail — click any span in the timeline to inspect its input/output JSON. Errors render in red.*
+
+---
+
 ## What you get
 
 - **Span timeline** — every LLM call, tool invocation, retrieval, and custom span rendered as an indented tree, click any span to expand its input/output JSON
