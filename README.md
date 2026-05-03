@@ -65,7 +65,7 @@ That's it. No account, no API key, no data leaves your laptop.
 - **Real-time updates** — WebSocket stream pushes traces and spans into the dashboard the moment they're ingested, no refresh; falls back to 5-second polling if the socket can't connect
 - **Cost & token tracking** — automatic per-call breakdown for OpenAI and Anthropic model families
 - **Quality scoring** — bring-your-own evals via `POST /v1/evals`
-- **Framework integrations** — drop-in support for [LangChain](#langchain) (zero-config via `SYNAPTIC_TRACING=true`), [CrewAI](#crewai) (one-line `instrument_crew()`), [LlamaIndex](#llamaindex) (`SynapticCallbackHandler` for query engines, retrieval, and embeddings), and [Anthropic](#anthropic) (`instrument_anthropic()` — captures Claude extended-thinking blocks as first-class child spans)
+- **Framework integrations** — drop-in support for [LangChain](https://github.com/langchain-ai/langchain) (zero-config via `SYNAPTIC_TRACING=true` — see [section](#langchain)), [LlamaIndex](https://github.com/run-llama/llama_index) (`SynapticCallbackHandler` for query engines, retrieval, embeddings — [section](#llamaindex)), [CrewAI](https://github.com/crewAIInc/crewAI) (one-line `instrument_crew()` — [section](#crewai)), [Mastra](https://github.com/mastra-ai/mastra) (TypeScript agents, drop-in `SynapticExporter` — see [`@synaptic/mastra`](packages/integrations/mastra/)), and [Anthropic](https://github.com/anthropics/anthropic-sdk-python) (`instrument_anthropic()` captures Claude extended-thinking blocks as first-class child spans — [section](#anthropic))
 - **Cross-language SDKs** — Python and TypeScript with identical wire format and behavior
 - **Resilient by design** — the agent never fails because Synaptic is down. Spans drop silently if the queue overflows, the exporter is unreachable, or the server returns an error
 - **Local-first** — single Docker image, DuckDB + SQLite, no external services, no cloud dependency
@@ -103,9 +103,9 @@ Single Docker container runs the API on `:8000` and the Next.js standalone dashb
 
 | Path | Package | Tests |
 |---|---|---|
-| [`packages/sdk-python/`](packages/sdk-python/) | Python SDK with `@synaptic.trace`, `synaptic.span()`, `synaptic.session()`, integrations | 171 |
+| [`packages/sdk-python/`](packages/sdk-python/) | Python SDK with `@synaptic.trace`, `synaptic.span()`, `synaptic.session()`, integrations | 172 |
 | [`packages/sdk-typescript/`](packages/sdk-typescript/) | `@synaptic/sdk` — peer of the Python SDK | 59 |
-| [`packages/api/`](packages/api/) | FastAPI ingest + query API, DuckDB storage, WebSocket fanout, session aggregations | 59 |
+| [`packages/api/`](packages/api/) | FastAPI ingest + query API, DuckDB storage, WebSocket fanout, session aggregations | 61 |
 | [`packages/dashboard/`](packages/dashboard/) | Next.js 14 dashboard with paginated timeline + session view | build + 21 Playwright E2E |
 
 ---
@@ -179,7 +179,7 @@ await myAgent('test');
 
 ### LangChain
 
-Zero-config — set the env var before importing LangChain and every chain is auto-traced:
+Works with [LangChain](https://github.com/langchain-ai/langchain) (Python). Zero-config — set the env var before importing LangChain and every chain is auto-traced:
 
 ```python
 import os
@@ -201,6 +201,8 @@ llm = ChatOpenAI(callbacks=[handler])
 
 ### CrewAI
 
+For [CrewAI](https://github.com/crewAIInc/crewAI) multi-agent crews:
+
 ```python
 from synaptic.integrations.crewai import instrument_crew
 instrument_crew()
@@ -214,6 +216,8 @@ crew.kickoff()
 ```
 
 ### LlamaIndex
+
+For [LlamaIndex](https://github.com/run-llama/llama_index) RAG pipelines and agents:
 
 ```python
 from synaptic.integrations.llama_index import SynapticCallbackHandler
@@ -234,6 +238,8 @@ index.as_query_engine().query("what is …?")
 
 ### Anthropic
 
+For [Anthropic Claude](https://github.com/anthropics/anthropic-sdk-python) — captures extended-thinking blocks as first-class child spans:
+
 ```python
 from synaptic.integrations.anthropic import instrument_anthropic
 instrument_anthropic()
@@ -252,6 +258,22 @@ client.messages.create(
 # Dashboard renders thinking rows with a brain emoji + per-trace
 # thinking-vs-response cost breakdown.
 ```
+
+### Mastra
+
+For [Mastra](https://github.com/mastra-ai/mastra) (TypeScript agent framework). Drop-in replacement for `@mastra/langfuse` if you want local-first observability without sending data to a hosted SaaS:
+
+```typescript
+import { Mastra } from '@mastra/core';
+import { synapticConfig } from '@synaptic/mastra';
+
+export const mastra = new Mastra({
+  agents: { myAgent },
+  observability: synapticConfig({ serviceName: 'my-mastra-app' }),
+});
+```
+
+See [`packages/integrations/mastra/`](packages/integrations/mastra/) for the dedicated `@synaptic/mastra` package.
 
 ### Sessions (multi-turn conversations)
 
