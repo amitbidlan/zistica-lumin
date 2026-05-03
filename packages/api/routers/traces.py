@@ -122,6 +122,7 @@ def _row_to_span(row: dict) -> Span:
         metadata=metadata,
         span_subtype=row.get("span_subtype"),
         thinking_tokens=row.get("thinking_tokens"),
+        session_id=row.get("session_id"),
     )
 
 

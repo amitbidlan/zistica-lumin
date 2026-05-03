@@ -23,6 +23,64 @@ def _post_root(client, *, id_, session_id=None, name=None, started_at=None, ende
     )
 
 
+def test_span_session_id_round_trips_through_api(client):
+    """Regression: the spans table was missing a session_id column,
+    so POSTs that included session_id had it silently dropped on
+    the span row (only the trace metadata kept it). Confirm that
+    GET /v1/traces/{id}/spans now returns the value."""
+    client.post(
+        "/v1/spans",
+        json={
+            "spans": [
+                {
+                    "id": "sess-roundtrip-1",
+                    "trace_id": "sess-roundtrip-trace",
+                    "name": "test",
+                    "type": "custom",
+                    "started_at": "2026-05-04T10:00:00Z",
+                    "ended_at": "2026-05-04T10:00:01Z",
+                    "session_id": "user-abc-conversation-123",
+                },
+                {
+                    "id": "sess-roundtrip-2",
+                    "trace_id": "sess-roundtrip-trace",
+                    "parent_span_id": "sess-roundtrip-1",
+                    "name": "child",
+                    "type": "custom",
+                    "started_at": "2026-05-04T10:00:00.500Z",
+                    "ended_at": "2026-05-04T10:00:00.800Z",
+                    "session_id": "user-abc-conversation-123",
+                },
+            ]
+        },
+    )
+    spans = client.get("/v1/traces/sess-roundtrip-trace/spans").json()
+    assert len(spans) == 2
+    for s in spans:
+        assert s["session_id"] == "user-abc-conversation-123", (
+            f"{s['name']} span dropped session_id"
+        )
+
+
+def test_span_without_session_id_keeps_null(client):
+    """A span without an explicit session_id should round-trip as
+    null — not propagate from the trace's session_id."""
+    client.post(
+        "/v1/spans",
+        json={
+            "spans": [{
+                "id": "no-sess-1",
+                "trace_id": "no-sess-trace",
+                "name": "test",
+                "started_at": "2026-05-04T10:00:00Z",
+                "ended_at": "2026-05-04T10:00:01Z",
+            }]
+        },
+    )
+    spans = client.get("/v1/traces/no-sess-trace/spans").json()
+    assert spans[0]["session_id"] is None
+
+
 def test_list_sessions_groups_traces_by_session_id(client):
     s1 = "session-A"
     s2 = "session-B"
