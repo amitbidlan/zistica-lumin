@@ -37,9 +37,12 @@ COPY packages/api/requirements.txt /tmp/api-requirements.txt
 RUN pip install --no-cache-dir -r /tmp/api-requirements.txt
 
 # Install the SDK (so users can `pip install` on top and `import synaptic`
-# from inside the container if they want to run agents alongside)
+# from inside the container if they want to run agents alongside).
+# Include the `anthropic` extra so the Anthropic integration is importable
+# out of the box — the langchain/crewai integrations stay opt-in via
+# their own pip installs to keep the image small.
 COPY packages/sdk-python/ /app/sdk-python/
-RUN pip install --no-cache-dir /app/sdk-python/
+RUN pip install --no-cache-dir "/app/sdk-python/[anthropic]"
 
 # API source
 COPY packages/api/ /app/api/

@@ -20,6 +20,19 @@ function prettyJson(s: string | null): string {
   }
 }
 
+function thinkingText(input: string | null): string {
+  // Thinking spans store {"thinking": "..."} in input. Strip the
+  // wrapper so the dashboard shows the reasoning text directly.
+  if (!input) return '';
+  try {
+    const parsed = JSON.parse(input);
+    if (parsed && typeof parsed === 'object' && typeof parsed.thinking === 'string') {
+      return parsed.thinking;
+    }
+  } catch {}
+  return input;
+}
+
 export default function SpanRow({
   span,
   depth,
@@ -27,15 +40,37 @@ export default function SpanRow({
   span: Span;
   depth: number;
 }) {
+  const isThinking = span.span_subtype === 'thinking';
+  const isResponse = span.span_subtype === 'response';
+  // Thinking rows are collapsed by default (the reasoning is long;
+  // the user opts in to read it). Other rows are also collapsed by
+  // default — we keep the behavior uniform.
   const [open, setOpen] = useState(false);
   const typeClass = TYPE_COLORS[span.type ?? 'custom'] ?? TYPE_COLORS.custom;
   const isError = span.status === 'error';
 
+  const rowClass = isThinking
+    ? 'w-full text-left px-3 py-2 transition-colors flex items-center gap-3 bg-violet-950/20 hover:bg-violet-950/40 border-l-2 border-violet-700'
+    : 'w-full text-left px-3 py-2 hover:bg-[#111418] transition-colors flex items-center gap-3';
+
+  const subtypeBadge = isThinking ? (
+    <span
+      className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 border rounded text-violet-200 border-violet-600 bg-violet-900/40"
+      data-testid="thinking-badge"
+    >
+      thinking
+    </span>
+  ) : isResponse ? (
+    <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 border rounded text-emerald-200 border-emerald-700 bg-emerald-900/30">
+      response
+    </span>
+  ) : null;
+
   return (
-    <div>
+    <div data-span-subtype={span.span_subtype ?? 'none'}>
       <button
         onClick={() => setOpen(!open)}
-        className="w-full text-left px-3 py-2 hover:bg-[#111418] transition-colors flex items-center gap-3"
+        className={rowClass}
         aria-expanded={open}
       >
         <span
@@ -43,11 +78,12 @@ export default function SpanRow({
           className="text-[var(--muted)] font-mono select-none"
           style={{ paddingLeft: `${depth * 20}px` }}
         >
-          {depth === 0 ? '●' : '└─'}
+          {isThinking ? '🧠' : depth === 0 ? '●' : '└─'}
         </span>
         <span className="font-mono truncate flex-1">
           {span.name ?? '(unnamed)'}
         </span>
+        {subtypeBadge}
         <span
           className={`text-[10px] uppercase tracking-wider px-1.5 py-0.5 border rounded ${typeClass}`}
         >
@@ -58,10 +94,19 @@ export default function SpanRow({
             {span.model}
           </span>
         )}
-        {span.tokens_input != null && (
-          <span className="text-xs text-[var(--muted)] font-mono">
-            {span.tokens_input}/{span.tokens_output ?? 0} tok
+        {isThinking && span.thinking_tokens != null ? (
+          <span
+            className="text-xs text-violet-300 font-mono"
+            data-testid="thinking-tokens"
+          >
+            ~{span.thinking_tokens} thinking tok
           </span>
+        ) : (
+          (span.tokens_input != null || span.tokens_output != null) && (
+            <span className="text-xs text-[var(--muted)] font-mono">
+              {span.tokens_input ?? 0}/{span.tokens_output ?? 0} tok
+            </span>
+          )
         )}
         {span.cost_usd != null && (
           <span className="text-xs text-[var(--muted)] font-mono">
@@ -78,9 +123,25 @@ export default function SpanRow({
         )}
       </button>
       {open && (
-        <div className="px-4 pb-3 pt-1 bg-[#0d1014] text-xs space-y-3">
-          <Field label="Input" value={prettyJson(span.input)} />
-          <Field label="Output" value={prettyJson(span.output)} />
+        <div
+          className={`px-4 pb-3 pt-1 text-xs space-y-3 ${
+            isThinking ? 'bg-violet-950/10 border-l-2 border-violet-800/40' : 'bg-[#0d1014]'
+          }`}
+        >
+          {isThinking ? (
+            <Field
+              label="Reasoning"
+              value={thinkingText(span.input) || '(empty)'}
+              accent="thinking"
+            />
+          ) : (
+            span.input != null && span.input !== '' && (
+              <Field label="Input" value={prettyJson(span.input)} />
+            )
+          )}
+          {!isThinking && span.output != null && span.output !== '' && (
+            <Field label="Output" value={prettyJson(span.output)} />
+          )}
           {span.error_message && (
             <Field label="Error" value={span.error_message} error />
           )}
@@ -94,24 +155,30 @@ function Field({
   label,
   value,
   error = false,
+  accent,
 }: {
   label: string;
   value: string;
   error?: boolean;
+  accent?: 'thinking';
 }) {
+  const labelClass = error
+    ? 'text-red-400'
+    : accent === 'thinking'
+      ? 'text-violet-300'
+      : 'text-[var(--muted)]';
+  const preClass = error
+    ? 'text-red-300'
+    : accent === 'thinking'
+      ? 'text-violet-100 border-violet-800/60 bg-violet-950/20'
+      : '';
   return (
     <div>
-      <div
-        className={`text-[10px] uppercase tracking-wider mb-1 ${
-          error ? 'text-red-400' : 'text-[var(--muted)]'
-        }`}
-      >
+      <div className={`text-[10px] uppercase tracking-wider mb-1 ${labelClass}`}>
         {label}
       </div>
       <pre
-        className={`font-mono whitespace-pre-wrap break-all border border-[var(--border)] rounded p-2 ${
-          error ? 'text-red-300' : ''
-        }`}
+        className={`font-mono whitespace-pre-wrap break-all border border-[var(--border)] rounded p-2 ${preClass}`}
       >
         {value}
       </pre>

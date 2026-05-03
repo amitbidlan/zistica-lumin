@@ -18,9 +18,8 @@ from __future__ import annotations
 import json
 import os
 from contextvars import ContextVar
-from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
 try:
     from langchain_core.callbacks.base import BaseCallbackHandler
@@ -33,6 +32,7 @@ except ImportError as e:
         "Install with: pip install langchain-core"
     ) from e
 
+from synaptic.integrations._ext_span import _ExtSpan, _estimate_tokens, _serialize
 from synaptic.sdk import _get_sdk
 from synaptic.span import Span
 
@@ -68,41 +68,8 @@ def _compute_cost(model: Optional[str], tin: Optional[int], tout: Optional[int])
     return round(tin * inp / 1000 + tout * outp / 1000, 8)
 
 
-@dataclass
-class _ExtSpan(Span):
-    """Span subclass with the rich fields used by framework integrations.
-
-    The SDK exporter calls ``.to_dict()`` on each span — overriding it here
-    adds extra fields without modifying the SDK core dataclass. The API
-    already accepts these fields (see packages/api/models.py:SpanInput).
-    """
-
-    model: Optional[str] = None
-    provider: Optional[str] = None
-    tokens_input: Optional[int] = None
-    tokens_output: Optional[int] = None
-    cost_usd: Optional[float] = None
-    tool_name: Optional[str] = None
-
-    def to_dict(self) -> dict:
-        d = super().to_dict()
-        d["model"] = self.model
-        d["provider"] = self.provider
-        d["tokens_input"] = self.tokens_input
-        d["tokens_output"] = self.tokens_output
-        d["cost_usd"] = self.cost_usd
-        d["tool_name"] = self.tool_name
-        return d
-
-
-def _serialize(value: Any, max_size: int = 10_240) -> Optional[str]:
-    if value is None:
-        return None
-    try:
-        s = json.dumps(value, default=str, ensure_ascii=False)
-    except Exception:
-        s = str(value)
-    return s[:max_size]
+# `_ExtSpan` and `_serialize` live in synaptic.integrations._ext_span
+# now — shared between this integration and the Anthropic one.
 
 
 def _msg_to_dict(m: BaseMessage) -> dict:
@@ -340,7 +307,63 @@ class SynapticCallbackHandler(BaseCallbackHandler):
 
             span.cost_usd = _compute_cost(span.model, tin, tout)
 
+            # Claude extended-thinking: ChatAnthropic returns AIMessage.content
+            # as a list of blocks when thinking is enabled. Emit child spans
+            # for each thinking block so the dashboard can show the reasoning
+            # phase separately from the final response.
+            self._maybe_emit_thinking_children(span, response)
+
         self._finish(run_id)
+
+    def _maybe_emit_thinking_children(
+        self, parent: _ExtSpan, response: LLMResult
+    ) -> None:
+        """If the response carries thinking blocks (Claude extended thinking
+        via ChatAnthropic), submit a child span per block under `parent`.
+        Best-effort — any extraction error is swallowed so we never break
+        on_llm_end."""
+        try:
+            gens = response.generations[0]
+            msg = getattr(gens[0], "message", None) if gens else None
+            content = getattr(msg, "content", None) if msg else None
+            if not isinstance(content, list):
+                return
+
+            sdk = _get_sdk()
+            total_thinking_tokens = 0
+            for block in content:
+                # ChatAnthropic gives dict-shaped content blocks
+                if isinstance(block, dict) and block.get("type") == "thinking":
+                    text = block.get("thinking") or ""
+                    tokens = _estimate_tokens(text)
+                    total_thinking_tokens += tokens
+                    child_id = str(uuid4())
+                    child = _ExtSpan(
+                        id=child_id,
+                        trace_id=parent.trace_id,
+                        parent_span_id=parent.id,
+                        name="thinking",
+                        type="llm",
+                    )
+                    child.span_subtype = "thinking"
+                    child.thinking_tokens = tokens
+                    child.model = parent.model
+                    child.provider = parent.provider
+                    # Use input field for the thinking content so the
+                    # dashboard's expand-input UX shows it directly.
+                    child.input = _serialize({"thinking": text})
+                    child.cost_usd = _compute_cost(
+                        parent.model, 0, tokens
+                    )
+                    child.session_id = parent.session_id
+                    child.end()
+                    sdk.submit(child)
+
+            if total_thinking_tokens > 0:
+                parent.thinking_tokens = total_thinking_tokens
+        except Exception:
+            # Swallow — thinking extraction is opportunistic
+            pass
 
     def on_llm_error(
         self,

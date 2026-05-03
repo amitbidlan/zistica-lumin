@@ -14,6 +14,21 @@ export interface SpanData {
   /** Optional session grouping. Populated from the current session() context
    *  or via trace(fn, { sessionId }). Default null preserves prior behavior. */
   session_id: string | null;
+  /** Optional discriminator for spans that originate from a typed
+   *  integration. Currently used for Claude extended-thinking — the
+   *  integration emits `claude_call` parents with `thinking` and
+   *  `response` children. Default null = ordinary span. */
+  span_subtype?: 'thinking' | 'response' | string | null;
+  /** Estimated tokens spent inside a thinking block. Only set on
+   *  thinking spans. Anthropic doesn't break thinking out of
+   *  output_tokens — we estimate from text length. */
+  thinking_tokens?: number | null;
+  /** LLM model identifier (e.g. "claude-opus-4-20250514"). */
+  model?: string | null;
+  provider?: string | null;
+  tokens_input?: number | null;
+  tokens_output?: number | null;
+  cost_usd?: number | null;
 }
 
 function serialize(value: unknown, maxSize: number): string | null {
@@ -44,6 +59,13 @@ export class Span {
   ended_at: string | null = null;
   error: string | null = null;
   session_id: string | null = null;
+  span_subtype: 'thinking' | 'response' | string | null = null;
+  thinking_tokens: number | null = null;
+  model: string | null = null;
+  provider: string | null = null;
+  tokens_input: number | null = null;
+  tokens_output: number | null = null;
+  cost_usd: number | null = null;
 
   private constructor(
     id: string,
@@ -103,6 +125,13 @@ export class Span {
       ended_at: this.ended_at,
       error: this.error,
       session_id: this.session_id,
+      span_subtype: this.span_subtype,
+      thinking_tokens: this.thinking_tokens,
+      model: this.model,
+      provider: this.provider,
+      tokens_input: this.tokens_input,
+      tokens_output: this.tokens_output,
+      cost_usd: this.cost_usd,
     };
   }
 }

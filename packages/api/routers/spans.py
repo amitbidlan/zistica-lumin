@@ -56,8 +56,9 @@ def _insert_span(db: Database, span: SpanInput) -> None:
         INSERT INTO spans (
             id, trace_id, parent_span_id, type, name, input, output,
             model, provider, tokens_input, tokens_output, cost_usd,
-            started_at, ended_at, status, error_message, tool_name, metadata
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            started_at, ended_at, status, error_message, tool_name, metadata,
+            span_subtype, thinking_tokens
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (id) DO UPDATE SET
             trace_id = EXCLUDED.trace_id,
             parent_span_id = EXCLUDED.parent_span_id,
@@ -75,7 +76,9 @@ def _insert_span(db: Database, span: SpanInput) -> None:
             status = EXCLUDED.status,
             error_message = EXCLUDED.error_message,
             tool_name = EXCLUDED.tool_name,
-            metadata = EXCLUDED.metadata
+            metadata = EXCLUDED.metadata,
+            span_subtype = EXCLUDED.span_subtype,
+            thinking_tokens = EXCLUDED.thinking_tokens
         """,
         [
             span.id,
@@ -96,6 +99,8 @@ def _insert_span(db: Database, span: SpanInput) -> None:
             error_message,
             span.tool_name,
             metadata_str,
+            span.span_subtype,
+            span.thinking_tokens,
         ],
     )
 
