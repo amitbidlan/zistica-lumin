@@ -75,7 +75,7 @@ This skill only reads from Synaptic. To get your OpenClaw agent's
 traces *into* Synaptic, install the companion exporter:
 
 ```bash
-npm install @synaptic/openclaw
+npm install @zistica-synaptic/openclaw
 ```
 
 …and pass `synapticProcessor()` into your OpenClaw OTel config. See

@@ -1,5 +1,5 @@
 {
-  "name": "@synaptic/openclaw",
+  "name": "@zistica-synaptic/openclaw",
   "version": "0.1.0",
   "description": "Synaptic exporter for OpenClaw agents — local-first observability with zero cloud dependency.",
   "license": "Apache-2.0",

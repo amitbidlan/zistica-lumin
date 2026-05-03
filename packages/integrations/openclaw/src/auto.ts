@@ -1,5 +1,5 @@
 /**
- * Side-effect entry point — `import "@synaptic/openclaw/auto"` enables
+ * Side-effect entry point — `import "@zistica-synaptic/openclaw/auto"` enables
  * tracing when SYNAPTIC_TRACING is truthy.
  *
  * Honest caveat: modern OpenTelemetry (v2+) requires SpanProcessors
@@ -15,7 +15,7 @@
  * For OpenClaw v1+ the supported path is to wire the processor
  * directly into `@openclaw/diagnostics-otel`'s configuration, e.g.:
  *
- *     import { synapticProcessor } from '@synaptic/openclaw';
+ *     import { synapticProcessor } from '@zistica-synaptic/openclaw';
  *     // … pass synapticProcessor() into the diagnostics config
  *
  * This module is a courtesy hook for environments where late

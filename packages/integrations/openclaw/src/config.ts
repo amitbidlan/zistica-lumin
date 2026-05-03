@@ -5,7 +5,7 @@
  *
  * Usage:
  *
- *     import { synapticProcessor } from '@synaptic/openclaw';
+ *     import { synapticProcessor } from '@zistica-synaptic/openclaw';
  *
  *     // Pass to the OTel SDK / OpenClaw diagnostics config:
  *     spanProcessors: [synapticProcessor()]

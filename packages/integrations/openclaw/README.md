@@ -1,13 +1,13 @@
-# @synaptic/openclaw
+# @zistica-synaptic/openclaw
 
 > Debug your [OpenClaw](https://github.com/openclaw/openclaw) agent locally. No account. No cloud. No telemetry leaving your laptop.
 
-`@synaptic/openclaw` is the Synaptic side of OpenClaw's OTel telemetry pipeline. OpenClaw ships diagnostics through `@openclaw/diagnostics-otel`; this package provides a drop-in `SpanExporter` that converts those spans to Synaptic's wire format and ships them to a local Synaptic instance — visible at `http://localhost:3000`.
+`@zistica-synaptic/openclaw` is the Synaptic side of OpenClaw's OTel telemetry pipeline. OpenClaw ships diagnostics through `@openclaw/diagnostics-otel`; this package provides a drop-in `SpanExporter` that converts those spans to Synaptic's wire format and ships them to a local Synaptic instance — visible at `http://localhost:3000`.
 
 ## Install
 
 ```bash
-npm install @synaptic/openclaw
+npm install @zistica-synaptic/openclaw
 ```
 
 You also need a running Synaptic instance:
@@ -21,7 +21,7 @@ docker run -p 3000:3000 -p 8000:8000 zistica/synaptic
 Build the processor and pass it to `@openclaw/diagnostics-otel`'s `spanProcessors:` array (or to any OTel `NodeTracerProvider` config you're already using):
 
 ```typescript
-import { synapticProcessor } from '@synaptic/openclaw';
+import { synapticProcessor } from '@zistica-synaptic/openclaw';
 
 // In your OpenClaw / OTel config:
 const tracerProvider = new NodeTracerProvider({
@@ -46,7 +46,7 @@ export SYNAPTIC_HOST=http://localhost:8000
 If you want full control over the OTel pipeline (e.g. `SimpleSpanProcessor` for tests), use the bare exporter:
 
 ```typescript
-import { SynapticExporter } from '@synaptic/openclaw';
+import { SynapticExporter } from '@zistica-synaptic/openclaw';
 import { SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';
 
 const exporter = new SynapticExporter({
@@ -65,7 +65,7 @@ export SYNAPTIC_TRACING=true
 ```
 
 ```typescript
-import '@synaptic/openclaw/auto';
+import '@zistica-synaptic/openclaw/auto';
 ```
 
 This path is best-effort — modern OTel (and OpenClaw's diagnostics-otel) requires processors to be supplied at construction time, in which case the import silently no-ops and you should fall back to `synapticProcessor()` above.

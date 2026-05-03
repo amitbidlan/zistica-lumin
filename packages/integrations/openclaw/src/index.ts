@@ -1,5 +1,5 @@
 /**
- * @synaptic/openclaw — local-first observability for OpenClaw agents.
+ * @zistica-synaptic/openclaw — local-first observability for OpenClaw agents.
  *
  * OpenClaw emits OTel telemetry through `@openclaw/diagnostics-otel`.
  * This package provides the Synaptic side of that pipe — an OTel
@@ -16,7 +16,7 @@
  *     that want a SimpleSpanProcessor instead).
  *   - installSynapticTracing(): attaches a SynapticExporter to the
  *     active OTel tracer provider when SYNAPTIC_TRACING=true. Most
- *     users will use the `import "@synaptic/openclaw/auto"` form.
+ *     users will use the `import "@zistica-synaptic/openclaw/auto"` form.
  */
 
 export {
