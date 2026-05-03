@@ -89,16 +89,24 @@ export default function TraceList() {
     keepPreviousData: true,
   });
 
-  // Catch-up revalidation: events broadcast during a WS disconnect are
-  // gone from the live stream. When we reconnect from a *disconnect*
-  // (not the initial 'connecting' state — SWR's initial fetch already
-  // covers that path), force a one-shot refetch.
-  const prevWsState = useRef(wsState);
+  // Catch-up revalidation: when we reach 'connected' and the session
+  // has *ever* gone through 'disconnected', force a one-shot refetch
+  // so any traces broadcast during the gap surface in the cache.
+  //
+  // We track "ever was disconnected" rather than checking immediate
+  // previous state because React may render the transient 'connecting'
+  // state between 'disconnected' and 'connected' (more visible on
+  // slower runners like CI), which would otherwise mask the transition.
+  // First connect (mount → connected, never disconnected) skips the
+  // mutate — SWR's initial fetch already covered that path.
+  const wasDisconnected = useRef(false);
   useEffect(() => {
-    if (prevWsState.current === 'disconnected' && wsState === 'connected') {
+    if (wsState === 'disconnected') {
+      wasDisconnected.current = true;
+    } else if (wsState === 'connected' && wasDisconnected.current) {
       mutate(swrKey);
+      wasDisconnected.current = false;
     }
-    prevWsState.current = wsState;
   }, [wsState, swrKey, mutate]);
 
   if (error) {

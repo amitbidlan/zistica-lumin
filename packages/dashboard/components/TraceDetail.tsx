@@ -53,20 +53,26 @@ export default function TraceDetail({ id }: { id: string }) {
   const traceQ = useSWR<Trace>(traceKey, fetcher, { refreshInterval });
   const spansQ = useSWR<Span[]>(spansKey, fetcher, { refreshInterval });
 
-  // Catch-up revalidation: when WS transitions disconnected → connected,
-  // events that arrived during the gap have already been lost from the
-  // pushed stream. Force a one-shot revalidation so the cache catches up
-  // to whatever the API has, then resume live updates from there.
-  // Skipped on the initial 'connecting' → 'connected' transition because
-  // the SWR initial fetch is already in-flight; revalidating again would
-  // be a redundant network round-trip on every page load.
-  const prevWsState = useRef(wsState);
+  // Catch-up revalidation: when we reach 'connected' and the session
+  // has *ever* gone through 'disconnected', force a one-shot refetch
+  // so any spans broadcast during the gap surface in the cache.
+  //
+  // We track "ever was disconnected" via a ref rather than checking
+  // immediate previous state — React may render the transient
+  // 'connecting' state between 'disconnected' and 'connected' (more
+  // visible on slower runners like CI), which would otherwise mask
+  // the disconnect→connect transition. First connect (mount → connected,
+  // never disconnected) skips the mutate — SWR's initial fetch already
+  // covered that path.
+  const wasDisconnected = useRef(false);
   useEffect(() => {
-    if (prevWsState.current === 'disconnected' && wsState === 'connected') {
+    if (wsState === 'disconnected') {
+      wasDisconnected.current = true;
+    } else if (wsState === 'connected' && wasDisconnected.current) {
       mutate(traceKey);
       mutate(spansKey);
+      wasDisconnected.current = false;
     }
-    prevWsState.current = wsState;
   }, [wsState, traceKey, spansKey, mutate]);
 
   if (traceQ.error) {
