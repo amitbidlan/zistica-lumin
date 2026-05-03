@@ -57,6 +57,7 @@ That's it. No account, no API key, no data leaves your laptop.
 ## What you get
 
 - **Span timeline** — every LLM call, tool invocation, retrieval, and custom span rendered as an indented tree, click any span to expand its input/output JSON
+- **Real-time updates** — WebSocket stream pushes traces and spans into the dashboard the moment they're ingested, no refresh; falls back to 5-second polling if the socket can't connect
 - **Cost & token tracking** — automatic per-call breakdown for OpenAI and Anthropic model families
 - **Quality scoring** — bring-your-own evals via `POST /v1/evals`
 - **Framework integrations** — drop-in support for [LangChain](#langchain) (zero-config via `SYNAPTIC_TRACING=true`) and [CrewAI](#crewai) (one-line `instrument_crew()`)
@@ -76,18 +77,20 @@ That's it. No account, no API key, no data leaves your laptop.
    SDK queue (bounded, drop-on-overflow)
         │  background async exporter
         ▼
-   HTTP POST /v1/spans  ───►  FastAPI
-                                 │
-                                 ▼
-                              DuckDB (traces, spans, evals)
-                              SQLite (metadata)
-                                 ▲
-                                 │  GET /v1/traces
-   Browser  ──►  Next.js Dashboard ──►  /api/* (rewrite proxy)
-                  localhost:3000          same-origin
+   HTTP POST /v1/spans  ───►  FastAPI ──┐
+                                 │      │ broadcast
+                                 ▼      ▼
+                              DuckDB    /ws/traces (WebSocket fanout)
+                              SQLite       │
+                                 ▲         │  push: new_trace, new_span
+                                 │         │
+                       GET /v1/* │         ▼
+   Browser  ──►  Next.js Dashboard  ──◄────┘
+                  localhost:3000
+                  /api/* (HTTP rewrite proxy)
 ```
 
-Single Docker container runs the API on `:8000` and the Next.js standalone dashboard on `:3000`. The dashboard's `/api/*` rewrite proxies to the API so the browser never crosses origins (no CORS to configure).
+Single Docker container runs the API on `:8000` and the Next.js standalone dashboard on `:3000`. HTTP requests go through the dashboard's `/api/*` rewrite proxy (so the browser never crosses origins for HTTP). WebSocket connects directly to `:8000/ws/traces` — Next.js rewrites are HTTP-only, so port `8000` must be exposed for real-time updates (the dashboard falls back to 5-second polling otherwise).
 
 ---
 
@@ -255,9 +258,19 @@ GET    /v1/traces             # Paginated list (?limit=&offset=)
 GET    /v1/traces/{id}        # Single trace
 GET    /v1/traces/{id}/spans  # All spans for a trace
 POST   /v1/evals              # Submit a quality score
+WS     /ws/traces             # Real-time fanout — new_trace + new_span events
 GET    /health                # Liveness check
 GET    /docs                  # Auto-generated OpenAPI UI
 ```
+
+**WebSocket message shape:**
+
+```json
+{ "type": "new_span",  "trace_id": "...", "span":  { ...full span... } }
+{ "type": "new_trace",                    "trace": { ...full trace... } }
+```
+
+`new_trace` fires when a trace is first created **or** when a root span (`parent_span_id == null`) lands on an existing stub — so the dashboard always sees the populated trace, not just the stub.
 
 ---
 
