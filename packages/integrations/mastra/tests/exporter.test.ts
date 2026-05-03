@@ -154,6 +154,62 @@ describe('otelSpanToSynaptic', () => {
     expect(out.output).toContain('c');
   });
 
+  test('Vercel AI SDK / Mastra ai.prompt.messages and ai.response.text', () => {
+    // These are the keys Mastra actually emits in production. OTel
+    // attribute constraints mean prompt.messages is JSON-encoded as
+    // a string; response.text is a plain string. Don't double-encode.
+    const promptJson = JSON.stringify([
+      { role: 'user', content: 'What is the capital of France?' },
+    ]);
+    const span = makeSpan({
+      attributes: {
+        'ai.prompt.messages': promptJson,
+        'ai.response.text': 'The capital of France is Paris.',
+      },
+    });
+    const out = otelSpanToSynaptic(span);
+    // The pre-stringified JSON must NOT be wrapped in extra quotes
+    expect(out.input).toBe(promptJson);
+    expect(out.output).toBe('The capital of France is Paris.');
+  });
+
+  test('Vercel AI tool call: ai.toolCall.args + .result', () => {
+    const argsJson = JSON.stringify({ query: 'capital of France' });
+    const resultJson = JSON.stringify({
+      results: ['Paris is the capital.'],
+    });
+    const span = makeSpan({
+      attributes: {
+        'ai.toolCall.args': argsJson,
+        'ai.toolCall.result': resultJson,
+        'gen_ai.tool.name': 'search_web',
+      },
+    });
+    const out = otelSpanToSynaptic(span);
+    expect(out.type).toBe('tool');
+    expect(out.tool_name).toBe('search_web');
+    expect(out.input).toBe(argsJson);
+    expect(out.output).toBe(resultJson);
+  });
+
+  test('array-of-strings attribute (e.g. message list) joins with newlines', () => {
+    const span = makeSpan({
+      attributes: {
+        'gen_ai.prompt': ['system: be helpful', 'user: hello'],
+      },
+    });
+    const out = otelSpanToSynaptic(span);
+    expect(out.input).toBe('system: be helpful\nuser: hello');
+  });
+
+  test('numeric and boolean attributes get stringified, not dropped', () => {
+    const span = makeSpan({
+      attributes: { 'mastra.input': 42 },
+    });
+    const out = otelSpanToSynaptic(span);
+    expect(out.input).toBe('42');
+  });
+
   test('session_id resolves from common conventions', () => {
     const a = otelSpanToSynaptic(
       makeSpan({ attributes: { 'session.id': 's-123' } }),
