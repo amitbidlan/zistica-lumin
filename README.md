@@ -22,6 +22,10 @@ docker build -t synaptic .
 docker run -p 3000:3000 -p 8000:8000 -v $(pwd)/data:/data synaptic
 ```
 
+Both ports matter:
+- **`3000`** — the dashboard (this is what you open in the browser)
+- **`8000`** — the API. The browser also connects to it directly for the WebSocket real-time stream. Skip this mapping and the dashboard still works, but new traces appear via 5-second polling instead of live push.
+
 Open <http://localhost:3000> — the dashboard is ready.
 
 Then in your agent:
@@ -100,8 +104,8 @@ Single Docker container runs the API on `:8000` and the Next.js standalone dashb
 |---|---|---|
 | [`packages/sdk-python/`](packages/sdk-python/) | Python SDK with `@synaptic.trace`, `synaptic.span()`, integrations | 56 |
 | [`packages/sdk-typescript/`](packages/sdk-typescript/) | `@synaptic/sdk` — peer of the Python SDK | 31 |
-| [`packages/api/`](packages/api/) | FastAPI ingest + query API, DuckDB storage | 29 |
-| [`packages/dashboard/`](packages/dashboard/) | Next.js 14 dashboard with paginated timeline | build clean |
+| [`packages/api/`](packages/api/) | FastAPI ingest + query API, DuckDB storage, WebSocket fanout | 37 |
+| [`packages/dashboard/`](packages/dashboard/) | Next.js 14 dashboard with paginated timeline | build + 7 Playwright E2E |
 
 ---
 
@@ -243,9 +247,14 @@ npm install && npm run build && npm test
 # Dashboard
 cd packages/dashboard
 npm install && npm run dev   # http://localhost:3000
+
+# Dashboard E2E (browser tests, requires the Docker container running)
+cd packages/dashboard
+npm run test:e2e:install     # one-time: download Chromium
+npm run test:e2e             # 7 Playwright tests against localhost
 ```
 
-CI runs the full matrix (Python SDK, API, TypeScript SDK, dashboard build, Docker image smoke test) on every push and pull request — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+CI runs all six jobs on every push and pull request — Python SDK, FastAPI, TypeScript SDK, Next.js dashboard build, Docker image build + smoke, and Playwright E2E (real Chromium against the live container). See [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ---
 
