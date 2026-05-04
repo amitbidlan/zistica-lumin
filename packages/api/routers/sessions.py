@@ -38,12 +38,34 @@ def _row_to_session(row: dict) -> Session:
     )
 
 
+# Per-trace cost / tokens. Mirrors the GREATEST(stored, sum-from-spans)
+# pattern that /v1/traces uses, so framework-only-spans flows
+# (every OTel exporter does this — no separate POST /v1/traces call)
+# still aggregate up correctly. Without this, sessions reported $0/0
+# tokens for every span-only ingest.
 _BASE_AGG = """
     session_id,
     COUNT(*) AS trace_count,
     SUM(COALESCE(DATEDIFF('millisecond', started_at, ended_at), 0)) AS total_duration_ms,
-    SUM(COALESCE(total_cost_usd, 0)) AS total_cost_usd,
-    SUM(COALESCE(total_tokens, 0)) AS total_tokens,
+    SUM(
+        GREATEST(
+            COALESCE(total_cost_usd, 0),
+            COALESCE(
+                (SELECT SUM(cost_usd) FROM spans WHERE trace_id = traces.id),
+                0
+            )
+        )
+    ) AS total_cost_usd,
+    SUM(
+        GREATEST(
+            COALESCE(total_tokens, 0),
+            COALESCE(
+                (SELECT SUM(COALESCE(tokens_input, 0) + COALESCE(tokens_output, 0))
+                 FROM spans WHERE trace_id = traces.id),
+                0
+            )
+        )
+    ) AS total_tokens,
     AVG(quality_score) AS quality_score,
     MIN(started_at) AS first_seen,
     MAX(COALESCE(ended_at, started_at)) AS last_seen
