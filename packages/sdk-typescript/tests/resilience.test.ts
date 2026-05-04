@@ -1,12 +1,12 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { trace } from '../src/trace.js';
-import { SynapticSDK, setSDK } from '../src/sdk.js';
+import { LuminSDK, setSDK } from '../src/sdk.js';
 import { resolveConfig } from '../src/config.js';
 import { HTTPExporter } from '../src/exporter.js';
 import { Span } from '../src/span.js';
 import { Exporter } from '../src/exporter.js';
 
-let active: SynapticSDK | null = null;
+let active: LuminSDK | null = null;
 
 afterEach(async () => {
   if (active) {
@@ -16,7 +16,7 @@ afterEach(async () => {
   setSDK(null);
 });
 
-describe('resilience — agent must never see Synaptic errors', () => {
+describe('resilience — agent must never see Lumin errors', () => {
   it('failing exporter does not break the agent', async () => {
     class FailingExporter implements Exporter {
       async export(): Promise<void> {
@@ -24,7 +24,7 @@ describe('resilience — agent must never see Synaptic errors', () => {
       }
       async close(): Promise<void> {}
     }
-    active = new SynapticSDK(
+    active = new LuminSDK(
       resolveConfig({ host: 'http://test', flushIntervalMs: 3_600_000 }),
       new FailingExporter(),
     );
@@ -39,7 +39,7 @@ describe('resilience — agent must never see Synaptic errors', () => {
   });
 
   it('unreachable HTTP server does not break the agent', async () => {
-    active = new SynapticSDK(
+    active = new LuminSDK(
       resolveConfig({
         host: 'http://127.0.0.1:1', // refuses fast
         flushIntervalMs: 3_600_000,
@@ -56,7 +56,7 @@ describe('resilience — agent must never see Synaptic errors', () => {
   });
 
   it('exception in user code propagates to caller', async () => {
-    active = new SynapticSDK(resolveConfig({ host: 'http://test' }));
+    active = new LuminSDK(resolveConfig({ host: 'http://test' }));
     setSDK(active);
 
     const boom = trace(async () => {
@@ -74,7 +74,7 @@ describe('resilience — agent must never see Synaptic errors', () => {
   });
 
   it('queue overflow is silent (no throw)', async () => {
-    active = new SynapticSDK(
+    active = new LuminSDK(
       resolveConfig({
         host: 'http://test',
         flushIntervalMs: 3_600_000,

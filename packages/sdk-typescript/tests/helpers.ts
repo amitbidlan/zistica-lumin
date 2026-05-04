@@ -1,6 +1,6 @@
 import { Exporter } from '../src/exporter.js';
 import { Span } from '../src/span.js';
-import { SynapticSDK, setSDK } from '../src/sdk.js';
+import { LuminSDK, setSDK } from '../src/sdk.js';
 import { resolveConfig } from '../src/config.js';
 
 export class CapturingExporter implements Exporter {
@@ -13,7 +13,7 @@ export class CapturingExporter implements Exporter {
   }
 }
 
-export function makeTestSDK(): { sdk: SynapticSDK; exporter: CapturingExporter } {
+export function makeTestSDK(): { sdk: LuminSDK; exporter: CapturingExporter } {
   const exporter = new CapturingExporter();
   // Very high flush interval so the background timer never runs during tests
   // — tests call sdk.flush() explicitly to drain.
@@ -22,7 +22,7 @@ export function makeTestSDK(): { sdk: SynapticSDK; exporter: CapturingExporter }
     flushIntervalMs: 3_600_000,
     exportTimeoutMs: 500,
   });
-  const sdk = new SynapticSDK(cfg, exporter);
+  const sdk = new LuminSDK(cfg, exporter);
   setSDK(sdk);
   return { sdk, exporter };
 }

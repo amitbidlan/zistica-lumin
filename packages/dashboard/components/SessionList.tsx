@@ -17,7 +17,7 @@ const COLS =
   'grid grid-cols-[1fr_180px_100px_120px_100px_80px] gap-4 px-3 py-2';
 const PAGE_SIZE_DEFAULT = 15;
 const PAGE_SIZES = [15, 25, 50, 100];
-const PAGE_SIZE_STORAGE_KEY = 'synaptic.pageSize';
+const PAGE_SIZE_STORAGE_KEY = 'lumin.pageSize';
 
 function readStoredPageSize(): number {
   if (typeof window === 'undefined') return PAGE_SIZE_DEFAULT;
@@ -95,7 +95,7 @@ export default function SessionList() {
     return (
       <div className="text-[var(--muted)]">
         No sessions yet. Wrap your agent calls in{' '}
-        <code className="font-mono">synaptic.session(name=&quot;…&quot;)</code> to
+        <code className="font-mono">lumin.session(name=&quot;…&quot;)</code> to
         group multi-turn conversations together.
       </div>
     );

@@ -13,8 +13,8 @@ pytest.importorskip("llama_index.core.callbacks.base_handler")
 
 from llama_index.core.callbacks.schema import CBEventType, EventPayload  # noqa: E402
 
-from synaptic.integrations.llama_index import (  # noqa: E402
-    SynapticCallbackHandler,
+from lumin.integrations.llama_index import (  # noqa: E402
+    LuminCallbackHandler,
     _classify,
     _compute_cost,
     _extract_model,
@@ -33,8 +33,8 @@ def _drain(sdk):
     return sdk._exporter.spans
 
 
-def _make_handler() -> SynapticCallbackHandler:
-    return SynapticCallbackHandler()
+def _make_handler() -> LuminCallbackHandler:
+    return LuminCallbackHandler()
 
 
 def _ev() -> str:
@@ -401,12 +401,12 @@ def test_orphaned_end_does_not_crash(sdk):
     # No exception = pass
 
 
-def test_handler_inside_synaptic_trace_links_under_outer(sdk):
-    """When wrapped in @synaptic.trace, the first LlamaIndex event
-    should attach under the outer @synaptic.trace span."""
-    import synaptic
+def test_handler_inside_lumin_trace_links_under_outer(sdk):
+    """When wrapped in @lumin.trace, the first LlamaIndex event
+    should attach under the outer @lumin.trace span."""
+    import lumin
 
-    @synaptic.trace
+    @lumin.trace
     def my_agent() -> None:
         h = _make_handler()
         h.start_trace("inner_query")
@@ -456,13 +456,13 @@ def test_to_dict_includes_extended_fields(sdk):
 # ---------- resilience ----------
 
 
-def test_agent_continues_if_synaptic_down(sdk, monkeypatch):
+def test_agent_continues_if_lumin_down(sdk, monkeypatch):
     """If the SDK's submit() throws (e.g. queue exploded), the
     handler must still let LlamaIndex finish. Rule 7."""
     h = _make_handler()
 
     def boom(*_a, **_k):
-        raise RuntimeError("synaptic backend exploded")
+        raise RuntimeError("lumin backend exploded")
 
     # Patch submit on the live sdk to simulate failure
     monkeypatch.setattr(sdk, "submit", boom)
@@ -477,8 +477,8 @@ def test_agent_continues_if_synaptic_down(sdk, monkeypatch):
 def test_handler_double_init_is_safe():
     """Constructing two handlers with default args doesn't crash and
     each gets its own state."""
-    h1 = SynapticCallbackHandler()
-    h2 = SynapticCallbackHandler()
+    h1 = LuminCallbackHandler()
+    h2 = LuminCallbackHandler()
     assert h1 is not h2
     assert h1._spans is not h2._spans
     assert h1._active_traces is not h2._active_traces
@@ -491,22 +491,22 @@ def test_zero_config_attaches_when_env_set(monkeypatch):
     from llama_index.core import Settings
     from llama_index.core.callbacks import CallbackManager
 
-    from synaptic.integrations.llama_index import _maybe_register_global
+    from lumin.integrations.llama_index import _maybe_register_global
 
-    monkeypatch.setenv("SYNAPTIC_TRACING", "true")
+    monkeypatch.setenv("LUMIN_TRACING", "true")
     Settings.callback_manager = CallbackManager([])
     assert _maybe_register_global() is True
     handlers = Settings.callback_manager.handlers
-    assert any(isinstance(h, SynapticCallbackHandler) for h in handlers)
+    assert any(isinstance(h, LuminCallbackHandler) for h in handlers)
 
 
 def test_zero_config_disabled_when_env_unset(monkeypatch):
     from llama_index.core import Settings
     from llama_index.core.callbacks import CallbackManager
 
-    from synaptic.integrations.llama_index import _maybe_register_global
+    from lumin.integrations.llama_index import _maybe_register_global
 
-    monkeypatch.delenv("SYNAPTIC_TRACING", raising=False)
+    monkeypatch.delenv("LUMIN_TRACING", raising=False)
     Settings.callback_manager = CallbackManager([])
     assert _maybe_register_global() is False
 
@@ -515,12 +515,12 @@ def test_zero_config_idempotent(monkeypatch):
     from llama_index.core import Settings
     from llama_index.core.callbacks import CallbackManager
 
-    from synaptic.integrations.llama_index import _maybe_register_global
+    from lumin.integrations.llama_index import _maybe_register_global
 
-    monkeypatch.setenv("SYNAPTIC_TRACING", "true")
-    Settings.callback_manager = CallbackManager([SynapticCallbackHandler()])
+    monkeypatch.setenv("LUMIN_TRACING", "true")
+    Settings.callback_manager = CallbackManager([LuminCallbackHandler()])
     assert _maybe_register_global() is True
     handlers = Settings.callback_manager.handlers
     # Should not have added a second handler
-    syn_handlers = [h for h in handlers if isinstance(h, SynapticCallbackHandler)]
+    syn_handlers = [h for h in handlers if isinstance(h, LuminCallbackHandler)]
     assert len(syn_handlers) == 1

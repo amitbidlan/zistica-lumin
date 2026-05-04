@@ -1,14 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { synapticConfig } from '../src/config.js';
-import { SynapticExporter } from '../src/exporter.js';
+import { luminConfig } from '../src/config.js';
+import { LuminExporter } from '../src/exporter.js';
 
-describe('synapticConfig()', () => {
+describe('luminConfig()', () => {
   let originalEnv: Record<string, string | undefined>;
   beforeEach(() => {
     originalEnv = {
-      SYNAPTIC_HOST: process.env.SYNAPTIC_HOST,
-      SYNAPTIC_API_KEY: process.env.SYNAPTIC_API_KEY,
-      SYNAPTIC_SERVICE_NAME: process.env.SYNAPTIC_SERVICE_NAME,
+      LUMIN_HOST: process.env.LUMIN_HOST,
+      LUMIN_API_KEY: process.env.LUMIN_API_KEY,
+      LUMIN_SERVICE_NAME: process.env.LUMIN_SERVICE_NAME,
     };
   });
   afterEach(() => {
@@ -19,29 +19,29 @@ describe('synapticConfig()', () => {
   });
 
   test('returns Mastra-shaped config with defaults', () => {
-    const cfg = synapticConfig();
-    expect(cfg.configs.synaptic).toBeDefined();
-    expect(cfg.configs.synaptic.serviceName).toBe('mastra-app');
-    expect(cfg.configs.synaptic.exporters).toHaveLength(1);
-    expect(cfg.configs.synaptic.exporters[0]).toBeInstanceOf(SynapticExporter);
+    const cfg = luminConfig();
+    expect(cfg.configs.lumin).toBeDefined();
+    expect(cfg.configs.lumin.serviceName).toBe('mastra-app');
+    expect(cfg.configs.lumin.exporters).toHaveLength(1);
+    expect(cfg.configs.lumin.exporters[0]).toBeInstanceOf(LuminExporter);
   });
 
-  test('serviceName from env var SYNAPTIC_SERVICE_NAME', () => {
-    process.env.SYNAPTIC_SERVICE_NAME = 'my-prod-app';
-    const cfg = synapticConfig();
-    expect(cfg.configs.synaptic.serviceName).toBe('my-prod-app');
+  test('serviceName from env var LUMIN_SERVICE_NAME', () => {
+    process.env.LUMIN_SERVICE_NAME = 'my-prod-app';
+    const cfg = luminConfig();
+    expect(cfg.configs.lumin.serviceName).toBe('my-prod-app');
   });
 
   test('configName option lets users name the block', () => {
-    const cfg = synapticConfig({ configName: 'local-tracing' });
+    const cfg = luminConfig({ configName: 'local-tracing' });
     expect(cfg.configs['local-tracing']).toBeDefined();
-    expect(cfg.configs.synaptic).toBeUndefined();
+    expect(cfg.configs.lumin).toBeUndefined();
   });
 
   test('explicit serviceName overrides env', () => {
-    process.env.SYNAPTIC_SERVICE_NAME = 'env-name';
-    const cfg = synapticConfig({ serviceName: 'explicit-name' });
-    expect(cfg.configs.synaptic.serviceName).toBe('explicit-name');
+    process.env.LUMIN_SERVICE_NAME = 'env-name';
+    const cfg = luminConfig({ serviceName: 'explicit-name' });
+    expect(cfg.configs.lumin.serviceName).toBe('explicit-name');
   });
 
   test('exporter is wired with the supplied options', async () => {
@@ -51,13 +51,13 @@ describe('synapticConfig()', () => {
       captured.headers = init?.headers as Record<string, string>;
       return new Response('{}');
     };
-    const cfg = synapticConfig({
-      host: 'http://my-synaptic:8000',
+    const cfg = luminConfig({
+      host: 'http://my-lumin:8000',
       apiKey: 'k',
       project: 'demo',
       fetchImpl: fakeFetch,
     });
-    const exporter = cfg.configs.synaptic.exporters[0];
+    const exporter = cfg.configs.lumin.exporters[0];
     // Trigger an export to assert the exporter actually carries the config
     await new Promise((r) =>
       exporter.export(
@@ -90,9 +90,9 @@ describe('synapticConfig()', () => {
         r as (v: unknown) => void,
       ),
     );
-    expect(captured.url).toBe('http://my-synaptic:8000/v1/spans');
+    expect(captured.url).toBe('http://my-lumin:8000/v1/spans');
     expect(captured.headers!['Authorization']).toBe('Bearer k');
-    expect(captured.headers!['X-Synaptic-Project']).toBe('demo');
+    expect(captured.headers!['X-Lumin-Project']).toBe('demo');
   });
 });
 
@@ -147,27 +147,27 @@ describe('tryAttach() — pure attachment logic (no env, no module state)', () =
   });
 });
 
-describe('installSynapticTracing() — env gate', () => {
+describe('installLuminTracing() — env gate', () => {
   let originalEnv: string | undefined;
   beforeEach(() => {
-    originalEnv = process.env.SYNAPTIC_TRACING;
+    originalEnv = process.env.LUMIN_TRACING;
   });
   afterEach(() => {
-    if (originalEnv === undefined) delete process.env.SYNAPTIC_TRACING;
-    else process.env.SYNAPTIC_TRACING = originalEnv;
+    if (originalEnv === undefined) delete process.env.LUMIN_TRACING;
+    else process.env.LUMIN_TRACING = originalEnv;
   });
 
-  test('returns false when SYNAPTIC_TRACING is unset', async () => {
-    delete process.env.SYNAPTIC_TRACING;
-    const { installSynapticTracing } = await import('../src/auto.js');
-    expect(installSynapticTracing()).toBe(false);
+  test('returns false when LUMIN_TRACING is unset', async () => {
+    delete process.env.LUMIN_TRACING;
+    const { installLuminTracing } = await import('../src/auto.js');
+    expect(installLuminTracing()).toBe(false);
   });
 
-  test('returns false when SYNAPTIC_TRACING is enabled but the global provider is a default no-op proxy (no addSpanProcessor in the chain)', async () => {
+  test('returns false when LUMIN_TRACING is enabled but the global provider is a default no-op proxy (no addSpanProcessor in the chain)', async () => {
     // No fresh module import — the default OTel global provider is a
     // proxy whose delegate (if any) doesn't expose addSpanProcessor.
-    process.env.SYNAPTIC_TRACING = 'true';
-    const { installSynapticTracing } = await import('../src/auto.js');
-    expect(installSynapticTracing()).toBe(false);
+    process.env.LUMIN_TRACING = 'true';
+    const { installLuminTracing } = await import('../src/auto.js');
+    expect(installLuminTracing()).toBe(false);
   });
 });

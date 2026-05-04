@@ -6,7 +6,7 @@ import { defineConfig, devices } from '@playwright/test';
  * (API) — typically via the Docker container.
  *
  * Run locally:
- *   docker run -d --name e2e -p 3000:3000 -p 8000:8000 zistica/synaptic:latest
+ *   docker run -d --name e2e -p 3000:3000 -p 8000:8000 zistica/lumin:latest
  *   cd packages/dashboard && npm run test:e2e:install && npm run test:e2e
  */
 export default defineConfig({

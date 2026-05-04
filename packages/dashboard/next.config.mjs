@@ -1,7 +1,7 @@
 // next.config — Next.js 14 (config.ts isn't supported until 15)
 // API proxy: dashboard talks to /api/* → forwarded to the FastAPI backend.
 // Same-origin in the browser → no CORS to add to the API.
-const API_URL = process.env.SYNAPTIC_API_URL || 'http://localhost:8000';
+const API_URL = process.env.LUMIN_API_URL || 'http://localhost:8000';
 
 /** @type {import('next').NextConfig} */
 const config = {

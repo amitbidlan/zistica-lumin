@@ -21,7 +21,7 @@ function resolveSessionId(
   return null;
 }
 
-/** Wrap an async function so each invocation records a Synaptic span.
+/** Wrap an async function so each invocation records a Lumin span.
  *  The wrapped function preserves the original signature.
  *  Errors propagate to the caller; the span captures them via setError().
  */

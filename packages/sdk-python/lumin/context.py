@@ -7,10 +7,10 @@ if TYPE_CHECKING:
     from .session import Session
 
 _current_span: contextvars.ContextVar[Optional[Span]] = contextvars.ContextVar(
-    "synaptic_current_span", default=None
+    "lumin_current_span", default=None
 )
 _current_session: contextvars.ContextVar[Optional["Session"]] = contextvars.ContextVar(
-    "synaptic_current_session", default=None
+    "lumin_current_session", default=None
 )
 
 

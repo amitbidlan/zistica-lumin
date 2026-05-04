@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from synaptic.integrations.crewai import instrument_crew
+from lumin.integrations.crewai import instrument_crew
 
 
 # --- stand-in classes that mimic the crewai API surface we patch ---
@@ -172,8 +172,8 @@ def test_instrumentation_is_idempotent(sdk, patched_classes):
 
 def test_original_method_preserved_on_wrapper(patched_classes):
     Crew, _ = patched_classes
-    assert getattr(Crew.kickoff, "_synaptic_wrapped", False) is True
-    assert callable(getattr(Crew.kickoff, "_synaptic_original", None))
+    assert getattr(Crew.kickoff, "_lumin_wrapped", False) is True
+    assert callable(getattr(Crew.kickoff, "_lumin_original", None))
 
 
 # --- LangChain interop: LLM spans nest under the crew span ---
@@ -189,10 +189,10 @@ def test_langchain_llm_within_crew_nests_under_agent_span(sdk, patched_classes):
     from langchain_core.messages import AIMessage, HumanMessage
     from langchain_core.outputs import ChatGeneration, LLMResult
 
-    from synaptic.integrations.langchain import SynapticCallbackHandler
+    from lumin.integrations.langchain import LuminCallbackHandler
 
     Crew, Agent = patched_classes
-    handler = SynapticCallbackHandler()
+    handler = LuminCallbackHandler()
 
     class LLMAgent(Agent):
         def execute_task(self, task):

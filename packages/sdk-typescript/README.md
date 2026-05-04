@@ -1,9 +1,9 @@
-# @synaptic/sdk
+# @lumin-io/sdk
 
-TypeScript SDK for [Synaptic](https://github.com/amitbidlan/zistica-synaptic) — the local-first AI agent observability stack.
+TypeScript SDK for [Lumin](https://github.com/amitbidlan/zistica-lumin) — the local-first AI agent observability stack.
 
 ```typescript
-import { trace, span, session } from '@synaptic/sdk';
+import { trace, span, session } from '@lumin-io/sdk';
 
 const myAgent = trace(async (q: string) => {
   // your agent code
@@ -14,7 +14,7 @@ const myAgent = trace(async (q: string) => {
 ## Install
 
 ```bash
-npm install @synaptic/sdk
+npm install @lumin-io/sdk
 ```
 
 ## Framework integrations
@@ -22,16 +22,16 @@ npm install @synaptic/sdk
 For Mastra users:
 
 ```bash
-npm install @synaptic/mastra
+npm install @lumin-io/mastra
 ```
 
-See the [`@synaptic/mastra` package](../integrations/mastra/) for usage. Drop-in replacement for `@mastra/langfuse` if you want local-first observability without sending data to a hosted SaaS.
+See the [`@lumin-io/mastra` package](../integrations/mastra/) for usage. Drop-in replacement for `@mastra/langfuse` if you want local-first observability without sending data to a hosted SaaS.
 
 For Anthropic Claude users (extended thinking visualization):
 
 ```typescript
 import Anthropic from '@anthropic-ai/sdk';
-import { instrumentAnthropic } from '@synaptic/sdk/integrations/anthropic';
+import { instrumentAnthropic } from '@lumin-io/sdk/integrations/anthropic';
 
 const client = new Anthropic();
 instrumentAnthropic(client);

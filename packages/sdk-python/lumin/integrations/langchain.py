@@ -1,16 +1,16 @@
-"""LangChain integration for Synaptic.
+"""LangChain integration for Lumin.
 
-Records every LLM call, tool call, and chain step as a Synaptic span.
+Records every LLM call, tool call, and chain step as a Lumin span.
 Use explicitly:
 
-    from synaptic.integrations.langchain import SynapticCallbackHandler
-    handler = SynapticCallbackHandler()
+    from lumin.integrations.langchain import LuminCallbackHandler
+    handler = LuminCallbackHandler()
     llm = ChatOpenAI(callbacks=[handler])
 
 Or zero-config via env var (set BEFORE importing LangChain):
 
     import os
-    os.environ["SYNAPTIC_TRACING"] = "true"
+    os.environ["LUMIN_TRACING"] = "true"
 """
 
 from __future__ import annotations
@@ -28,13 +28,13 @@ try:
     from langchain_core.tracers.context import register_configure_hook
 except ImportError as e:
     raise ImportError(
-        "synaptic.integrations.langchain requires langchain-core. "
+        "lumin.integrations.langchain requires langchain-core. "
         "Install with: pip install langchain-core"
     ) from e
 
-from synaptic.integrations._ext_span import _ExtSpan, _estimate_tokens, _serialize
-from synaptic.sdk import _get_sdk
-from synaptic.span import Span
+from lumin.integrations._ext_span import _ExtSpan, _estimate_tokens, _serialize
+from lumin.sdk import _get_sdk
+from lumin.span import Span
 
 
 # Approximate USD prices per 1K tokens (May 2026).
@@ -68,7 +68,7 @@ def _compute_cost(model: Optional[str], tin: Optional[int], tout: Optional[int])
     return round(tin * inp / 1000 + tout * outp / 1000, 8)
 
 
-# `_ExtSpan` and `_serialize` live in synaptic.integrations._ext_span
+# `_ExtSpan` and `_serialize` live in lumin.integrations._ext_span
 # now — shared between this integration and the Anthropic one.
 
 
@@ -153,8 +153,8 @@ def _extract_tokens(response: LLMResult) -> tuple[Optional[int], Optional[int]]:
     return None, None
 
 
-class SynapticCallbackHandler(BaseCallbackHandler):
-    """LangChain callback handler that records spans into Synaptic.
+class LuminCallbackHandler(BaseCallbackHandler):
+    """LangChain callback handler that records spans into Lumin.
 
     Lifecycle is keyed by LangChain's ``run_id`` (a UUID): we store an open
     span per active run, populate it with end/error data when the run
@@ -185,14 +185,14 @@ class SynapticCallbackHandler(BaseCallbackHandler):
 
         # Resolve parent: prefer LangChain's run-id chain (specific to this
         # callback handler), fall back to the SDK's current span (covers
-        # frameworks like CrewAI that open Synaptic spans around LangChain
+        # frameworks like CrewAI that open Lumin spans around LangChain
         # invocations) — only then become our own root.
         lc_parent = self._spans.get(parent_run_id) if parent_run_id else None
         if lc_parent is not None:
             trace_id = lc_parent.trace_id
             parent_span_id = lc_parent.id
         else:
-            from synaptic.context import get_current_span
+            from lumin.context import get_current_span
 
             outer = get_current_span()
             if outer is not None:
@@ -452,19 +452,19 @@ class SynapticCallbackHandler(BaseCallbackHandler):
         self._finish(run_id, error=error)
 
 
-# --- Auto-registration via SYNAPTIC_TRACING env var ---
-# When SYNAPTIC_TRACING=true|1|yes is set, LangChain's _configure() will
-# instantiate SynapticCallbackHandler and attach it to every callback
+# --- Auto-registration via LUMIN_TRACING env var ---
+# When LUMIN_TRACING=true|1|yes is set, LangChain's _configure() will
+# instantiate LuminCallbackHandler and attach it to every callback
 # manager — covering all chains, LLMs, and tools without code changes.
-_handler_var: ContextVar[Optional[SynapticCallbackHandler]] = ContextVar(
-    "synaptic_handler", default=None
+_handler_var: ContextVar[Optional[LuminCallbackHandler]] = ContextVar(
+    "lumin_handler", default=None
 )
 register_configure_hook(
     _handler_var,
     inheritable=True,
-    handle_class=SynapticCallbackHandler,
-    env_var="SYNAPTIC_TRACING",
+    handle_class=LuminCallbackHandler,
+    env_var="LUMIN_TRACING",
 )
 
 
-__all__ = ["SynapticCallbackHandler"]
+__all__ = ["LuminCallbackHandler"]

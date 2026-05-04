@@ -1,4 +1,4 @@
-"""Anthropic SDK integration for Synaptic.
+"""Anthropic SDK integration for Lumin.
 
 Wraps ``Anthropic.messages.create`` and the async equivalent so each
 Claude call records:
@@ -11,12 +11,12 @@ Claude call records:
     text content
 
 This is the Claude-first observability path — visible thinking is the
-whole point of extended thinking, and Synaptic surfaces it as a
+whole point of extended thinking, and Lumin surfaces it as a
 first-class child span instead of dropping it.
 
 Usage:
 
-    from synaptic.integrations.anthropic import instrument_anthropic
+    from lumin.integrations.anthropic import instrument_anthropic
     instrument_anthropic()
 
     from anthropic import Anthropic
@@ -42,13 +42,13 @@ try:
     from anthropic.resources.messages import AsyncMessages, Messages
 except ImportError as e:
     raise ImportError(
-        "synaptic.integrations.anthropic requires the anthropic SDK. "
+        "lumin.integrations.anthropic requires the anthropic SDK. "
         "Install with: pip install anthropic"
     ) from e
 
-from synaptic.context import get_current_span
-from synaptic.integrations._ext_span import _ExtSpan, _estimate_tokens, _serialize
-from synaptic.sdk import _get_sdk
+from lumin.context import get_current_span
+from lumin.integrations._ext_span import _ExtSpan, _estimate_tokens, _serialize
+from lumin.sdk import _get_sdk
 
 
 # Anthropic Claude pricing per 1K tokens (May 2026; see also
@@ -182,7 +182,7 @@ def _record_call(
         parent_ext = parent_in_context if isinstance(parent_in_context, _ExtSpan) else None
 
         # Build the parent claude_call span
-        # Note: when the user already has @synaptic.trace open, we still
+        # Note: when the user already has @lumin.trace open, we still
         # create our own span so the call is attributable specifically.
         # Its parent_span_id points at the outer @trace span.
         outer_for_link = _ExtSpan(
@@ -271,14 +271,14 @@ def _record_call(
             response_span.ended_at = parent_ended
             sdk.submit(response_span)
     except Exception:
-        # Best-effort — agent must never see exceptions from Synaptic.
+        # Best-effort — agent must never see exceptions from Lumin.
         pass
 
 
 # ---------- Patcher ----------
 
 
-_PATCH_MARKER = "_synaptic_anthropic_wrapped"
+_PATCH_MARKER = "_lumin_anthropic_wrapped"
 
 
 def _wrap_create_sync(original: Callable) -> Callable:
@@ -302,7 +302,7 @@ def _wrap_create_sync(original: Callable) -> Callable:
         return response
 
     setattr(wrapped, _PATCH_MARKER, True)
-    setattr(wrapped, "_synaptic_original", original)
+    setattr(wrapped, "_lumin_original", original)
     return wrapped
 
 
@@ -323,7 +323,7 @@ def _wrap_create_async(original: Callable) -> Callable:
         return response
 
     setattr(wrapped, _PATCH_MARKER, True)
-    setattr(wrapped, "_synaptic_original", original)
+    setattr(wrapped, "_lumin_original", original)
     return wrapped
 
 
@@ -395,7 +395,7 @@ def _wrap_stream_sync(original: Callable) -> Callable:
         )
 
     setattr(wrapped, _PATCH_MARKER, True)
-    setattr(wrapped, "_synaptic_original", original)
+    setattr(wrapped, "_lumin_original", original)
     return wrapped
 
 
@@ -408,7 +408,7 @@ def _wrap_stream_async(original: Callable) -> Callable:
         )
 
     setattr(wrapped, _PATCH_MARKER, True)
-    setattr(wrapped, "_synaptic_original", original)
+    setattr(wrapped, "_lumin_original", original)
     return wrapped
 
 

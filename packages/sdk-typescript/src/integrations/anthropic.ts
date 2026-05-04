@@ -1,5 +1,5 @@
 /**
- * Anthropic SDK integration for Synaptic.
+ * Anthropic SDK integration for Lumin.
  *
  * Wraps the @anthropic-ai/sdk client's `messages.create` so each Claude
  * call produces:
@@ -8,13 +8,13 @@
  *   - a `response` child span (subtype=response)
  *
  * Same wire format as the Python SDK's
- * `synaptic.integrations.anthropic` — the dashboard renders both
+ * `lumin.integrations.anthropic` — the dashboard renders both
  * identically.
  *
  * Usage:
  *
  *     import Anthropic from '@anthropic-ai/sdk';
- *     import { instrumentAnthropic } from '@synaptic/sdk/integrations/anthropic';
+ *     import { instrumentAnthropic } from '@lumin-io/sdk/integrations/anthropic';
  *
  *     const client = new Anthropic();
  *     instrumentAnthropic(client);
@@ -83,7 +83,7 @@ interface AnthropicLikeClient {
   messages: AnthropicMessages;
 }
 
-const PATCH_MARKER = '__synapticAnthropicWrapped';
+const PATCH_MARKER = '__luminAnthropicWrapped';
 
 function makeChild(parent: Span, name: string, subtype?: string): Span {
   const child = Span.create(name, 'llm', parent);
@@ -99,7 +99,7 @@ function recordCall(
   outerSpan: Span | undefined,
 ): void {
   try {
-    // Parent span — anchored under the surrounding @synaptic.trace if any
+    // Parent span — anchored under the surrounding @lumin.trace if any
     const parent = outerSpan
       ? Span.create('claude_call', 'llm', outerSpan)
       : Span.create('claude_call', 'llm');
@@ -163,7 +163,7 @@ function recordCall(
       sdk.submit(responseSpan);
     }
   } catch {
-    // Best-effort — Synaptic must never break the agent (Rule 7)
+    // Best-effort — Lumin must never break the agent (Rule 7)
   }
 }
 

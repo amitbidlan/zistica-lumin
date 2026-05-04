@@ -1,9 +1,9 @@
-import { ResolvedConfig, SynapticConfig, defaultConfig, resolveConfig } from './config.js';
+import { ResolvedConfig, LuminConfig, defaultConfig, resolveConfig } from './config.js';
 import { Exporter, HTTPExporter } from './exporter.js';
 import { BoundedQueue } from './queue.js';
 import { Span } from './span.js';
 
-export class SynapticSDK {
+export class LuminSDK {
   readonly config: ResolvedConfig;
   private readonly queue: BoundedQueue;
   private exporter: Exporter;
@@ -81,16 +81,16 @@ export class SynapticSDK {
 
 // --- global singleton ---
 
-let _global: SynapticSDK | null = null;
+let _global: LuminSDK | null = null;
 
-export function getSDK(): SynapticSDK {
+export function getSDK(): LuminSDK {
   if (_global === null) {
-    _global = new SynapticSDK(defaultConfig());
+    _global = new LuminSDK(defaultConfig());
   }
   return _global;
 }
 
-export function setSDK(sdk: SynapticSDK | null): SynapticSDK | null {
+export function setSDK(sdk: LuminSDK | null): LuminSDK | null {
   const old = _global;
   _global = sdk;
   if (old !== null && old !== sdk) {
@@ -99,8 +99,8 @@ export function setSDK(sdk: SynapticSDK | null): SynapticSDK | null {
   return _global;
 }
 
-export function configure(opts: SynapticConfig = {}): void {
-  setSDK(new SynapticSDK(resolveConfig(opts)));
+export function configure(opts: LuminConfig = {}): void {
+  setSDK(new LuminSDK(resolveConfig(opts)));
 }
 
 // Best-effort flush on process exit. beforeExit fires when the event loop

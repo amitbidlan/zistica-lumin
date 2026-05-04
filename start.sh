@@ -27,7 +27,7 @@ API_PID=$!
 #    request doesn't hit a connection refused
 for i in $(seq 1 30); do
     if curl -sf http://127.0.0.1:8000/health >/dev/null 2>&1; then
-        echo "synaptic api ready on :8000"
+        echo "lumin api ready on :8000"
         break
     fi
     sleep 0.3

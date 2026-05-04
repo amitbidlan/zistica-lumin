@@ -3,11 +3,11 @@ import json
 
 import pytest
 
-import synaptic
+import lumin
 
 
 async def test_async_decorator_captures_span(sdk, captured):
-    @synaptic.trace
+    @lumin.trace
     async def async_agent(x: str) -> str:
         await asyncio.sleep(0)
         return f"async {x}"
@@ -26,7 +26,7 @@ async def test_async_decorator_captures_span(sdk, captured):
 
 
 async def test_async_decorator_records_exception(sdk, captured):
-    @synaptic.trace
+    @lumin.trace
     async def boom():
         await asyncio.sleep(0)
         raise RuntimeError("oops")
@@ -40,11 +40,11 @@ async def test_async_decorator_records_exception(sdk, captured):
 
 
 async def test_async_decorator_auto_detection_distinct_from_sync(sdk, captured):
-    @synaptic.trace
+    @lumin.trace
     async def async_fn():
         return "async"
 
-    @synaptic.trace
+    @lumin.trace
     def sync_fn():
         return "sync"
 

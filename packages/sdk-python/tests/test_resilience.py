@@ -2,13 +2,13 @@ import asyncio
 
 import pytest
 
-import synaptic
-import synaptic.sdk as sdk_module
-from synaptic.config import Config
-from synaptic.exporter import HTTPExporter
-from synaptic.queue import BoundedQueue
-from synaptic.sdk import SynapticSDK
-from synaptic.span import Span
+import lumin
+import lumin.sdk as sdk_module
+from lumin.config import Config
+from lumin.exporter import HTTPExporter
+from lumin.queue import BoundedQueue
+from lumin.sdk import LuminSDK
+from lumin.span import Span
 
 
 def test_bounded_queue_drops_on_overflow():
@@ -29,12 +29,12 @@ def test_failing_exporter_does_not_propagate_to_agent():
             pass
 
     config = Config(host="http://test", flush_interval=3600.0, export_timeout=0.5)
-    sdk = SynapticSDK(config=config, exporter=FailingExporter())
+    sdk = LuminSDK(config=config, exporter=FailingExporter())
     previous = sdk_module._global_sdk
     sdk_module._global_sdk = sdk
     try:
 
-        @synaptic.trace
+        @lumin.trace
         def my_agent(x):
             return f"got {x}"
 
@@ -54,12 +54,12 @@ def test_unreachable_server_does_not_break_agent():
         flush_interval=3600.0,
         export_timeout=0.5,
     )
-    sdk = SynapticSDK(config=config)
+    sdk = LuminSDK(config=config)
     previous = sdk_module._global_sdk
     sdk_module._global_sdk = sdk
     try:
 
-        @synaptic.trace
+        @lumin.trace
         def my_agent(x):
             return x * 2
 
@@ -77,12 +77,12 @@ async def test_unreachable_server_does_not_break_async_agent():
         flush_interval=3600.0,
         export_timeout=0.5,
     )
-    sdk = SynapticSDK(config=config)
+    sdk = LuminSDK(config=config)
     previous = sdk_module._global_sdk
     sdk_module._global_sdk = sdk
     try:
 
-        @synaptic.trace
+        @lumin.trace
         async def async_agent(x):
             await asyncio.sleep(0)
             return x + 1
@@ -95,9 +95,9 @@ async def test_unreachable_server_does_not_break_async_agent():
 
 
 def test_exception_in_traced_function_still_propagates_to_caller(sdk):
-    """Errors in user code must propagate; only Synaptic errors are silenced."""
+    """Errors in user code must propagate; only Lumin errors are silenced."""
 
-    @synaptic.trace
+    @lumin.trace
     def boom():
         raise ValueError("user error")
 

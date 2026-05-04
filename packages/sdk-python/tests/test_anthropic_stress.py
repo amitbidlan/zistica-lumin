@@ -15,7 +15,7 @@ import pytest
 
 pytest.importorskip("anthropic")
 
-from synaptic.integrations.anthropic import (  # noqa: E402
+from lumin.integrations.anthropic import (  # noqa: E402
     instrument_anthropic,
     _record_call,
 )
@@ -138,7 +138,7 @@ def test_response_without_usage_object_does_not_crash(sdk):
 
 
 def test_one_megabyte_of_reasoning_is_truncated_not_OOM(sdk):
-    """Synaptic uses _serialize() which truncates at max_payload_size.
+    """Lumin uses _serialize() which truncates at max_payload_size.
     A 1 MB reasoning string should not blow up memory or queue size."""
     huge_text = "REASONING " * 100_000  # ~1 MB
     response = _resp(

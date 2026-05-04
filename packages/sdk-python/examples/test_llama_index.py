@@ -1,11 +1,11 @@
 """Live end-to-end demo: a real LlamaIndex query routed through the
-Synaptic callback handler. Uses a stub LLM + stub embeddings so the
+Lumin callback handler. Uses a stub LLM + stub embeddings so the
 demo runs without API keys; the trace shape is identical to a real
 agent run.
 
 Prereqs:
-  1. Synaptic running on localhost:8000
-  2. pip install synaptic[llama_index]
+  1. Lumin running on localhost:8000
+  2. pip install lumin[llama_index]
 
 Run:
   python examples/test_llama_index.py
@@ -23,13 +23,13 @@ import os
 import time
 from typing import Any, List, Sequence
 
-import synaptic
-from synaptic.integrations.llama_index import SynapticCallbackHandler
+import lumin
+from lumin.integrations.llama_index import LuminCallbackHandler
 
 
 def main() -> None:
-    synaptic.configure(
-        host=os.environ.get("SYNAPTIC_HOST", "http://localhost:8000"),
+    lumin.configure(
+        host=os.environ.get("LUMIN_HOST", "http://localhost:8000"),
         flush_interval=0.5,
     )
 
@@ -38,7 +38,7 @@ def main() -> None:
     from llama_index.core.base.embeddings.base import BaseEmbedding
     from llama_index.core.llms.mock import MockLLM
 
-    handler = SynapticCallbackHandler()
+    handler = LuminCallbackHandler()
     Settings.callback_manager = CallbackManager([handler])
 
     # Stub embedder — deterministic 8-dim vectors.

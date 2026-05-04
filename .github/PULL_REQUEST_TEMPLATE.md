@@ -1,5 +1,5 @@
 <!--
-Thanks for contributing to Synaptic!
+Thanks for contributing to Lumin!
 Fill in the sections below. Delete sections that don't apply.
 -->
 
@@ -42,9 +42,9 @@ Fill in the sections below. Delete sections that don't apply.
 - [ ] Package README updated if the public API changed
 - [ ] `requirements.txt` / `package.json` updated if deps changed
 
-## Synaptic-specific checks
+## Lumin-specific checks
 
-- [ ] If touching SDK code: agent never raises if Synaptic server is unreachable (Rule 7)
+- [ ] If touching SDK code: agent never raises if Lumin server is unreachable (Rule 7)
 - [ ] If touching ingest path: spans isolated by `project_id`
 - [ ] If touching APPI / enterprise code: covered by tests
 - [ ] No data leaves the local laptop in default OSS mode

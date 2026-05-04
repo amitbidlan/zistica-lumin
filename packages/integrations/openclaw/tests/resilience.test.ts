@@ -1,12 +1,12 @@
 /**
- * Resilience tests — Synaptic Rule 7: the agent must NEVER fail
- * because Synaptic is unreachable, slow, or returns an error.
+ * Resilience tests — Lumin Rule 7: the agent must NEVER fail
+ * because Lumin is unreachable, slow, or returns an error.
  */
 import { describe, expect, test } from 'vitest';
 import { ExportResultCode } from '@opentelemetry/core';
 import { SpanKind, SpanStatusCode } from '@opentelemetry/api';
 import type { ReadableSpan } from '@opentelemetry/sdk-trace-base';
-import { SynapticExporter } from '../src/exporter.js';
+import { LuminExporter } from '../src/exporter.js';
 
 function makeSpan(): ReadableSpan {
   return {
@@ -35,38 +35,38 @@ function makeSpan(): ReadableSpan {
   };
 }
 
-async function exportOnce(exporter: SynapticExporter): Promise<ExportResultCode> {
+async function exportOnce(exporter: LuminExporter): Promise<ExportResultCode> {
   return new Promise((resolve) => {
     exporter.export([makeSpan()], (r) => resolve(r.code));
   });
 }
 
-describe('resilience — agent never fails because of Synaptic', () => {
-  test('Synaptic unreachable (DNS failure) → SUCCESS', async () => {
+describe('resilience — agent never fails because of Lumin', () => {
+  test('Lumin unreachable (DNS failure) → SUCCESS', async () => {
     const fakeFetch: typeof fetch = async () => {
-      throw new TypeError('fetch failed: ENOTFOUND synaptic.local');
+      throw new TypeError('fetch failed: ENOTFOUND lumin.local');
     };
-    const exporter = new SynapticExporter({
-      host: 'http://synaptic.local',
+    const exporter = new LuminExporter({
+      host: 'http://lumin.local',
       fetchImpl: fakeFetch,
     });
     expect(await exportOnce(exporter)).toBe(ExportResultCode.SUCCESS);
   });
 
-  test('Synaptic returns 500 → SUCCESS', async () => {
+  test('Lumin returns 500 → SUCCESS', async () => {
     const fakeFetch: typeof fetch = async () =>
       new Response('internal error', { status: 500 });
-    const exporter = new SynapticExporter({
+    const exporter = new LuminExporter({
       host: 'http://x',
       fetchImpl: fakeFetch,
     });
     expect(await exportOnce(exporter)).toBe(ExportResultCode.SUCCESS);
   });
 
-  test('Synaptic returns 401 → SUCCESS', async () => {
+  test('Lumin returns 401 → SUCCESS', async () => {
     const fakeFetch: typeof fetch = async () =>
       new Response('unauthorized', { status: 401 });
-    const exporter = new SynapticExporter({
+    const exporter = new LuminExporter({
       host: 'http://x',
       apiKey: 'wrong-key',
       fetchImpl: fakeFetch,
@@ -74,7 +74,7 @@ describe('resilience — agent never fails because of Synaptic', () => {
     expect(await exportOnce(exporter)).toBe(ExportResultCode.SUCCESS);
   });
 
-  test('Synaptic hangs past timeout → SUCCESS within timeout window', async () => {
+  test('Lumin hangs past timeout → SUCCESS within timeout window', async () => {
     const fakeFetch: typeof fetch = (_url, init) =>
       new Promise((_resolve, reject) => {
         const sig = init?.signal as AbortSignal | undefined;
@@ -82,7 +82,7 @@ describe('resilience — agent never fails because of Synaptic', () => {
           reject(new Error('AbortError')),
         );
       });
-    const exporter = new SynapticExporter({
+    const exporter = new LuminExporter({
       host: 'http://hang',
       timeoutMs: 50,
       fetchImpl: fakeFetch,
@@ -102,7 +102,7 @@ describe('resilience — agent never fails because of Synaptic', () => {
           throw new Error('body parse failed');
         },
       }) as unknown as Response;
-    const exporter = new SynapticExporter({
+    const exporter = new LuminExporter({
       host: 'http://x',
       fetchImpl: fakeFetch,
     });
@@ -111,7 +111,7 @@ describe('resilience — agent never fails because of Synaptic', () => {
 
   test('export of huge batch (1000 spans) does not crash', async () => {
     const fakeFetch: typeof fetch = async () => new Response('{}');
-    const exporter = new SynapticExporter({
+    const exporter = new LuminExporter({
       host: 'http://x',
       fetchImpl: fakeFetch,
     });
@@ -123,7 +123,7 @@ describe('resilience — agent never fails because of Synaptic', () => {
   });
 
   test('shutdown() called twice is idempotent', async () => {
-    const exporter = new SynapticExporter({ host: 'http://x' });
+    const exporter = new LuminExporter({ host: 'http://x' });
     await exporter.shutdown();
     await exporter.shutdown();
     // No exception
@@ -131,7 +131,7 @@ describe('resilience — agent never fails because of Synaptic', () => {
   });
 
   test('forceFlush() resolves without error when nothing buffered', async () => {
-    const exporter = new SynapticExporter({ host: 'http://x' });
+    const exporter = new LuminExporter({ host: 'http://x' });
     await expect(exporter.forceFlush()).resolves.toBeUndefined();
   });
 });

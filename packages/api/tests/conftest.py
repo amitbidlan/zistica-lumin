@@ -3,7 +3,7 @@ import os
 # Disable the background retention task during tests — it sleeps 24h by
 # default so it would never fire anyway, but making it explicit avoids
 # any surprise if interval is shortened later.
-os.environ.setdefault("SYNAPTIC_CLEANUP_ENABLED", "false")
+os.environ.setdefault("LUMIN_CLEANUP_ENABLED", "false")
 
 import pytest
 from fastapi.testclient import TestClient

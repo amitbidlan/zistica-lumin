@@ -44,7 +44,7 @@ export class Session {
   }
 }
 
-/** Lowercase factory matching the Python ``synaptic.session(...)`` form. */
+/** Lowercase factory matching the Python ``lumin.session(...)`` form. */
 export function session(opts: SessionOptions = {}): Session {
   return new Session(opts);
 }

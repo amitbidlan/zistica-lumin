@@ -1,13 +1,13 @@
-"""LlamaIndex integration for Synaptic.
+"""LlamaIndex integration for Lumin.
 
 Records every LLM call, retrieval step, embedding computation, and
-query as a Synaptic span. Use explicitly:
+query as a Lumin span. Use explicitly:
 
-    from synaptic.integrations.llama_index import SynapticCallbackHandler
+    from lumin.integrations.llama_index import LuminCallbackHandler
     from llama_index.core import Settings
     from llama_index.core.callbacks import CallbackManager
 
-    handler = SynapticCallbackHandler()
+    handler = LuminCallbackHandler()
     Settings.callback_manager = CallbackManager([handler])
 
 Near-zero config: set the env var and import this module once. The
@@ -16,8 +16,8 @@ import triggers a one-time attempt to attach the handler to
 code changes are needed.
 
     import os
-    os.environ["SYNAPTIC_TRACING"] = "true"
-    import synaptic.integrations.llama_index  # noqa: F401  (registers handler)
+    os.environ["LUMIN_TRACING"] = "true"
+    import lumin.integrations.llama_index  # noqa: F401  (registers handler)
 
 Note: the env var alone is not sufficient — Python has no global
 package-discovery hook. The integration module must be imported at
@@ -42,13 +42,13 @@ try:
     from llama_index.core.callbacks.schema import CBEventType, EventPayload
 except ImportError as e:
     raise ImportError(
-        "synaptic.integrations.llama_index requires llama-index-core. "
+        "lumin.integrations.llama_index requires llama-index-core. "
         "Install with: pip install llama-index-core>=0.10.0"
     ) from e
 
-from synaptic.context import get_current_span
-from synaptic.integrations._ext_span import _ExtSpan, _estimate_tokens, _serialize
-from synaptic.sdk import _get_sdk
+from lumin.context import get_current_span
+from lumin.integrations._ext_span import _ExtSpan, _estimate_tokens, _serialize
+from lumin.sdk import _get_sdk
 
 
 # Approximate USD prices per 1K tokens (May 2026), shared with the
@@ -124,7 +124,7 @@ def _compute_cost(
     return round(tin * inp / 1000 + tout * outp / 1000, 8)
 
 
-# --- CBEventType → Synaptic span (type, name) -----------------------
+# --- CBEventType → Lumin span (type, name) -----------------------
 
 # Mapping is intentionally explicit — silently lumping unknown events
 # into "custom" with their event-type as the name keeps the dashboard
@@ -310,9 +310,9 @@ def _extract_retrieval_output(payload: Optional[dict]) -> tuple:
 # --- The handler ---------------------------------------------------
 
 
-class SynapticCallbackHandler(BaseCallbackHandler):
+class LuminCallbackHandler(BaseCallbackHandler):
     """LlamaIndex BaseCallbackHandler that ships every event to
-    Synaptic as a span."""
+    Lumin as a span."""
 
     def __init__(
         self,
@@ -341,7 +341,7 @@ class SynapticCallbackHandler(BaseCallbackHandler):
     def start_trace(self, trace_id: Optional[str] = None) -> None:
         try:
             trace_key = trace_id or "default"
-            # Snapshot the outer @synaptic.trace span (if any) so
+            # Snapshot the outer @lumin.trace span (if any) so
             # the first event inside this trace can attach to it.
             outer = get_current_span()
             outer_ext = (
@@ -421,7 +421,7 @@ class SynapticCallbackHandler(BaseCallbackHandler):
             parent = self._spans.get(parent_id) if parent_id else None
             if parent is None:
                 # No event-level parent — attach to the outer
-                # @synaptic.trace span if start_trace recorded one.
+                # @lumin.trace span if start_trace recorded one.
                 # Otherwise this event becomes a root span.
                 for outer in self._active_traces.values():
                     if outer is not None:
@@ -609,14 +609,14 @@ def _provider_from_model(model: str) -> Optional[str]:
 
 
 def _maybe_register_global() -> bool:
-    """If ``SYNAPTIC_TRACING=true`` and llama-index's ``Settings``
+    """If ``LUMIN_TRACING=true`` and llama-index's ``Settings``
     object is available, attach our handler to the global callback
     manager. Idempotent — already-installed handlers aren't added
     twice.
 
     Returns True if installed, False if disabled or unreachable.
     """
-    val = (os.environ.get("SYNAPTIC_TRACING") or "").lower()
+    val = (os.environ.get("LUMIN_TRACING") or "").lower()
     if val not in ("true", "1"):
         return False
     try:
@@ -627,15 +627,15 @@ def _maybe_register_global() -> bool:
     try:
         existing = Settings.callback_manager
         existing_handlers = getattr(existing, "handlers", []) or []
-        if any(isinstance(h, SynapticCallbackHandler) for h in existing_handlers):
+        if any(isinstance(h, LuminCallbackHandler) for h in existing_handlers):
             return True
         # Prefer add_handler so we don't lose subclass identity or
         # extra state on the user's CallbackManager. Fall back to
         # replacing only if add_handler isn't exposed on this version.
         if hasattr(existing, "add_handler"):
-            existing.add_handler(SynapticCallbackHandler())
+            existing.add_handler(LuminCallbackHandler())
         else:
-            new_handlers = list(existing_handlers) + [SynapticCallbackHandler()]
+            new_handlers = list(existing_handlers) + [LuminCallbackHandler()]
             Settings.callback_manager = CallbackManager(new_handlers)
         return True
     except Exception:
@@ -646,4 +646,4 @@ def _maybe_register_global() -> bool:
 _maybe_register_global()
 
 
-__all__ = ["SynapticCallbackHandler", "register_model_price"]
+__all__ = ["LuminCallbackHandler", "register_model_price"]

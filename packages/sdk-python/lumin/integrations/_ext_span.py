@@ -5,7 +5,7 @@ overriding it here adds these fields without modifying the SDK core
 dataclass. The API's ``SpanInput`` already accepts every field on this
 subclass — see ``packages/api/models.py``.
 
-Lives in ``synaptic/integrations/`` (not the SDK core) because it's
+Lives in ``lumin/integrations/`` (not the SDK core) because it's
 only relevant when an integration is actually loaded.
 """
 
@@ -15,7 +15,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from synaptic.span import Span
+from lumin.span import Span
 
 
 @dataclass

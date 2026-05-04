@@ -17,7 +17,7 @@ body:
       options:
         - label: I have searched existing issues and this is not a duplicate.
           required: true
-        - label: I am running the latest version of Synaptic.
+        - label: I am running the latest version of Lumin.
           required: true
         - label: This is not a security vulnerability (use the private security advisory flow instead).
           required: true
@@ -27,7 +27,7 @@ body:
     attributes:
       label: What happened?
       description: A clear and concise description of the bug.
-      placeholder: When I run `docker run zistica/synaptic`, the container exits immediately with...
+      placeholder: When I run `docker run zistica/lumin`, the container exits immediately with...
     validations:
       required: true
 
@@ -45,7 +45,7 @@ body:
       label: Steps to reproduce
       description: Minimal, runnable steps. Include code snippets if relevant.
       placeholder: |
-        1. Run `docker run -p 3000:3000 zistica/synaptic`
+        1. Run `docker run -p 3000:3000 zistica/lumin`
         2. Open http://localhost:3000
         3. See error in console
       render: bash
@@ -72,9 +72,9 @@ body:
       required: true
 
   - type: input
-    id: synaptic-version
+    id: lumin-version
     attributes:
-      label: Synaptic version
+      label: Lumin version
       placeholder: e.g. 0.1.0, or "main@<commit sha>"
     validations:
       required: true

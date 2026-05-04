@@ -2,14 +2,14 @@
 
 Use as a context manager to scope a multi-turn conversation or workflow:
 
-    session = synaptic.session(name="booking-conversation")
+    session = lumin.session(name="booking-conversation")
 
     with session:
         my_agent("Book me a flight to Tokyo")
         my_agent("Make it business class")
         my_agent("Add a hotel for 3 nights")
 
-Every ``@synaptic.trace`` call inside the ``with`` block automatically
+Every ``@lumin.trace`` call inside the ``with`` block automatically
 gets ``session_id`` set on its root span. Sessions are derived server-side
 by grouping ``traces`` rows on ``session_id`` — no separate sessions table.
 """
@@ -68,6 +68,6 @@ class Session:
 
 
 def session(id: Optional[str] = None, name: Optional[str] = None) -> Session:
-    """Factory matching the ``synaptic.session(...)`` lowercase form shown
+    """Factory matching the ``lumin.session(...)`` lowercase form shown
     in the docs. Returns a context manager."""
     return Session(id=id, name=name)

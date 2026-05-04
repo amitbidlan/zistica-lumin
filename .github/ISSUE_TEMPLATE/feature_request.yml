@@ -1,5 +1,5 @@
 name: Feature request
-description: Suggest an idea or improvement for Synaptic.
+description: Suggest an idea or improvement for Lumin.
 title: "[Feature]: "
 labels: ["enhancement", "needs-triage"]
 body:
@@ -7,7 +7,7 @@ body:
     attributes:
       value: |
         Thanks for proposing a feature.
-        Synaptic v1 has a tight scope (see docs/Development_Rules.md).
+        Lumin v1 has a tight scope (see docs/Development_Rules.md).
         We may defer good ideas to a later phase — that's not a rejection.
 
   - type: checkboxes
@@ -17,7 +17,7 @@ body:
       options:
         - label: I have searched existing issues and discussions for this idea.
           required: true
-        - label: I have read docs/Synaptic_Knowledge.md to understand the product roadmap.
+        - label: I have read docs/Lumin_Knowledge.md to understand the product roadmap.
           required: false
 
   - type: textarea
@@ -67,7 +67,7 @@ body:
     id: phase
     attributes:
       label: Which phase does this fit?
-      description: See docs/Synaptic_Knowledge.md Section 14 (Product Roadmap).
+      description: See docs/Lumin_Knowledge.md Section 14 (Product Roadmap).
       options:
         - Phase 1 — Local OSS (Months 1-6)
         - Phase 2 — Cloud tier (Months 6-12)

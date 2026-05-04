@@ -1,20 +1,20 @@
-# synaptic (Python SDK)
+# lumin (Python SDK)
 
 Local-first AI agent observability. 2 lines of code.
 
 ```python
-import synaptic
+import lumin
 
-synaptic.configure(host="http://localhost:8000")
+lumin.configure(host="http://localhost:8000")
 
-@synaptic.trace
+@lumin.trace
 def my_agent(input: str) -> str:
     return "hello"
 
 my_agent("test")
 ```
 
-Spans are captured asynchronously. If the Synaptic server is unreachable,
+Spans are captured asynchronously. If the Lumin server is unreachable,
 the agent continues working — spans are dropped silently.
 
 ## Install
@@ -29,9 +29,9 @@ Configuration priority: explicit `configure(...)` > environment variable > defau
 
 | Option | Env var | Default |
 |---|---|---|
-| `host` | `SYNAPTIC_HOST` | `http://localhost:8000` |
-| `api_key` | `SYNAPTIC_API_KEY` | `None` |
-| `project` | `SYNAPTIC_PROJECT` | `default` |
+| `host` | `LUMIN_HOST` | `http://localhost:8000` |
+| `api_key` | `LUMIN_API_KEY` | `None` |
+| `project` | `LUMIN_PROJECT` | `default` |
 | `capture_inputs` | — | `True` |
 | `capture_outputs` | — | `True` |
 | `max_payload_size` | — | `10240` |

@@ -6,7 +6,7 @@ export interface Exporter {
 }
 
 /** Posts spans to {host}/v1/spans. Swallows every error — the agent
- *  must never see a failure caused by Synaptic. */
+ *  must never see a failure caused by Lumin. */
 export class HTTPExporter implements Exporter {
   private readonly url: string;
   private readonly headers: Record<string, string>;

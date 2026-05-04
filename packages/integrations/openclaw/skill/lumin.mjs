@@ -1,25 +1,25 @@
 #!/usr/bin/env node
 /**
- * Synaptic skill helper for OpenClaw.
+ * Lumin skill helper for OpenClaw.
  *
  * Pure Node.js — no `npm install` needed. Uses the built-in fetch()
  * available in Node 18+. Never throws; always prints clean text.
  *
  * Commands:
- *   node synaptic.mjs status         — is Synaptic up?
- *   node synaptic.mjs traces         — last 5 traces (formatted)
- *   node synaptic.mjs trace <id>     — single trace + all its spans
+ *   node lumin.mjs status         — is Lumin up?
+ *   node lumin.mjs traces         — last 5 traces (formatted)
+ *   node lumin.mjs trace <id>     — single trace + all its spans
  *
- * Reads SYNAPTIC_HOST from env (defaults to http://localhost:8000).
+ * Reads LUMIN_HOST from env (defaults to http://localhost:8000).
  */
 
-const HOST = (process.env.SYNAPTIC_HOST || 'http://localhost:8000').replace(
+const HOST = (process.env.LUMIN_HOST || 'http://localhost:8000').replace(
   /\/+$/,
   '',
 );
 const TIMEOUT_MS = 4000;
 
-/** Fetch a Synaptic API URL with a timeout. Returns parsed JSON or
+/** Fetch a Lumin API URL with a timeout. Returns parsed JSON or
  *  null if anything goes wrong — never throws. */
 async function fetchJson(path) {
   const controller = new AbortController();
@@ -60,11 +60,11 @@ function statusOf(trace) {
 async function cmdStatus() {
   const r = await fetchJson('/health');
   if (r && r.status === 'ok') {
-    return `Synaptic is running on ${HOST}`;
+    return `Lumin is running on ${HOST}`;
   }
   return (
-    `Synaptic is not running on ${HOST}.\n` +
-    `Start it with: docker run -p 3000:3000 -p 8000:8000 zistica/synaptic`
+    `Lumin is not running on ${HOST}.\n` +
+    `Start it with: docker run -p 3000:3000 -p 8000:8000 zistica/lumin`
   );
 }
 
@@ -72,8 +72,8 @@ async function cmdTraces() {
   const traces = await fetchJson('/v1/traces?limit=5');
   if (!Array.isArray(traces)) {
     return (
-      `Could not reach Synaptic at ${HOST}.\n` +
-      `Start it with: docker run -p 3000:3000 -p 8000:8000 zistica/synaptic`
+      `Could not reach Lumin at ${HOST}.\n` +
+      `Start it with: docker run -p 3000:3000 -p 8000:8000 zistica/lumin`
     );
   }
   if (traces.length === 0) {
@@ -96,12 +96,12 @@ async function cmdTraces() {
 
 async function cmdTrace(id) {
   if (!id) {
-    return 'Usage: node synaptic.mjs trace <trace-id>';
+    return 'Usage: node lumin.mjs trace <trace-id>';
   }
   const trace = await fetchJson(`/v1/traces/${encodeURIComponent(id)}`);
   if (trace === null) {
     return (
-      `Trace ${id} not found, or Synaptic is unreachable at ${HOST}.`
+      `Trace ${id} not found, or Lumin is unreachable at ${HOST}.`
     );
   }
   const spans = (await fetchJson(`/v1/traces/${encodeURIComponent(id)}/spans`)) || [];
@@ -148,14 +148,14 @@ async function main() {
       out =
         `Unknown command: ${cmd}\n` +
         `Usage:\n` +
-        `  node synaptic.mjs status\n` +
-        `  node synaptic.mjs traces\n` +
-        `  node synaptic.mjs trace <id>`;
+        `  node lumin.mjs status\n` +
+        `  node lumin.mjs traces\n` +
+        `  node lumin.mjs trace <id>`;
   } catch (e) {
     // Last-ditch safety net — should be unreachable since fetchJson
     // already swallows. But if anything else throws, we still print
     // something readable instead of crashing.
-    out = `Synaptic skill encountered an internal error and stopped cleanly: ${
+    out = `Lumin skill encountered an internal error and stopped cleanly: ${
       (e && e.message) || e
     }`;
   }

@@ -1,44 +1,44 @@
 /**
  * Helper that builds an OTel `BatchSpanProcessor` wired to the
- * Synaptic exporter — the right shape to register with
+ * Lumin exporter — the right shape to register with
  * `@openclaw/diagnostics-otel` (or any other OTel pipeline).
  *
  * Usage:
  *
- *     import { synapticProcessor } from '@synaptic/openclaw';
+ *     import { luminProcessor } from '@lumin-io/openclaw';
  *
  *     // Pass to the OTel SDK / OpenClaw diagnostics config:
- *     spanProcessors: [synapticProcessor()]
+ *     spanProcessors: [luminProcessor()]
  *
  * ENV variables read:
- *   SYNAPTIC_HOST        — exporter host (default http://localhost:8000)
- *   SYNAPTIC_API_KEY     — optional bearer token for hosted Synaptic
- *   SYNAPTIC_PROJECT     — project tag (default "openclaw")
- *   SYNAPTIC_SERVICE_NAME — OpenClaw serviceName (default "openclaw-app")
+ *   LUMIN_HOST        — exporter host (default http://localhost:8000)
+ *   LUMIN_API_KEY     — optional bearer token for hosted Lumin
+ *   LUMIN_PROJECT     — project tag (default "openclaw")
+ *   LUMIN_SERVICE_NAME — OpenClaw serviceName (default "openclaw-app")
  */
 
 import { BatchSpanProcessor } from '@opentelemetry/sdk-trace-base';
 import {
-  SynapticExporter,
-  type SynapticExporterConfig,
+  LuminExporter,
+  type LuminExporterConfig,
 } from './exporter.js';
 
-export interface SynapticConfigOptions extends SynapticExporterConfig {
+export interface LuminConfigOptions extends LuminExporterConfig {
   /** OpenClaw / OTel `service.name` resource attribute. Default:
-   *  SYNAPTIC_SERVICE_NAME or "openclaw-app". */
+   *  LUMIN_SERVICE_NAME or "openclaw-app". */
   serviceName?: string;
 }
 
 /**
- * Build a SynapticExporter wrapped in a `BatchSpanProcessor` ready
+ * Build a LuminExporter wrapped in a `BatchSpanProcessor` ready
  * to be registered with `@openclaw/diagnostics-otel` or any OTel
  * `NodeTracerProvider`'s `spanProcessors:` array.
  */
-export function synapticProcessor(
-  opts: SynapticConfigOptions = {},
+export function luminProcessor(
+  opts: LuminConfigOptions = {},
 ): BatchSpanProcessor {
   return new BatchSpanProcessor(
-    new SynapticExporter({
+    new LuminExporter({
       host: opts.host,
       apiKey: opts.apiKey,
       project: opts.project,
@@ -50,13 +50,13 @@ export function synapticProcessor(
 }
 
 /**
- * Build a Synaptic exporter directly (useful if you want a different
+ * Build a Lumin exporter directly (useful if you want a different
  * processor, e.g. SimpleSpanProcessor for tests).
  */
-export function synapticExporter(
-  opts: SynapticConfigOptions = {},
-): SynapticExporter {
-  return new SynapticExporter({
+export function luminExporter(
+  opts: LuminConfigOptions = {},
+): LuminExporter {
+  return new LuminExporter({
     host: opts.host,
     apiKey: opts.apiKey,
     project: opts.project,
@@ -67,8 +67,8 @@ export function synapticExporter(
 }
 
 /** Read the OpenClaw service name from env (or the supplied default). */
-export function resolveServiceName(opts: SynapticConfigOptions = {}): string {
+export function resolveServiceName(opts: LuminConfigOptions = {}): string {
   const env =
     typeof process !== 'undefined' ? process.env : ({} as NodeJS.ProcessEnv);
-  return opts.serviceName ?? env.SYNAPTIC_SERVICE_NAME ?? 'openclaw-app';
+  return opts.serviceName ?? env.LUMIN_SERVICE_NAME ?? 'openclaw-app';
 }

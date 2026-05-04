@@ -1,5 +1,5 @@
 {
-  "name": "@synaptic/sdk",
+  "name": "@lumin-io/sdk",
   "version": "0.1.0",
   "description": "Local-first AI agent observability SDK (TypeScript)",
   "type": "module",

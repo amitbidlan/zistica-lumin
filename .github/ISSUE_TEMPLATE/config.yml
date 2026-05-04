@@ -1,14 +1,14 @@
 blank_issues_enabled: false
 contact_links:
   - name: Question or discussion
-    url: https://github.com/zistica/synaptic/discussions
+    url: https://github.com/zistica/lumin/discussions
     about: Ask a question, share an idea, or discuss the roadmap.
   - name: Discord community
-    url: https://discord.gg/synaptic
-    about: Real-time chat with other Synaptic users and contributors.
+    url: https://discord.gg/lumin
+    about: Real-time chat with other Lumin users and contributors.
   - name: Security vulnerability
-    url: https://github.com/zistica/synaptic/security/advisories/new
+    url: https://github.com/zistica/lumin/security/advisories/new
     about: Report a security issue privately. Do NOT open a public issue.
   - name: Documentation
-    url: https://synaptic.zistica.com/docs
+    url: https://lumin.zistica.com/docs
     about: Read the docs before filing a bug — your question may be answered there.

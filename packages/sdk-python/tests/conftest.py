@@ -2,10 +2,10 @@ from typing import List
 
 import pytest
 
-import synaptic.sdk as sdk_module
-from synaptic.config import Config
-from synaptic.sdk import SynapticSDK
-from synaptic.span import Span
+import lumin.sdk as sdk_module
+from lumin.config import Config
+from lumin.sdk import LuminSDK
+from lumin.span import Span
 
 
 class CapturingExporter:
@@ -30,7 +30,7 @@ def sdk():
     """
     exporter = CapturingExporter()
     config = Config(host="http://test", flush_interval=3600.0, export_timeout=0.5)
-    s = SynapticSDK(config=config, exporter=exporter)
+    s = LuminSDK(config=config, exporter=exporter)
 
     previous = sdk_module._global_sdk
     sdk_module._global_sdk = s

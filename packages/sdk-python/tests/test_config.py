@@ -3,7 +3,7 @@
 import os
 from unittest.mock import patch
 
-from synaptic.config import Config
+from lumin.config import Config
 
 
 def test_defaults_when_no_env_vars():
@@ -20,9 +20,9 @@ def test_defaults_when_no_env_vars():
 
 def test_env_vars_populate_config():
     env = {
-        "SYNAPTIC_HOST": "http://example.com:9000",
-        "SYNAPTIC_API_KEY": "sk-test",
-        "SYNAPTIC_PROJECT": "my-project",
+        "LUMIN_HOST": "http://example.com:9000",
+        "LUMIN_API_KEY": "sk-test",
+        "LUMIN_PROJECT": "my-project",
     }
     with patch.dict(os.environ, env, clear=True):
         c = Config()
@@ -33,8 +33,8 @@ def test_env_vars_populate_config():
 
 def test_explicit_args_override_env_vars():
     env = {
-        "SYNAPTIC_HOST": "http://from-env",
-        "SYNAPTIC_PROJECT": "from-env",
+        "LUMIN_HOST": "http://from-env",
+        "LUMIN_PROJECT": "from-env",
     }
     with patch.dict(os.environ, env, clear=True):
         c = Config(host="http://explicit", project="explicit")
@@ -43,7 +43,7 @@ def test_explicit_args_override_env_vars():
 
 
 def test_empty_env_var_falls_back_to_default():
-    with patch.dict(os.environ, {"SYNAPTIC_HOST": ""}, clear=True):
+    with patch.dict(os.environ, {"LUMIN_HOST": ""}, clear=True):
         c = Config()
     assert c.host == "http://localhost:8000"
 

@@ -10,7 +10,7 @@ import pytest
 
 pytest.importorskip("anthropic")
 
-from synaptic.integrations.anthropic import (  # noqa: E402
+from lumin.integrations.anthropic import (  # noqa: E402
     _compute_cost,
     instrument_anthropic,
 )
@@ -266,17 +266,17 @@ def test_async_create_also_instrumented(sdk):
     assert "response" in by_name
 
 
-def test_instrument_inside_synaptic_trace_links_under_outer(sdk):
-    """When the user wraps a Claude call in @synaptic.trace, the
+def test_instrument_inside_lumin_trace_links_under_outer(sdk):
+    """When the user wraps a Claude call in @lumin.trace, the
     claude_call span should appear as a child of the outer span via
     SDK contextvars (the same fallback the LangChain integration uses)."""
-    import synaptic
+    import lumin
 
     Cls = _make_messages_class(_response_with_thinking)
     AsyncCls = _make_async_messages_class(_response_with_thinking)
     instrument_anthropic(messages_cls=Cls, async_messages_cls=AsyncCls)
 
-    @synaptic.trace
+    @lumin.trace
     def my_agent(q: str) -> str:
         Cls().create(
             model="claude-opus-4",

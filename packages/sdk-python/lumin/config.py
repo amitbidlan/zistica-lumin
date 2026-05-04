@@ -10,9 +10,9 @@ def _env_str(name: str, default: Optional[str] = None) -> Optional[str]:
 
 @dataclass
 class Config:
-    host: str = field(default_factory=lambda: _env_str("SYNAPTIC_HOST", "http://localhost:8000"))
-    api_key: Optional[str] = field(default_factory=lambda: _env_str("SYNAPTIC_API_KEY"))
-    project: str = field(default_factory=lambda: _env_str("SYNAPTIC_PROJECT", "default"))
+    host: str = field(default_factory=lambda: _env_str("LUMIN_HOST", "http://localhost:8000"))
+    api_key: Optional[str] = field(default_factory=lambda: _env_str("LUMIN_API_KEY"))
+    project: str = field(default_factory=lambda: _env_str("LUMIN_PROJECT", "default"))
     capture_inputs: bool = True
     capture_outputs: bool = True
     max_payload_size: int = 10_240
