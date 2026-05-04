@@ -71,7 +71,7 @@ export default function RootLayout({
                 API
               </a>
               <a
-                href="https://github.com/zistica/lumin"
+                href="https://github.com/amitbidlan/zistica-lumin"
                 target="_blank"
                 rel="noreferrer"
                 className="text-[var(--muted)] hover:text-[var(--foreground)] transition-colors"

@@ -36,4 +36,4 @@ Each release has sections for:
 - **Removed** — removed features
 - **Security** — security fixes (always upgrade immediately)
 
-[Unreleased]: https://github.com/zistica/lumin/compare/HEAD
+[Unreleased]: https://github.com/amitbidlan/zistica-lumin/compare/HEAD
