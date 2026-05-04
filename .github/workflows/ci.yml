@@ -118,6 +118,27 @@ jobs:
       - name: Test
         run: npm test
 
+  voltagent-integration:
+    name: VoltAgent integration (@lumin-io/voltagent)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/integrations/voltagent
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: packages/integrations/voltagent/package-lock.json
+      - name: Install
+        run: npm install --no-audit --no-fund
+      - name: Build
+        run: npm run build
+      - name: Test
+        run: npm test
+
   dashboard:
     name: Next.js dashboard (session 3)
     runs-on: ubuntu-latest

@@ -279,6 +279,75 @@ def test_root_span_does_not_overwrite_existing_session_id(client):
     assert body["session_id"] == sid
 
 
+def test_session_aggregates_cost_tokens_from_spans(client):
+    """When traces are populated only via POST /v1/spans (the path every
+    OTel-based exporter uses) the stored traces.total_cost_usd column
+    is 0. The sessions endpoint must aggregate cost + tokens up from
+    spans, not just sum the stored column. Without this fix every
+    framework-instrumented session showed $0 / 0 tokens in the UI."""
+    sid = "session-agg-test"
+    # Two LLM spans across two traces, both belonging to one session.
+    # Each carries cost_usd + tokens; no separate POST /v1/traces.
+    client.post(
+        "/v1/spans",
+        json={
+            "spans": [
+                {
+                    "id": "agg-trace-1",
+                    "trace_id": "agg-trace-1",
+                    "name": "agent.run",
+                    "started_at": "2026-05-04T10:00:00Z",
+                    "ended_at": "2026-05-04T10:00:02Z",
+                    "session_id": sid,
+                },
+                {
+                    "id": "agg-trace-1-llm",
+                    "trace_id": "agg-trace-1",
+                    "parent_span_id": "agg-trace-1",
+                    "name": "llm.call",
+                    "type": "llm",
+                    "started_at": "2026-05-04T10:00:00.100Z",
+                    "ended_at": "2026-05-04T10:00:01.500Z",
+                    "tokens_input": 1000,
+                    "tokens_output": 500,
+                    "cost_usd": 0.0105,
+                    "session_id": sid,
+                },
+                {
+                    "id": "agg-trace-2",
+                    "trace_id": "agg-trace-2",
+                    "name": "agent.run",
+                    "started_at": "2026-05-04T10:01:00Z",
+                    "ended_at": "2026-05-04T10:01:02Z",
+                    "session_id": sid,
+                },
+                {
+                    "id": "agg-trace-2-llm",
+                    "trace_id": "agg-trace-2",
+                    "parent_span_id": "agg-trace-2",
+                    "name": "llm.call",
+                    "type": "llm",
+                    "started_at": "2026-05-04T10:01:00.100Z",
+                    "ended_at": "2026-05-04T10:01:01.500Z",
+                    "tokens_input": 200,
+                    "tokens_output": 50,
+                    "cost_usd": 0.001,
+                    "session_id": sid,
+                },
+            ]
+        },
+    )
+    sessions = client.get("/v1/sessions").json()
+    by_id = {s["session_id"]: s for s in sessions}
+    assert sid in by_id
+    s = by_id[sid]
+    assert s["trace_count"] == 2
+    # 0.0105 + 0.001 = 0.0115
+    assert abs(s["total_cost_usd"] - 0.0115) < 0.0001
+    # (1000+500) + (200+50) = 1750
+    assert s["total_tokens"] == 1750
+
+
 def test_pagination(client):
     base = datetime(2026, 5, 1, 10, 0, 0, tzinfo=timezone.utc)
     for i in range(5):
