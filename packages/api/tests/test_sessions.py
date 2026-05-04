@@ -62,9 +62,9 @@ def test_span_session_id_round_trips_through_api(client):
         )
 
 
-def test_span_without_session_id_keeps_null(client):
-    """A span without an explicit session_id should round-trip as
-    null — not propagate from the trace's session_id."""
+def test_span_without_session_id_when_trace_also_has_none_stays_null(client):
+    """When neither the span nor its trace has a session_id, GET
+    returns null — there's nothing to inherit from."""
     client.post(
         "/v1/spans",
         json={
@@ -79,6 +79,45 @@ def test_span_without_session_id_keeps_null(client):
     )
     spans = client.get("/v1/traces/no-sess-trace/spans").json()
     assert spans[0]["session_id"] is None
+
+
+def test_child_span_inherits_trace_session_id_at_read_time(client):
+    """A child span ingested without session_id should inherit it from
+    the parent trace at read time. Real-world driver: OTel-based SDKs
+    (Mastra, OpenClaw via @lumin-io/*) often set the session id only on
+    the root span — children would otherwise show as belonging to no
+    session in the dashboard's per-session view."""
+    client.post(
+        "/v1/spans",
+        json={
+            "spans": [
+                {
+                    "id": "root-sid",
+                    "trace_id": "trace-with-sid",
+                    "name": "root",
+                    "started_at": "2026-05-04T10:00:00Z",
+                    "ended_at": "2026-05-04T10:00:02Z",
+                    "session_id": "discord-research-001",
+                },
+                {
+                    "id": "child-no-sid",
+                    "trace_id": "trace-with-sid",
+                    "parent_span_id": "root-sid",
+                    "name": "child",
+                    "started_at": "2026-05-04T10:00:00.100Z",
+                    "ended_at": "2026-05-04T10:00:00.500Z",
+                    # session_id deliberately omitted — the framework
+                    # only set it on the root.
+                },
+            ]
+        },
+    )
+    spans = client.get("/v1/traces/trace-with-sid/spans").json()
+    assert len(spans) == 2
+    by_name = {s["name"]: s for s in spans}
+    assert by_name["root"]["session_id"] == "discord-research-001"
+    # The child should inherit from the trace, not show null
+    assert by_name["child"]["session_id"] == "discord-research-001"
 
 
 def test_list_sessions_groups_traces_by_session_id(client):

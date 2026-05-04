@@ -171,6 +171,28 @@ describe('otelSpanToLumin', () => {
     expect(out.tool_name).toBe('web_search');
   });
 
+  test('tool span: bare tool.name (Vercel/OTel ad-hoc) yields type=tool', () => {
+    // Many real-world OTel pipelines emit `tool.name` without the
+    // `gen_ai.` prefix; OpenClaw exporter must accept that too.
+    const span = makeSpan({
+      kind: SpanKind.INTERNAL,
+      attributes: { 'tool.name': 'calculator' },
+    });
+    const out = otelSpanToLumin(span);
+    expect(out.type).toBe('tool');
+    expect(out.tool_name).toBe('calculator');
+  });
+
+  test('tool span: openclaw.tool.name namespace also recognized', () => {
+    const span = makeSpan({
+      kind: SpanKind.INTERNAL,
+      attributes: { 'openclaw.tool.name': 'whatsapp_send' },
+    });
+    const out = otelSpanToLumin(span);
+    expect(out.type).toBe('tool');
+    expect(out.tool_name).toBe('whatsapp_send');
+  });
+
   test('SpanKind.INTERNAL with no GenAI attrs → custom', () => {
     const span = makeSpan({ kind: SpanKind.INTERNAL });
     expect(otelSpanToLumin(span).type).toBe('custom');

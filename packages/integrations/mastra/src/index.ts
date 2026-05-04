@@ -11,7 +11,11 @@
  *     users will use the `import "@lumin-io/mastra/auto"` form.
  */
 
-export { LuminExporter, otelSpanToLumin } from './exporter.js';
+export {
+  LuminExporter,
+  otelSpanToLumin,
+  registerModelPrice,
+} from './exporter.js';
 export type { LuminExporterConfig } from './exporter.js';
 
 export { luminConfig } from './config.js';

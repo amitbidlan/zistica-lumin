@@ -211,4 +211,22 @@ def get_trace_spans(trace_id: str, db: Database = Depends(get_db)) -> List[Span]
         """,
         [trace_id],
     )
+
+    # session_id inheritance: when the SDK or framework emits child spans
+    # without a session_id (because the value is only set on the OTel
+    # resource of the *root span* attrs), every child should still appear
+    # in the right /sessions group. Inherit from the trace row.
+    #
+    # Done at read time rather than ingest time to avoid an extra query
+    # in the hot path, and because orphan-child ordering means the trace
+    # row may not yet know its session_id at insert time.
+    trace_row = db.fetchone_dict(
+        "SELECT session_id FROM traces WHERE id = ?", [trace_id]
+    )
+    trace_sid = trace_row.get("session_id") if trace_row else None
+    if trace_sid:
+        for r in rows:
+            if r.get("session_id") is None:
+                r["session_id"] = trace_sid
+
     return [_row_to_span(r) for r in rows]

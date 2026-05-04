@@ -5,6 +5,7 @@ import type { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import {
   LuminExporter,
   otelSpanToLumin,
+  registerModelPrice,
 } from '../src/exporter.js';
 
 /** Build a ReadableSpan-shaped object good enough for the mapper. */
@@ -55,8 +56,11 @@ describe('otelSpanToLumin', () => {
     expect(out.trace_id).toBe('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
     expect(out.name).toBe('my_agent.run');
     expect(out.parent_span_id).toBeNull();
-    expect(out.started_at).toBe('2023-11-14T22:13:20.000Z');
-    expect(out.ended_at).toBe('2023-11-14T22:13:21.500Z');
+    // Microsecond-precision ISO format preserves sub-ms ordering
+    // (matches OpenClaw mapper). Old format ".000Z" is gone — the
+    // mapper now always returns ".000000Z".
+    expect(out.started_at).toBe('2023-11-14T22:13:20.000000Z');
+    expect(out.ended_at).toBe('2023-11-14T22:13:21.500000Z');
   });
 
   test('GenAI attributes populate model/provider/tokens', () => {
@@ -89,6 +93,29 @@ describe('otelSpanToLumin', () => {
     const out = otelSpanToLumin(span);
     expect(out.type).toBe('tool');
     expect(out.tool_name).toBe('search_web');
+  });
+
+  test('tool span: bare tool.name (Vercel/Mastra style) yields type=tool', () => {
+    // The Vercel AI SDK and Mastra in-the-wild emit `tool.name`
+    // without the `gen_ai.` prefix. Real demos hit this path far
+    // more often than the formal semconv key.
+    const span = makeSpan({
+      kind: SpanKind.INTERNAL,
+      attributes: { 'tool.name': 'pinecone_query' },
+    });
+    const out = otelSpanToLumin(span);
+    expect(out.type).toBe('tool');
+    expect(out.tool_name).toBe('pinecone_query');
+  });
+
+  test('tool span: mastra.tool.name namespace also recognized', () => {
+    const span = makeSpan({
+      kind: SpanKind.INTERNAL,
+      attributes: { 'mastra.tool.name': 'shopify_get_order' },
+    });
+    const out = otelSpanToLumin(span);
+    expect(out.type).toBe('tool');
+    expect(out.tool_name).toBe('shopify_get_order');
   });
 
   test('SpanKind.INTERNAL with no GenAI attrs → custom', () => {
@@ -225,6 +252,164 @@ describe('otelSpanToLumin', () => {
       makeSpan({ attributes: { 'mastra.session_id': 's-789' } }),
     );
     expect(c.session_id).toBe('s-789');
+  });
+
+  test('session_id falls back to the resource attributes', () => {
+    // The TracerProvider-level resource is the natural place to put a
+    // process- or workflow-wide session id; spans that don't set their
+    // own should inherit it.
+    const span = makeSpan({
+      attributes: {},
+      resource: {
+        attributes: { 'session.id': 'resource-sess-001' },
+        merge: () => null as never,
+      } as ReadableSpan['resource'],
+    });
+    expect(otelSpanToLumin(span).session_id).toBe('resource-sess-001');
+  });
+
+  test('span-level session.id wins over resource', () => {
+    const span = makeSpan({
+      attributes: { 'session.id': 'span-sess' },
+      resource: {
+        attributes: { 'session.id': 'resource-sess' },
+        merge: () => null as never,
+      } as ReadableSpan['resource'],
+    });
+    expect(otelSpanToLumin(span).session_id).toBe('span-sess');
+  });
+
+  // ---------- cost computation ----------
+
+  test('cost_usd is computed for known models', () => {
+    const span = makeSpan({
+      attributes: {
+        'gen_ai.system': 'anthropic',
+        'gen_ai.request.model': 'claude-sonnet-4',
+        'gen_ai.response.model': 'claude-sonnet-4-20250514',
+        'gen_ai.usage.input_tokens': 1000,
+        'gen_ai.usage.output_tokens': 500,
+      },
+    });
+    const out = otelSpanToLumin(span);
+    // claude-sonnet-4: $0.003/1k in, $0.015/1k out
+    // 1000*0.003/1000 + 500*0.015/1000 = 0.003 + 0.0075 = 0.0105
+    expect(out.cost_usd).toBeCloseTo(0.0105, 6);
+  });
+
+  test('cost_usd is null when model has no price entry', () => {
+    const span = makeSpan({
+      attributes: {
+        'gen_ai.request.model': 'mystery-llm-9000',
+        'gen_ai.usage.input_tokens': 100,
+        'gen_ai.usage.output_tokens': 50,
+      },
+    });
+    expect(otelSpanToLumin(span).cost_usd).toBeNull();
+  });
+
+  test('cost_usd is null when token counts are absent', () => {
+    const span = makeSpan({
+      attributes: { 'gen_ai.request.model': 'gpt-4o' },
+    });
+    expect(otelSpanToLumin(span).cost_usd).toBeNull();
+  });
+
+  test('fine-tuned model (ft:gpt-4o:org::abc) maps to base price', () => {
+    const span = makeSpan({
+      attributes: {
+        'gen_ai.request.model': 'ft:gpt-4o:my-org::abc123',
+        'gen_ai.usage.input_tokens': 1000,
+        'gen_ai.usage.output_tokens': 1000,
+      },
+    });
+    const out = otelSpanToLumin(span);
+    // gpt-4o: $0.0025/1k in, $0.010/1k out → 0.0025 + 0.010 = 0.0125
+    expect(out.cost_usd).toBeCloseTo(0.0125, 6);
+  });
+
+  test('provider-prefixed model (openai/gpt-4o-mini) is normalized', () => {
+    const span = makeSpan({
+      attributes: {
+        'gen_ai.request.model': 'openai/gpt-4o-mini',
+        'gen_ai.usage.input_tokens': 1000,
+        'gen_ai.usage.output_tokens': 1000,
+      },
+    });
+    const out = otelSpanToLumin(span);
+    // gpt-4o-mini: $0.00015/1k in, $0.0006/1k out
+    expect(out.cost_usd).toBeCloseTo(0.00075, 8);
+  });
+
+  test('registerModelPrice teaches the table about a self-hosted model', () => {
+    registerModelPrice('llama-3-70b-vendor-x', 0.0008, 0.0024);
+    const span = makeSpan({
+      attributes: {
+        'gen_ai.request.model': 'llama-3-70b-vendor-x',
+        'gen_ai.usage.input_tokens': 1000,
+        'gen_ai.usage.output_tokens': 1000,
+      },
+    });
+    expect(otelSpanToLumin(span).cost_usd).toBeCloseTo(0.0032, 6);
+  });
+
+  // ---------- Claude extended-thinking detection ----------
+
+  test('thinking span: gen_ai.response.thinking sets span_subtype + name', () => {
+    const span = makeSpan({
+      name: 'agent.reason',
+      attributes: {
+        'gen_ai.system': 'anthropic',
+        'gen_ai.request.model': 'claude-sonnet-4',
+        'gen_ai.response.thinking':
+          'Let me think step by step. The user wants X. The constraints are Y. Therefore Z.',
+        'gen_ai.usage.input_tokens': 100,
+        'gen_ai.usage.output_tokens': 200,
+      },
+    });
+    const out = otelSpanToLumin(span);
+    expect(out.span_subtype).toBe('thinking');
+    expect(out.name).toBe('thinking');
+    expect(out.type).toBe('llm');
+    // Reasoning text moves into `input` so the dashboard's Reasoning
+    // panel renders it
+    expect(out.input).toContain('think step by step');
+    // And `output` is cleared (dashboard doesn't render duplicate text)
+    expect(out.output).toBeNull();
+    // thinking_tokens estimated from text length (chars/4)
+    expect(out.thinking_tokens).toBeGreaterThan(0);
+  });
+
+  test('non-thinking LLM span keeps span_subtype null', () => {
+    const span = makeSpan({
+      attributes: {
+        'gen_ai.request.model': 'gpt-4o',
+        'ai.response.text': 'just a normal answer',
+      },
+    });
+    const out = otelSpanToLumin(span);
+    expect(out.span_subtype).toBeNull();
+    expect(out.thinking_tokens).toBeNull();
+  });
+
+  test('anthropic.thinking attribute also recognized as thinking', () => {
+    const span = makeSpan({
+      attributes: {
+        'anthropic.thinking': 'reasoning content',
+        'gen_ai.request.model': 'claude-opus-4',
+      },
+    });
+    expect(otelSpanToLumin(span).span_subtype).toBe('thinking');
+  });
+
+  test('empty thinking string is NOT treated as thinking', () => {
+    const span = makeSpan({
+      attributes: {
+        'gen_ai.response.thinking': '',
+        'gen_ai.request.model': 'claude-sonnet-4',
+      },
+    });
+    expect(otelSpanToLumin(span).span_subtype).toBeNull();
   });
 
   test('large input is truncated to maxPayloadSize', () => {
