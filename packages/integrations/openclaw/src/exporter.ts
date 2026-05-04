@@ -291,11 +291,19 @@ export function otelSpanToLumin(
   // OpenClaw / Vercel AI / OTel conventions all stash prompt + response
   // text on different attribute keys depending on which provider is
   // in play. Read them all, in priority order.
+  //
+  // The `openclaw.content.*` keys are what real `@openclaw/diagnostics-otel`
+  // emits at runtime (verified against upstream service.ts). The bare
+  // `openclaw.input` / `.output` keys remain as a legacy / convention
+  // fallback for hand-rolled OTel pipelines.
   const input =
     attrs['ai.prompt.messages'] ??
     attrs['ai.toolCall.args'] ??
     attrs['gen_ai.input.messages'] ??
     attrs['gen_ai.prompt'] ??
+    attrs['openclaw.content.input_messages'] ??
+    attrs['openclaw.content.system_prompt'] ??
+    attrs['openclaw.content.tool_input'] ??
     attrs['openclaw.input'] ??
     null;
   const output =
@@ -304,6 +312,8 @@ export function otelSpanToLumin(
     attrs['ai.toolCall.result'] ??
     attrs['gen_ai.output.messages'] ??
     attrs['gen_ai.completion'] ??
+    attrs['openclaw.content.output_messages'] ??
+    attrs['openclaw.content.tool_output'] ??
     attrs['openclaw.output'] ??
     null;
 

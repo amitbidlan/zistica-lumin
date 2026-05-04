@@ -260,25 +260,41 @@ export function otelSpanToLumin(
   const resourceAttrs = ((span.resource as { attributes?: Record<string, unknown> })?.attributes ?? {}) as Record<string, unknown>;
 
   const luminType = classifySpanType(span);
+  // Mastra / Vercel AI SDK emit `ai.model.id` and `ai.model.provider`
+  // alongside (and sometimes instead of) the OTel GenAI semconv keys.
+  // Verified against @mastra/core's actual emission.
   const model =
     attrString(attrs, 'gen_ai.response.model') ??
-    attrString(attrs, 'gen_ai.request.model');
-  const provider = attrString(attrs, 'gen_ai.system');
-  const tokensIn = attrNumber(attrs, 'gen_ai.usage.input_tokens');
-  const tokensOut = attrNumber(attrs, 'gen_ai.usage.output_tokens');
+    attrString(attrs, 'gen_ai.request.model') ??
+    attrString(attrs, 'ai.response.model') ??
+    attrString(attrs, 'ai.model.id');
+  const provider =
+    attrString(attrs, 'gen_ai.system') ??
+    attrString(attrs, 'ai.model.provider');
+  // Legacy GenAI token names (`prompt_tokens` / `completion_tokens`)
+  // are still emitted by older Mastra builds and Vercel AI SDK
+  // versions — accept them as fallbacks.
+  const tokensIn =
+    attrNumber(attrs, 'gen_ai.usage.input_tokens') ??
+    attrNumber(attrs, 'gen_ai.usage.prompt_tokens');
+  const tokensOut =
+    attrNumber(attrs, 'gen_ai.usage.output_tokens') ??
+    attrNumber(attrs, 'gen_ai.usage.completion_tokens');
   const toolName =
     attrString(attrs, 'gen_ai.tool.name') ??
     attrString(attrs, 'mastra.tool.name') ??
     attrString(attrs, 'tool.name');
   const costUsd = computeCost(model, tokensIn, tokensOut);
 
-  // Detect Claude extended-thinking spans. The Anthropic SDK and
-  // many wrappers (Mastra-via-Anthropic-provider, Vercel AI SDK
-  // when reasoning is on) surface reasoning text via
-  // `gen_ai.response.thinking`. Stamp `span_subtype="thinking"`
-  // so the dashboard renders the brain-emoji thinking row and
-  // the Reasoning panel.
+  // Detect Claude / Gemini extended-thinking spans. Real Mastra
+  // (verified against @mastra/core) surfaces reasoning text via
+  // `ai.response.reasoning` — that's the Vercel AI SDK convention
+  // it inherits. Other GenAI-attribute pipelines may use the
+  // `gen_ai.response.thinking` or `anthropic.thinking` keys; accept
+  // all three so the dashboard's brain-emoji subtype + Reasoning
+  // panel light up regardless of which framework is in play.
   const thinkingText =
+    attrString(attrs, 'ai.response.reasoning') ??
     attrString(attrs, 'gen_ai.response.thinking') ??
     attrString(attrs, 'anthropic.thinking') ??
     null;
