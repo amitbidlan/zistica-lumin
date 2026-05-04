@@ -275,14 +275,14 @@ If you have not contributed to Lumin before, start with a `good first issue` fir
 
 ## HOW TO CREATE THESE ON GITHUB
 
-1. Go to `github.com/zistica/lumin/issues/new`
+1. Go to `github.com/amitbidlan/zistica-lumin/issues/new`
 2. Copy the Title and Body from above
 3. Add the Labels listed (create labels first if they don't exist)
 4. Submit
 
 ## LABELS TO CREATE FIRST
 
-Go to github.com/zistica/lumin/labels and create these:
+Go to github.com/amitbidlan/zistica-lumin/labels and create these:
 
 | Label | Color | Description |
 |---|---|---|
