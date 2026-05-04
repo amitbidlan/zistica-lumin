@@ -82,6 +82,39 @@ describe('otelSpanToLumin', () => {
     expect(out.tokens_output).toBe(18);
   });
 
+  test('Mastra ai.model.id / ai.model.provider used as fallback', () => {
+    // Real @mastra/core emits `ai.model.id` and `ai.model.provider`
+    // in addition to (and on some span types instead of) the OTel
+    // GenAI semconv keys. Verified against the actual upstream.
+    const span = makeSpan({
+      attributes: {
+        'ai.model.id': 'gpt-4o-mini',
+        'ai.model.provider': 'openai',
+      },
+    });
+    const out = otelSpanToLumin(span);
+    expect(out.model).toBe('gpt-4o-mini');
+    expect(out.provider).toBe('openai');
+  });
+
+  test('legacy gen_ai.usage.{prompt,completion}_tokens are accepted', () => {
+    // Older Mastra builds + earlier Vercel AI SDK versions still
+    // emit the prompt_tokens / completion_tokens names from the
+    // pre-2025 GenAI semconv revision.
+    const span = makeSpan({
+      attributes: {
+        'gen_ai.request.model': 'gpt-4o',
+        'gen_ai.usage.prompt_tokens': 1000,
+        'gen_ai.usage.completion_tokens': 200,
+      },
+    });
+    const out = otelSpanToLumin(span);
+    expect(out.tokens_input).toBe(1000);
+    expect(out.tokens_output).toBe(200);
+    // And cost still computes correctly via the legacy names
+    expect(out.cost_usd).toBeCloseTo(0.0045, 6);
+  });
+
   test('tool span: gen_ai.tool.name yields type=tool', () => {
     const span = makeSpan({
       kind: SpanKind.INTERNAL,
@@ -400,6 +433,28 @@ describe('otelSpanToLumin', () => {
       },
     });
     expect(otelSpanToLumin(span).span_subtype).toBe('thinking');
+  });
+
+  test('real Mastra ai.response.reasoning is detected as thinking', () => {
+    // Verified against @mastra/core: Mastra surfaces extended-thinking
+    // text under `ai.response.reasoning` (Vercel AI SDK convention,
+    // not the OTel GenAI semconv key). Without this fallback Mastra
+    // thinking spans never get the brain-emoji subtype.
+    const span = makeSpan({
+      attributes: {
+        'gen_ai.system': 'anthropic',
+        'gen_ai.request.model': 'claude-sonnet-4',
+        'ai.response.reasoning':
+          'The user is asking about pricing tiers — let me think about which plan fits their team size before answering.',
+        'gen_ai.usage.input_tokens': 200,
+        'gen_ai.usage.output_tokens': 350,
+      },
+    });
+    const out = otelSpanToLumin(span);
+    expect(out.span_subtype).toBe('thinking');
+    expect(out.name).toBe('thinking');
+    expect(out.input).toContain('pricing tiers');
+    expect(out.output).toBeNull();
   });
 
   test('empty thinking string is NOT treated as thinking', () => {

@@ -232,7 +232,7 @@ describe('otelSpanToLumin', () => {
     expect(otelSpanToLumin(span).error).toBeNull();
   });
 
-  test('openclaw-style input/output captured', () => {
+  test('openclaw-style input/output captured (legacy bare keys)', () => {
     const span = makeSpan({
       attributes: {
         'openclaw.input': 'What is the weather in Tokyo?',
@@ -242,6 +242,50 @@ describe('otelSpanToLumin', () => {
     const out = otelSpanToLumin(span);
     expect(out.input).toContain('Tokyo');
     expect(out.output).toContain('24°C');
+  });
+
+  test('real openclaw.content.* keys used by @openclaw/diagnostics-otel', () => {
+    // Verified against the upstream package source: real OpenClaw
+    // emits `openclaw.content.input_messages`, `.output_messages`, etc.
+    // The exporter must read those exact keys — without this fallback
+    // every span from a real OpenClaw runtime had null input/output.
+    const span = makeSpan({
+      attributes: {
+        'openclaw.content.input_messages':
+          '[{"role":"user","content":"summarize this PR"}]',
+        'openclaw.content.output_messages':
+          '[{"role":"assistant","content":"It refactors the auth handler."}]',
+      },
+    });
+    const out = otelSpanToLumin(span);
+    expect(out.input).toContain('summarize this PR');
+    expect(out.output).toContain('refactors the auth handler');
+  });
+
+  test('openclaw.content.system_prompt is captured as input fallback', () => {
+    const span = makeSpan({
+      attributes: {
+        'openclaw.content.system_prompt': 'You are a careful editor.',
+      },
+    });
+    expect(otelSpanToLumin(span).input).toContain('careful editor');
+  });
+
+  test('openclaw.content.tool_input / tool_output used for tool spans', () => {
+    const span = makeSpan({
+      kind: SpanKind.INTERNAL,
+      attributes: {
+        'openclaw.tool.name': 'web_search',
+        'openclaw.content.tool_input': '{"query":"openclaw vs other agents"}',
+        'openclaw.content.tool_output':
+          '5 results: blog/openclaw-launch, docs/openclaw, comparison/agents-2025, …',
+      },
+    });
+    const out = otelSpanToLumin(span);
+    expect(out.type).toBe('tool');
+    expect(out.tool_name).toBe('web_search');
+    expect(out.input).toContain('openclaw vs other agents');
+    expect(out.output).toContain('5 results');
   });
 
   test('Vercel AI SDK ai.prompt.messages and ai.response.text', () => {
