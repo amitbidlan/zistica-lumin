@@ -211,7 +211,15 @@ function classifySpanType(span: ReadableSpan): string {
   if (attrs['gen_ai.operation.name'] || attrs['gen_ai.request.model']) {
     return 'llm';
   }
-  if (attrs['gen_ai.tool.name'] || attrs['gen_ai.tool.type']) {
+  // Tool detection accepts the OTel GenAI semconv keys as well as the
+  // bare-attribute conventions OpenClaw and ad-hoc OTel pipelines emit
+  // in real workflows (`tool.name`, `openclaw.tool.name`).
+  if (
+    attrs['gen_ai.tool.name'] ||
+    attrs['gen_ai.tool.type'] ||
+    attrs['tool.name'] ||
+    attrs['openclaw.tool.name']
+  ) {
     return 'tool';
   }
   switch (span.kind) {
@@ -259,7 +267,10 @@ export function otelSpanToLumin(
   const provider = attrString(attrs, 'gen_ai.system');
   const tokensIn = attrNumber(attrs, 'gen_ai.usage.input_tokens');
   const tokensOut = attrNumber(attrs, 'gen_ai.usage.output_tokens');
-  const toolName = attrString(attrs, 'gen_ai.tool.name');
+  const toolName =
+    attrString(attrs, 'gen_ai.tool.name') ??
+    attrString(attrs, 'openclaw.tool.name') ??
+    attrString(attrs, 'tool.name');
   const costUsd = computeCost(model, tokensIn, tokensOut);
 
   // Detect Claude extended-thinking spans. OpenClaw / Anthropic
