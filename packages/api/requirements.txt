@@ -2,3 +2,15 @@ fastapi>=0.110
 uvicorn[standard]>=0.27
 duckdb>=0.10
 pydantic>=2.0
+# Policy Engine — Accountability Layer Part B, server-side evaluation.
+# Reuses the lumin Python SDK's PolicyEngine so server + SDK enforce
+# the SAME logic.
+#
+# IMPORTANT: the `lumin` import comes from the sibling `packages/sdk-python`
+# package, NOT a PyPI release. Install it first via:
+#     pip install -e ../sdk-python
+# (the repo-root setup.sh does this automatically). We do NOT list it
+# here because PyPI has an unrelated `lumin` package that would shadow
+# ours and pull pandas as a transitive — broken every fresh install.
+simpleeval>=0.9.13
+pyyaml>=6.0

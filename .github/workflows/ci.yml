@@ -48,7 +48,13 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: packages/api/requirements.txt
-      - name: Install
+      - name: Install local Python SDK first
+        # The API imports `lumin` from packages/sdk-python, NOT from PyPI
+        # (where an unrelated package shares the name). Install it editable
+        # before requirements.txt — order matters or the API fails at
+        # import time.
+        run: pip install -e ../sdk-python
+      - name: Install API requirements
         run: |
           pip install -r requirements.txt
           pip install pytest httpx
@@ -179,18 +185,72 @@ jobs:
           cache-to: type=gha,mode=max
       - name: Smoke-test the container
         run: |
+          # Defensive shell: each step uses `if … then … fi` instead of
+          # `&& break` chains, which interact unpredictably with `bash -e`
+          # and can abort the whole script after a single curl failure
+          # when the service is still warming up. Earlier runs flaked
+          # exiting at 1.2s — well before the 30-attempt loop should
+          # have finished waiting.
+          set +e
+
           docker run -d --name lumin-ci -p 3000:3000 -p 8000:8000 zistica/lumin:ci
-          for i in $(seq 1 30); do
+          if [ $? -ne 0 ]; then
+            echo "::error::docker run failed"
+            exit 1
+          fi
+
+          # Wait for the API to come up (up to 60s — Next.js standalone
+          # adds ~5s of warmup on the runner)
+          api_ready=0
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8000/health >/dev/null 2>&1; then
+              api_ready=1
+              echo "API ready after ${i}s"
+              break
+            fi
             sleep 1
-            curl -sf http://127.0.0.1:8000/health >/dev/null 2>&1 && break
           done
+          if [ "$api_ready" -ne 1 ]; then
+            echo "::error::API did not become ready within 60s"
+            docker logs lumin-ci || true
+            exit 1
+          fi
+
+          # Wait for the dashboard too (it boots after the API)
+          dash_ready=0
+          for i in $(seq 1 30); do
+            if curl -sf -o /dev/null http://127.0.0.1:3000/agents 2>/dev/null; then
+              dash_ready=1
+              echo "Dashboard ready after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+          if [ "$dash_ready" -ne 1 ]; then
+            echo "::error::Dashboard did not become ready within 30s"
+            docker logs lumin-ci || true
+            exit 1
+          fi
+
+          # Now run the actual assertions. Re-enable errexit so any
+          # failure here is a real one.
+          set -e
+
           # Both ports respond
           curl -fs http://127.0.0.1:8000/health   | grep -q '"status":"ok"'
           curl -fs http://127.0.0.1:3000/api/health | grep -q '"status":"ok"'
-          # Dashboard renders
+
+          # Dashboard renders — sanity-check both the new default route
+          # (/agents) and the still-valid /traces route.
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/agents)" = "200"
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/traces)" = "200"
-          # Redirect has Location header
-          curl -sI http://127.0.0.1:3000/ | grep -i '^location:' | grep -q '/traces'
+
+          # Root path now redirects to /agents (changed from /traces in
+          # this PR — agent-first dashboard makes /agents the home).
+          curl -sI http://127.0.0.1:3000/ | grep -i '^location:' | grep -q '/agents'
+      - name: Container logs on failure
+        if: failure()
+        run: docker logs lumin-ci 2>&1 | tail -100 || true
       - name: Cleanup container
         if: always()
         run: docker rm -f lumin-ci || true

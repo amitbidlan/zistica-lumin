@@ -112,17 +112,33 @@ See sections below for details.
 git clone https://github.com/YOUR_USERNAME/lumin.git
 cd lumin
 
-# Install Python SDK in dev mode
-pip install -e "packages/sdk-python[dev]"
-
-# Install API dependencies
-cd packages/api && pip install -r requirements.txt && cd ../..
-
-# Install dashboard dependencies
-cd packages/dashboard && npm install && cd ../..
+# One-shot install — Python SDK + API + all 5 Node packages.
+# Creates packages/api/.venv, runs npm ci across the workspace.
+./setup.sh
 
 # Run tests to verify setup
-pytest packages/sdk-python/tests/ -v
+cd packages/api && .venv/bin/pytest && cd ../..
+cd packages/sdk-python && .venv/bin/pytest && cd ../..
+```
+
+If you want the manual sequence (or `./setup.sh` doesn't fit your
+workflow), the order matters because the API imports `lumin` from
+the sibling `packages/sdk-python`, **not** from PyPI:
+
+```bash
+# 1. Local SDK first (editable). PyPI has an unrelated package
+#    named "lumin" — never let pip resolve it from there.
+pip install -e "packages/sdk-python[dev]"
+
+# 2. API dependencies
+cd packages/api && pip install -r requirements.txt && cd ../..
+
+# 3. Node packages (lockfile-faithful install)
+cd packages/dashboard && npm ci && cd ../..
+cd packages/sdk-typescript && npm ci && cd ../..
+cd packages/integrations/openclaw && npm ci && cd ../../..
+cd packages/integrations/mastra && npm ci && cd ../../..
+cd packages/integrations/voltagent && npm ci && cd ../../..
 ```
 
 ### Run Locally

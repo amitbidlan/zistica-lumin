@@ -2,6 +2,7 @@ import asyncio
 import atexit
 import functools
 import inspect
+import logging
 import threading
 from typing import Any, Callable, Optional
 
@@ -13,8 +14,12 @@ from .context import (
     set_current_span,
 )
 from .exporter import HTTPExporter
+from .policy import PolicyConfigError, load_policy_engine
+from .policy_dispatcher import PolicyDispatcher
 from .queue import BoundedQueue
 from .span import Span, SpanContext
+
+logger = logging.getLogger("lumin.sdk")
 
 
 class LuminSDK:
@@ -35,7 +40,40 @@ class LuminSDK:
         self._stop_flushing = False
         self._shutdown_complete = False
         self._ready = threading.Event()
+        # Policy Engine (Accountability Layer Part B). Loaded eagerly so
+        # any YAML / config errors surface at lumin.configure() time.
+        # If loading fails the engine stays disabled — the agent must
+        # never fail because Lumin's config is broken (Rule 7).
+        self._policy: Optional[PolicyDispatcher] = self._init_policy()
         self._start_background_loop()
+
+    def _init_policy(self) -> Optional[PolicyDispatcher]:
+        cfg = self._config
+        if not cfg.policy_file:
+            return None
+        try:
+            engine = load_policy_engine(cfg.policy_file)
+        except PolicyConfigError as e:
+            logger.warning(
+                "policy: invalid policy file %s — engine disabled: %s",
+                cfg.policy_file, e,
+            )
+            return None
+        except Exception:
+            logger.exception(
+                "policy: unexpected error loading %s — engine disabled",
+                cfg.policy_file,
+            )
+            return None
+        if engine is None:
+            return None
+        return PolicyDispatcher(
+            engine=engine,
+            host=cfg.host,
+            api_key=cfg.api_key,
+            alert_webhook=cfg.alert_webhook,
+            timeout=cfg.export_timeout,
+        )
 
     @property
     def config(self) -> Config:
@@ -52,6 +90,7 @@ class LuminSDK:
                     host=self._config.host,
                     api_key=self._config.api_key,
                     timeout=self._config.export_timeout,
+                    project=self._config.project,
                 )
             self._flush_task = loop.create_task(self._flush_loop())
             self._ready.set()
@@ -102,9 +141,29 @@ class LuminSDK:
             return False
         try:
             self._loop.call_soon_threadsafe(self._queue.put_nowait, span)
-            return True
         except RuntimeError:
             return False
+
+        # Policy evaluation (Rule 7: must never fail the agent). The
+        # engine is fast (microseconds) so we run it on the agent
+        # thread, then ship any violations on the background loop.
+        if self._policy is not None:
+            try:
+                violations = self._policy.on_span_end(span)
+            except Exception:
+                logger.exception("policy: dispatcher crashed; swallowed")
+                violations = []
+            if violations:
+                try:
+                    self._loop.call_soon_threadsafe(
+                        lambda v=violations: asyncio.ensure_future(
+                            self._policy.ship_async(v)
+                        )
+                    )
+                except RuntimeError:
+                    pass
+
+        return True
 
     def flush(self) -> None:
         """Drain the queue and export synchronously. Blocks until done."""
@@ -140,6 +199,11 @@ class LuminSDK:
             await self._drain_and_export()
             if self._exporter is not None:
                 await self._exporter.close()
+            if self._policy is not None:
+                try:
+                    await self._policy.close()
+                except Exception:
+                    pass
 
         try:
             future = asyncio.run_coroutine_threadsafe(_async_shutdown(), self._loop)

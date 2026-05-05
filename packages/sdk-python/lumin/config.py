@@ -20,3 +20,12 @@ class Config:
     flush_interval: float = 2.0
     max_queue_size: int = 10_000
     export_timeout: float = 5.0
+    # Policy Engine — Accountability Layer Part B. When set, the SDK
+    # loads policies from this YAML file and evaluates them after every
+    # span/trace. Violations get POSTed to the API at /v1/violations.
+    # When unset, the engine is disabled — zero overhead.
+    policy_file: Optional[str] = field(default_factory=lambda: _env_str("LUMIN_POLICY_FILE"))
+    # Optional global webhook URL — fires for every "alert"-action
+    # violation that doesn't have its own webhook_url. Per Rule 7,
+    # webhook failures never reach agent code.
+    alert_webhook: Optional[str] = field(default_factory=lambda: _env_str("LUMIN_ALERT_WEBHOOK"))

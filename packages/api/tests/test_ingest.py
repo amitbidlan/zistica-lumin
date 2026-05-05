@@ -140,3 +140,47 @@ def test_root_span_overwrites_stub_trace(client):
     response = client.get("/v1/traces/t-2")
     assert response.json()["name"] == "root_agent"
     assert response.json()["ended_at"] is not None
+
+
+# ---- Brutal-test regressions: malformed timestamps must NOT 5xx -----------
+
+
+def test_malformed_started_at_returns_400(client):
+    """started_at that doesn't parse as ISO 8601 must produce a clean
+    4xx, not a 500. Pre-fix this hit the NOT NULL DB constraint and
+    bubbled up as a 500 internal error — discovered by the brutal
+    test suite (case H2).
+    """
+    response = client.post("/v1/spans", json={"spans": [{
+        "id": "bad-ts-1",
+        "trace_id": "bad-ts-1",
+        "name": "agent",
+        "started_at": "yesterday at 5pm",
+    }]})
+    assert response.status_code == 400
+    assert "started_at" in response.json()["detail"]
+
+
+def test_empty_started_at_returns_400(client):
+    """Empty string is also unparseable — same 400 path."""
+    response = client.post("/v1/spans", json={"spans": [{
+        "id": "bad-ts-2",
+        "trace_id": "bad-ts-2",
+        "name": "agent",
+        "started_at": "",
+    }]})
+    assert response.status_code == 400
+
+
+def test_partial_batch_failure_aborts_whole_batch(client):
+    """One bad timestamp in a batch must reject the entire batch —
+    we don't want partial writes since policy eval depends on
+    ordered ingest of the whole trace."""
+    response = client.post("/v1/spans", json={"spans": [
+        {"id": "ok-1", "trace_id": "ok-1", "name": "a", "started_at": "2026-05-02T10:00:00Z"},
+        {"id": "bad-1", "trace_id": "bad-1", "name": "b", "started_at": "garbage"},
+    ]})
+    assert response.status_code == 400
+    # Confirm the good span did NOT land
+    r = client.get("/v1/traces/ok-1")
+    assert r.status_code == 404

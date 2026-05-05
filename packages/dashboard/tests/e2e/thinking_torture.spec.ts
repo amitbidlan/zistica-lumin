@@ -207,9 +207,10 @@ test('unknown span_subtype falls through to default rendering without crashing',
     },
   ]);
   await page.goto(`/traces/${traceId}`);
-  // Wait for the SWR-driven span timeline to render. The "Span timeline"
-  // section header is server-rendered after data lands, so check for it.
-  await expect(page.getByText(/Span timeline/i)).toBeVisible({ timeout: 10_000 });
+  // Wait for the SWR-driven span timeline to render. The trace detail
+  // page now uses a "Spans (N)" tab in place of the old "Span timeline"
+  // section header — wait for the tab.
+  await expect(page.getByRole('button', { name: /Spans \(\d+\)/ })).toBeVisible({ timeout: 10_000 });
   // The custom subtype produces no thinking badge (only known
   // subtypes get badges) — page rendered without crashing
   await expect(page.getByTestId('thinking-badge')).toHaveCount(0);

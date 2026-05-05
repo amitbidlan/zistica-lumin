@@ -5,7 +5,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from db import Database, get_db
-from models import Span, Trace, TraceCreate
+from models import Span, Trace, TraceCreate, TraceDetail, TraceViolationSummary
 
 router = APIRouter()
 
@@ -60,6 +60,7 @@ def _row_to_trace(row: dict) -> Trace:
         tags=row.get("tags"),
         metadata=metadata,
         ingest_at=row.get("ingest_at"),
+        violation_count=int(row.get("violation_count") or 0),
     )
 
 
@@ -80,7 +81,11 @@ SELECT
             SELECT SUM(COALESCE(tokens_input, 0) + COALESCE(tokens_output, 0))
             FROM spans WHERE trace_id = t.id
         ), 0)
-    ) AS total_tokens
+    ) AS total_tokens,
+    COALESCE(
+        (SELECT COUNT(*) FROM policy_violations WHERE trace_id = t.id),
+        0
+    ) AS violation_count
 FROM traces t
 """
 
@@ -191,14 +196,44 @@ def list_traces(
     return [_row_to_trace(r) for r in rows]
 
 
-@router.get("/v1/traces/{trace_id}", response_model=Trace)
-def get_trace(trace_id: str, db: Database = Depends(get_db)) -> Trace:
+@router.get("/v1/traces/{trace_id}", response_model=TraceDetail)
+def get_trace(trace_id: str, db: Database = Depends(get_db)) -> TraceDetail:
     row = db.fetchone_dict(
         _TRACE_WITH_AGGREGATES + " WHERE t.id = ?", [trace_id]
     )
     if row is None:
         raise HTTPException(status_code=404, detail="trace not found")
-    return _row_to_trace(row)
+    base = _row_to_trace(row)
+
+    # Attach policy violations summary. Per Rule 7, a violations-table
+    # missing or query failure must never break the trace endpoint —
+    # we just return an empty list.
+    violations: list[TraceViolationSummary] = []
+    try:
+        v_rows = db.fetchall_dict(
+            """
+            SELECT policy_name, severity
+            FROM policy_violations
+            WHERE trace_id = ?
+            ORDER BY created_at ASC
+            """,
+            [trace_id],
+        )
+        violations = [
+            TraceViolationSummary(
+                policy_name=r.get("policy_name") or "",
+                severity=r.get("severity") or "low",
+            )
+            for r in v_rows
+        ]
+    except Exception:
+        pass
+
+    return TraceDetail(
+        **base.model_dump(),
+        policy_violations=violations,
+        has_violations=bool(violations),
+    )
 
 
 @router.get("/v1/traces/{trace_id}/spans", response_model=List[Span])
