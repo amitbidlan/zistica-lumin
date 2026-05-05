@@ -4,6 +4,39 @@
 
 `@lumin-io/openclaw` is the Lumin side of OpenClaw's OTel telemetry pipeline. OpenClaw ships diagnostics through `@openclaw/diagnostics-otel`; this package provides a drop-in `SpanExporter` that converts those spans to Lumin's wire format and ships them to a local Lumin instance — visible at `http://localhost:3000`.
 
+## Quick Start
+
+Works out of the box with **OpenClaw v2026.2+** — no npm install, no agent code changes. Lumin exposes an OTLP/HTTP endpoint that OpenClaw's built-in `diagnostics-otel` plugin can write to directly.
+
+```bash
+# Step 1 — start Lumin
+docker run -p 3000:3000 -p 8000:8000 zistica/lumin
+
+# Step 2 — enable diagnostics + point OpenClaw at Lumin
+openclaw config set diagnostics.enabled true
+openclaw config set diagnostics.otel.enabled true
+openclaw config set diagnostics.otel.traces true
+openclaw config set diagnostics.otel.endpoint "http://localhost:8000/v1/otlp"
+openclaw gateway restart
+
+# Step 3 — open http://localhost:3000
+# every OpenClaw run appears automatically
+```
+
+OpenClaw's `diagnostics-otel` auto-appends `/v1/traces` to the configured base, so the POST lands at Lumin's OTLP route `http://localhost:8000/v1/otlp/v1/traces`. On v2026.4.25+ you can use the signal-specific form instead:
+
+```bash
+openclaw config set diagnostics.otel.traces.endpoint "http://localhost:8000/v1/otlp/v1/traces"
+```
+
+**What gets captured**
+- LLM calls — model, tokens, cost, duration
+- Tool calls — file, shell, web, email
+- Agent sessions end-to-end as a span tree
+- Policy violations auto-detected by Lumin's [policy engine](../../../README.md#policy-engine)
+
+When to install the `@lumin-io/openclaw` npm package below: you want client-side cost calculation, custom span subtypes (e.g. extended-thinking), or you're not using OpenClaw's built-in `diagnostics-otel` plugin.
+
 ## Install
 
 ```bash
