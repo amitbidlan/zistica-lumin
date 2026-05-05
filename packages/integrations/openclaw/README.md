@@ -4,6 +4,39 @@
 
 `@lumin-io/openclaw` is the Lumin side of OpenClaw's OTel telemetry pipeline. OpenClaw ships diagnostics through `@openclaw/diagnostics-otel`; this package provides a drop-in `SpanExporter` that converts those spans to Lumin's wire format and ships them to a local Lumin instance — visible at `http://localhost:3000`.
 
+## Quick Start
+
+Works out of the box on any OpenClaw release that ships [`diagnostics-otel`](https://docs.openclaw.ai/gateway/opentelemetry) — no npm install, no agent code changes. Lumin exposes an OTLP/HTTP endpoint that OpenClaw's built-in plugin can write to directly.
+
+```bash
+# Step 1 — start Lumin
+docker run -p 3000:3000 -p 8000:8000 zistica/lumin
+
+# Step 2 — enable diagnostics + point OpenClaw at Lumin
+openclaw config set diagnostics.enabled true
+openclaw config set diagnostics.otel.enabled true
+openclaw config set diagnostics.otel.traces true
+openclaw config set diagnostics.otel.endpoint "http://localhost:8000/v1/otlp"
+openclaw gateway restart
+
+# Step 3 — open http://localhost:3000
+# every OpenClaw run appears automatically
+```
+
+`diagnostics-otel` auto-appends `/v1/traces` to the configured base when the URL doesn't already include it (see the [OpenClaw OpenTelemetry export docs](https://docs.openclaw.ai/gateway/opentelemetry)) — the POST lands at Lumin's OTLP route `http://localhost:8000/v1/otlp/v1/traces`. If you'd rather be explicit:
+
+```bash
+openclaw config set diagnostics.otel.endpoint "http://localhost:8000/v1/otlp/v1/traces"
+```
+
+**What ends up in the dashboard**:
+- Model calls — provider / model / input + output token counts / duration; cost computed from Lumin's pricing tables
+- `openclaw.exec` spans for tool / process invocations
+- Full span tree for an agent run, parent-child correctly nested
+- Policy violations auto-detected by Lumin's policy engine on every ingested span
+
+When you'd want the **in-process exporter** below instead of the OTLP path: client-side cost calculation, custom span subtypes (e.g. extended-thinking), or your OpenClaw build predates `diagnostics-otel`.
+
 ## Install
 
 ```bash

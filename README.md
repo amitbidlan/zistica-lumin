@@ -68,7 +68,7 @@ That's it. No account, no API key, no data leaves your laptop.
 - **Real-time updates** — WebSocket stream pushes traces and spans into the dashboard the moment they're ingested, no refresh; falls back to 5-second polling if the socket can't connect.
 - **Cost & token tracking** — automatic per-call breakdown for OpenAI and Anthropic model families.
 - **Quality scoring** — bring-your-own evals via `POST /v1/evals`.
-- **Framework integrations** — drop-in support for [LangChain](https://github.com/langchain-ai/langchain) (zero-config via `LUMIN_TRACING=true` — see [section](#langchain)), [LlamaIndex](https://github.com/run-llama/llama_index) ([section](#llamaindex)), [CrewAI](https://github.com/crewAIInc/crewAI) ([section](#crewai)), [Anthropic](https://github.com/anthropics/anthropic-sdk-python) with extended-thinking visualization ([section](#anthropic)), [Mastra](https://github.com/mastra-ai/mastra) ([`@lumin-io/mastra`](packages/integrations/mastra/)), [OpenClaw](https://github.com/openclaw-ai) ([`@lumin-io/openclaw`](packages/integrations/openclaw/)), and [VoltAgent](https://github.com/voltagent/voltagent) ([`@lumin-io/voltagent`](packages/integrations/voltagent/)).
+- **Framework integrations** — drop-in support for [LangChain](https://github.com/langchain-ai/langchain) (zero-config via `LUMIN_TRACING=true` — see [section](#langchain)), [LlamaIndex](https://github.com/run-llama/llama_index) ([section](#llamaindex)), [CrewAI](https://github.com/crewAIInc/crewAI) ([section](#crewai)), [Anthropic](https://github.com/anthropics/anthropic-sdk-python) with extended-thinking visualization ([section](#anthropic)), [Mastra](https://github.com/mastra-ai/mastra) ([`@lumin-io/mastra`](packages/integrations/mastra/)), [OpenClaw](https://github.com/openclaw/openclaw) (zero-code via `diagnostics-otel` → Lumin's OTLP endpoint, see [section](#openclaw)), and [VoltAgent](https://github.com/voltagent/voltagent) ([`@lumin-io/voltagent`](packages/integrations/voltagent/)).
 - **Cross-language SDKs** — Python and TypeScript with identical wire format and behavior.
 - **Resilient by design** — the agent never fails because Lumin is down. Spans drop silently if the queue overflows, the exporter is unreachable, or the server returns an error.
 - **Local-first** — single Docker image, DuckDB + SQLite, no external services, no cloud dependency.
@@ -288,6 +288,39 @@ export const mastra = new Mastra({
 ```
 
 See [`packages/integrations/mastra/`](packages/integrations/mastra/) for the dedicated `@lumin-io/mastra` package.
+
+### OpenClaw
+
+[OpenClaw](https://github.com/openclaw/openclaw) ships native OpenTelemetry through its [`diagnostics-otel`](https://docs.openclaw.ai/gateway/opentelemetry) plugin — Lumin's OTLP/HTTP endpoint receives those traces directly, so **no agent-code changes, no `@lumin.trace`, no SDK install**.
+
+```bash
+# Step 1 — start Lumin
+docker run -p 3000:3000 -p 8000:8000 zistica/lumin
+
+# Step 2 — enable diagnostics + point OpenClaw at Lumin
+openclaw config set diagnostics.enabled true
+openclaw config set diagnostics.otel.enabled true
+openclaw config set diagnostics.otel.traces true
+openclaw config set diagnostics.otel.endpoint "http://localhost:8000/v1/otlp"
+openclaw gateway restart
+
+# Step 3 — open http://localhost:3000
+# every OpenClaw run appears automatically
+```
+
+OpenClaw's `diagnostics-otel` plugin auto-appends `/v1/traces` to the configured base when the URL doesn't already include it ([per the OpenClaw OpenTelemetry export docs](https://docs.openclaw.ai/gateway/opentelemetry)), so the POST lands at Lumin's OTLP route `http://localhost:8000/v1/otlp/v1/traces`. If you'd rather be explicit, you can set the endpoint to the full path — both forms work:
+
+```bash
+openclaw config set diagnostics.otel.endpoint "http://localhost:8000/v1/otlp/v1/traces"
+```
+
+**What ends up in the dashboard** (the shapes the plugin emits today, per the upstream docs):
+- Model calls — provider / model / input + output token counts / duration; Lumin computes cost from its OpenAI + Anthropic pricing tables
+- `openclaw.exec` spans for tool / process invocations
+- Full span tree for an agent run, parent-child correctly nested
+- Policy violations auto-detected by Lumin's policy engine on every ingested span
+
+You'll need a recent OpenClaw with `diagnostics-otel` available (the plugin is the official observability path; verify with `openclaw --version` and check the [OpenTelemetry export docs](https://docs.openclaw.ai/gateway/opentelemetry) for the current minimum). Older OpenClaw releases that predate `diagnostics-otel` can use the in-process SDK exporter at [`@lumin-io/openclaw`](packages/integrations/openclaw/) instead, which is also useful when you want client-side cost calculation or custom span subtypes.
 
 ### Sessions (multi-turn conversations)
 

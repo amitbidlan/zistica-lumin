@@ -14,3 +14,9 @@ pydantic>=2.0
 # ours and pull pandas as a transitive — broken every fresh install.
 simpleeval>=0.9.13
 pyyaml>=6.0
+# OTel ingest endpoint (POST /v1/otlp/v1/traces). Decodes both
+# OTLP/HTTP protobuf and OTLP/HTTP JSON payloads from any
+# OpenTelemetry-compatible tool (Logfire, Phoenix, Datadog GenAI,
+# OpenLLMetry, etc.) without requiring the Lumin SDK. Stable since
+# 1.30; pinned to a recent minor to keep proto bindings consistent.
+opentelemetry-proto>=1.30
