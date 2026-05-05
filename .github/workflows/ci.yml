@@ -193,10 +193,13 @@ jobs:
           # Both ports respond
           curl -fs http://127.0.0.1:8000/health   | grep -q '"status":"ok"'
           curl -fs http://127.0.0.1:3000/api/health | grep -q '"status":"ok"'
-          # Dashboard renders
+          # Dashboard renders — sanity-check both the new default route
+          # (/agents) and the still-valid /traces route.
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/agents)" = "200"
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/traces)" = "200"
-          # Redirect has Location header
-          curl -sI http://127.0.0.1:3000/ | grep -i '^location:' | grep -q '/traces'
+          # Root path now redirects to /agents (changed from /traces in
+          # this PR — agent-first dashboard makes /agents the home).
+          curl -sI http://127.0.0.1:3000/ | grep -i '^location:' | grep -q '/agents'
       - name: Cleanup container
         if: always()
         run: docker rm -f lumin-ci || true
