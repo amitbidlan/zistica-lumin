@@ -6,7 +6,14 @@
   /* Refined dark palette — softer, more depth than the prior single
      flat slate. Background uses two stops so panels sit slightly
      above the page; subtle radial wash gives the surface depth
-     without going overboard. */
+     without going overboard. Default theme is dark — the
+     [data-theme="light"] block below flips a small set of variables
+     for light-mode users.
+
+     Variables that carry hardcoded color values in component CSS
+     (.app-header background, .wordmark gradient, the body radial
+     washes) are factored into separate vars so the theme switch
+     doesn't require touching every component. */
   --background:        #07090c;
   --background-raised: #0d1117;
   --background-hover:  #11161e;
@@ -26,6 +33,40 @@
   --brand-amber:   #f59e0b;
   --brand-emerald: #10b981;
   --brand-rose:    #f43f5e;
+  /* Themed primitives — read by component CSS that previously
+     hardcoded the dark equivalent inline. */
+  --header-bg:     rgba(7, 9, 12, 0.7);
+  --wash-blue:     rgba(96, 165, 250, 0.06);
+  --wash-violet:   rgba(167, 139, 250, 0.04);
+  --wordmark-from: #e7eaee;
+  --wordmark-to:   #94a3b8;
+  /* Color-scheme tells the browser what tone the page is — affects
+     native form controls, scrollbars on macOS, and image rendering. */
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  /* Light palette — high contrast on a near-white background, same
+     accent blue so brand recognition holds. Borders are slightly
+     darker than pure greys so cards still read as raised surfaces. */
+  --background:        #f7f8fa;
+  --background-raised: #ffffff;
+  --background-hover:  #eef1f5;
+  --foreground:        #0f172a;
+  --foreground-soft:   #334155;
+  --muted:             #64748b;
+  --muted-soft:        #94a3b8;
+  --border:            #e2e8f0;
+  --border-strong:     #cbd5e1;
+  --border-glow:       rgba(37, 99, 235, 0.18);
+  --accent:            #2563eb;
+  --accent-glow:       rgba(37, 99, 235, 0.10);
+  --header-bg:         rgba(255, 255, 255, 0.75);
+  --wash-blue:         rgba(37, 99, 235, 0.05);
+  --wash-violet:       rgba(139, 92, 246, 0.04);
+  --wordmark-from:     #0f172a;
+  --wordmark-to:       #475569;
+  color-scheme: light;
 }
 
 html,
@@ -34,9 +75,11 @@ body {
   color: var(--foreground);
   /* Subtle radial wash from top — gives the page depth without noise. */
   background-image:
-    radial-gradient(ellipse 800px 600px at 50% -200px, rgba(96, 165, 250, 0.06), transparent 60%),
-    radial-gradient(ellipse 600px 500px at 90% 20%, rgba(167, 139, 250, 0.04), transparent 60%);
+    radial-gradient(ellipse 800px 600px at 50% -200px, var(--wash-blue), transparent 60%),
+    radial-gradient(ellipse 600px 500px at 90% 20%, var(--wash-violet), transparent 60%);
   background-attachment: fixed;
+  /* Smooth the visual transition when the user flips themes. */
+  transition: background-color 200ms ease, color 200ms ease;
 }
 
 body {
@@ -240,15 +283,16 @@ textarea.form-input {
   position: sticky;
   top: 0;
   z-index: 50;
-  background: rgba(7, 9, 12, 0.7);
+  background: var(--header-bg);
   backdrop-filter: saturate(180%) blur(8px);
   -webkit-backdrop-filter: saturate(180%) blur(8px);
   border-bottom: 1px solid var(--border);
 }
 
-/* Subtle text gradient for the wordmark */
+/* Subtle text gradient for the wordmark — light/dark palette swaps
+   the two stops via --wordmark-from / --wordmark-to. */
 .wordmark {
-  background: linear-gradient(135deg, #e7eaee 0%, #94a3b8 100%);
+  background: linear-gradient(135deg, var(--wordmark-from) 0%, var(--wordmark-to) 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
