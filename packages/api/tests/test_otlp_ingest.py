@@ -749,3 +749,47 @@ def test_child_span_names_unchanged_by_fold(client):
     # Root renamed to "openclaw"; child kept its original name
     assert "openclaw" in by_id.values()
     assert "openclaw.model.call" in by_id.values()
+
+
+# --- 13. tool-variant content extraction -----------------------------------
+#
+# The model-call content keys (input_messages / output_messages) are tested
+# above. Tool execution spans use a parallel pair (tool_input / tool_output)
+# that flows through the same _extract_input / _extract_output, but with
+# different attribute names. Keep an explicit regression so a future
+# refactor that reorders the for-loop tuple doesn't silently drop tool I/O.
+
+
+def test_openclaw_tool_content_extracted_to_input_output(client):
+    """Tool-execution spans carry input/output under
+    ``openclaw.content.tool_input`` / ``openclaw.content.tool_output``.
+    These should map to span.input / span.output the same way model
+    content does — operators expect to see the tool args + result on
+    the trace timeline regardless of which content key emitted them.
+    """
+    trace_id = _hex_id(32)
+    span_id = _hex_id(16)
+    payload = _otlp_json_payload(trace_id=trace_id, spans=[{
+        "traceId": trace_id, "spanId": span_id,
+        "name": "openclaw.tool.execution",
+        "kind": 3,
+        "startTimeUnixNano": _now_ns(),
+        "endTimeUnixNano":   _now_ns(1),
+        "attributes": [
+            {"key": "openclaw.tool.name", "value": {"stringValue": "web.search"}},
+            {"key": "openclaw.content.tool_input",
+             "value": {"stringValue": '{"query": "weather tokyo"}'}},
+            {"key": "openclaw.content.tool_output",
+             "value": {"stringValue": '{"temp": 18}'}},
+        ],
+    }])
+    r = _post_json(client, payload, headers={"X-Lumin-Project": "openclaw"})
+    assert r.status_code == 200
+
+    trace_uuid = next(
+        t["id"] for t in client.get("/v1/traces").json()
+        if t["id"].replace("-", "") == trace_id
+    )
+    s = client.get(f"/v1/traces/{trace_uuid}/spans").json()[0]
+    assert s["input"] == '{"query": "weather tokyo"}'
+    assert s["output"] == '{"temp": 18}'
