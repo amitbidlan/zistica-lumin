@@ -2,6 +2,8 @@ import './globals.css';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import Logo from '@/components/Logo';
+import ViolationsNavLink from '@/components/ViolationsNavLink';
+import NavLink from '@/components/NavLink';
 
 export const metadata: Metadata = {
   title: {
@@ -35,13 +37,13 @@ export default function RootLayout({
     <html lang="en">
       <body>
         <div className="min-h-screen flex flex-col">
-          <header className="border-b border-[var(--border)] px-6 py-3 flex items-center justify-between gap-4">
+          <header className="app-header px-6 py-3 flex items-center justify-between gap-4">
             <Link
-              href="/traces"
+              href="/agents"
               className="flex items-center gap-2.5 hover:opacity-90 transition-opacity"
             >
               <Logo className="h-6 w-6" />
-              <span className="font-semibold tracking-tight text-base">
+              <span className="wordmark font-semibold tracking-tight text-base">
                 Lumin
               </span>
               <span className="text-[var(--muted)] text-xs hidden sm:inline">
@@ -49,24 +51,18 @@ export default function RootLayout({
               </span>
             </Link>
 
-            <nav className="flex items-center gap-5 text-xs">
-              <Link
-                href="/traces"
-                className="text-[var(--muted)] hover:text-[var(--foreground)] transition-colors"
-              >
-                Traces
-              </Link>
-              <Link
-                href="/sessions"
-                className="text-[var(--muted)] hover:text-[var(--foreground)] transition-colors"
-              >
-                Sessions
-              </Link>
+            <nav className="flex items-center gap-1 text-xs">
+              <NavLink href="/agents">Agents</NavLink>
+              <NavLink href="/traces">Traces</NavLink>
+              <NavLink href="/sessions">Sessions</NavLink>
+              <NavLink href="/policies">Policies</NavLink>
+              <ViolationsNavLink />
+              <span className="opacity-30 mx-1">·</span>
               <a
                 href="/api/docs"
                 target="_blank"
                 rel="noreferrer"
-                className="text-[var(--muted)] hover:text-[var(--foreground)] transition-colors"
+                className="px-2 py-1 rounded text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--background-hover)] transition-colors"
               >
                 API
               </a>
@@ -74,12 +70,12 @@ export default function RootLayout({
                 href="https://github.com/amitbidlan/zistica-lumin"
                 target="_blank"
                 rel="noreferrer"
-                className="text-[var(--muted)] hover:text-[var(--foreground)] transition-colors"
+                className="px-2 py-1 rounded text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--background-hover)] transition-colors"
               >
                 GitHub
               </a>
               <span
-                className="font-mono text-[10px] uppercase tracking-wider px-1.5 py-0.5 border border-[var(--border)] rounded text-[var(--muted)]"
+                className="ml-1 font-mono text-[10px] uppercase tracking-wider px-1.5 py-0.5 border border-[var(--border)] rounded text-[var(--muted)]"
                 title={`Lumin ${VERSION}`}
               >
                 v{VERSION}
@@ -87,7 +83,7 @@ export default function RootLayout({
             </nav>
           </header>
 
-          <main className="px-6 py-6 flex-1">{children}</main>
+          <main className="px-6 py-8 flex-1">{children}</main>
 
           <footer className="border-t border-[var(--border)] px-6 py-3 text-[11px] text-[var(--muted)] flex items-center justify-between gap-4 flex-wrap">
             <span className="flex items-center gap-2">

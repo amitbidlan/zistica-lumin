@@ -19,7 +19,94 @@ export type Trace = {
   tags: string[] | null;
   metadata: unknown;
   ingest_at: string | null;
+  // Policy Engine — list endpoint includes a count for the badge;
+  // detail endpoint adds the full per-trace violation summary.
+  // All default to 0/empty/false when the engine isn't in use.
+  violation_count: number;
+  policy_violations?: TraceViolationSummary[];
+  has_violations?: boolean;
 };
+
+export type TraceViolationSummary = {
+  policy_name: string;
+  severity: PolicySeverity;
+};
+
+export type PolicySeverity = 'low' | 'medium' | 'high' | 'critical';
+
+export type PolicyViolation = {
+  id: string;
+  policy_name: string;
+  policy_description: string | null;
+  severity: PolicySeverity;
+  trace_id: string;
+  span_id: string | null;
+  condition_text: string | null;
+  action_taken: string | null;
+  actual_value: string | null;
+  webhook_fired: boolean;
+  webhook_url: string | null;
+  created_at: string | null;
+};
+
+export type PolicyViolationsResponse = {
+  violations: PolicyViolation[];
+  total: number;
+};
+
+export type PolicyViolationStats = {
+  total: number;
+  by_severity: Record<string, number>;
+  by_policy: Record<string, number>;
+};
+
+export type ActivityLabel = 'active' | 'idle' | 'dormant';
+
+export type AgentSummary = {
+  name: string;
+  project: string;       // openclaw / mastra / voltagent / default
+  trace_count: number;
+  total_cost_usd: number;
+  total_tokens: number;
+  avg_duration_ms: number;
+  error_rate: number;
+  violation_count: number;
+  has_violations: boolean;
+  last_seen: string | null;
+  top_model: string | null;
+  top_provider: string | null;
+  providers: string[];   // distinct LLM providers used
+  seconds_since_last_seen: number | null;
+  activity: ActivityLabel;
+  // Phase 2 — in-flight count + sparkline data
+  active_traces: number;
+  activity_buckets: number[];  // 12 ints: bucket 0 = most recent 5min
+};
+
+export type AgentListResponse = {
+  agents: AgentSummary[];
+  window_hours: number;
+  projects: string[];    // distinct projects in the response
+  // True when the DB has traces older than the current window — the
+  // empty-state shows a "try 7d filter" hint to bridge the asymmetry
+  // between /traces (no window) and /agents (24h default).
+  older_data_exists: boolean;
+};
+
+export type AgentDetail = AgentSummary & {
+  recent_traces: Trace[];
+  violations_by_policy: Record<string, number>;
+  violations_by_severity: Record<string, number>;
+};
+
+export function formatActivity(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined) return 'no activity';
+  if (seconds < 5) return 'just now';
+  if (seconds < 60) return `${seconds}s ago`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  return `${Math.floor(seconds / 86400)}d ago`;
+}
 
 export type Session = {
   session_id: string;
@@ -35,6 +122,41 @@ export type Session = {
 
 export type SessionDetail = Session & {
   traces: Trace[];
+};
+
+// ---- Policies (Phase 3 read, Phase 4 write) -----------------------------
+
+export type PolicyTrigger = 'span_end' | 'trace_end';
+export type PolicyAction = 'flag' | 'alert';
+
+export type Policy = {
+  name: string;
+  description: string | null;
+  trigger: PolicyTrigger;
+  condition: string;
+  action: PolicyAction;
+  severity: PolicySeverity;
+  webhook_url: string | null;
+  scope_agents: string[];
+  enabled: boolean;
+  source: 'yaml' | 'db' | 'none';
+  version: number;
+};
+
+export type PolicyListResponse = {
+  policies: Policy[];
+  source: 'yaml' | 'db' | 'none';
+  engine_loaded: boolean;
+};
+
+export type PolicyAuditEntry = {
+  id: string;
+  policy_name: string;
+  action: 'create' | 'update' | 'delete';
+  before: unknown;
+  after: unknown;
+  actor: string | null;
+  created_at: string | null;
 };
 
 export type Span = {

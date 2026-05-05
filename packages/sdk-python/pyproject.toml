@@ -12,6 +12,17 @@ license = { text = "Apache-2.0" }
 authors = [{ name = "Zistica Inc." }]
 dependencies = [
     "httpx>=0.24.0",
+    # Added for the Policy Engine (Accountability Layer Part B):
+    #   - simpleeval: safe expression evaluation for policy conditions.
+    #     Required because we MUST NOT use Python eval() — see comment
+    #     in lumin/policy.py for the full security rationale.
+    #   - pyyaml: parse the user's lumin-policies.yaml. There's no
+    #     YAML support in the stdlib.
+    # Both are pure-Python, no transitive deps. Deviation from the
+    # "minimal deps" rule is intentional and documented in the Policy
+    # Engine session.
+    "simpleeval>=0.9.13",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]

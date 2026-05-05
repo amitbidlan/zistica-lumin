@@ -1,0 +1,604 @@
+"""Policy violations API — Accountability Layer Part B.
+
+The SDK evaluates policy YAML conditions in-process and POSTs any
+fired violations here. The dashboard reads them back to render red
+badges on traces and a Violations page.
+
+Endpoints:
+    POST /v1/violations           ingest from SDK
+    GET  /v1/violations           list with filters
+    GET  /v1/violations/stats     aggregates by severity / policy
+
+The /v1/traces/{id} endpoint is also extended (in routers/traces.py)
+to embed a compact list of policy_violations + has_violations bool.
+"""
+
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+
+import policy_metrics
+import policy_runtime
+import policy_store
+from db import Database, get_db
+from lumin.policy import (
+    VALID_ACTIONS,
+    VALID_SEVERITIES,
+    VALID_TRIGGERS,
+    Policy,
+    PolicyConfigError,
+)
+from models import (
+    PolicyAuditEntry,
+    PolicyAuditResponse,
+    PolicyCreate,
+    PolicyListResponse,
+    PolicyOut,
+    PolicyUpdate,
+    PolicyViolation,
+    PolicyViolationsIngest,
+    PolicyViolationsIngestResponse,
+    PolicyViolationStats,
+    PolicyViolationsResponse,
+)
+from policy_runtime import _violation_id, _webhook_url_safe
+
+
+router = APIRouter()
+
+
+def _row_to_violation(row: dict) -> PolicyViolation:
+    return PolicyViolation(
+        id=str(row["id"]),
+        policy_name=row.get("policy_name") or "",
+        policy_description=row.get("policy_description"),
+        severity=row.get("severity") or "low",
+        trace_id=row.get("trace_id") or "",
+        span_id=row.get("span_id"),
+        condition_text=row.get("condition_text"),
+        action_taken=row.get("action_taken"),
+        actual_value=row.get("actual_value"),
+        webhook_fired=bool(row.get("webhook_fired") or False),
+        webhook_url=row.get("webhook_url"),
+        created_at=row.get("created_at"),
+    )
+
+
+@router.post("/v1/violations", response_model=PolicyViolationsIngestResponse)
+def ingest_violations(
+    payload: PolicyViolationsIngest, db: Database = Depends(get_db)
+) -> PolicyViolationsIngestResponse:
+    """Bulk insert violations from the SDK. Returns count accepted.
+
+    Webhook firing happens in the SDK, not here — by the time a
+    violation reaches this endpoint, ``webhook_fired`` already
+    reflects whether the SDK successfully called the webhook URL.
+    """
+    accepted = 0
+    for v in payload.violations:
+        # Deterministic id from (policy_name, trace_id, span_id) so an
+        # SDK-side violation that's also caught by the server's own
+        # ingest-time eval collapses to one row (PRIMARY KEY conflict
+        # → ON CONFLICT DO NOTHING). Same idempotency guarantees apply
+        # to OTel retries that re-POST the same violation.
+        vid = _violation_id(v.policy_name, v.trace_id, v.span_id)
+        # SSRF guard — blocked URLs don't get persisted, so the
+        # dashboard can't show a poisoned link and a future webhook
+        # firer can't be tricked into POSTing to instance-metadata.
+        safe_webhook = (
+            v.webhook_url
+            if (not v.webhook_url or _webhook_url_safe(v.webhook_url))
+            else None
+        )
+        db.execute(
+            """
+            INSERT INTO policy_violations (
+                id, policy_name, policy_description, span_id, trace_id,
+                condition_text, action_taken, severity, actual_value,
+                webhook_fired, webhook_url
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (id) DO NOTHING
+            """,
+            [
+                vid,
+                v.policy_name,
+                v.policy_description,
+                v.span_id,
+                v.trace_id,
+                v.condition_text,
+                v.action_taken,
+                v.severity,
+                v.actual_value,
+                bool(v.webhook_fired or False),
+                safe_webhook,
+            ],
+        )
+        accepted += 1
+    return PolicyViolationsIngestResponse(accepted=accepted)
+
+
+@router.get("/v1/violations", response_model=PolicyViolationsResponse)
+def list_violations(
+    trace_id: Optional[str] = Query(None),
+    severity: Optional[str] = Query(None),
+    policy_name: Optional[str] = Query(None),
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    db: Database = Depends(get_db),
+) -> PolicyViolationsResponse:
+    """List violations with optional filters."""
+    where: list[str] = []
+    params: list = []
+    if trace_id:
+        where.append("trace_id = ?")
+        params.append(trace_id)
+    if severity:
+        where.append("severity = ?")
+        params.append(severity)
+    if policy_name:
+        where.append("policy_name = ?")
+        params.append(policy_name)
+    where_clause = ("WHERE " + " AND ".join(where)) if where else ""
+
+    rows = db.fetchall_dict(
+        f"""
+        SELECT * FROM policy_violations
+        {where_clause}
+        ORDER BY created_at DESC
+        LIMIT ? OFFSET ?
+        """,
+        [*params, limit, offset],
+    )
+    total_row = db.fetchone(
+        f"SELECT COUNT(*) FROM policy_violations {where_clause}", params
+    )
+    total = int(total_row[0]) if total_row else 0
+
+    return PolicyViolationsResponse(
+        violations=[_row_to_violation(r) for r in rows],
+        total=total,
+    )
+
+
+@router.get("/v1/violations/stats", response_model=PolicyViolationStats)
+def violation_stats(db: Database = Depends(get_db)) -> PolicyViolationStats:
+    """Aggregate counts. Cheap because the table is bounded by retention."""
+    total_row = db.fetchone("SELECT COUNT(*) FROM policy_violations")
+    total = int(total_row[0]) if total_row else 0
+
+    by_sev_rows = db.fetchall(
+        "SELECT severity, COUNT(*) FROM policy_violations GROUP BY severity"
+    )
+    by_pol_rows = db.fetchall(
+        "SELECT policy_name, COUNT(*) FROM policy_violations GROUP BY policy_name"
+    )
+
+    return PolicyViolationStats(
+        total=total,
+        by_severity={(s or "unknown"): int(n) for s, n in by_sev_rows},
+        by_policy={(p or "unknown"): int(n) for p, n in by_pol_rows},
+    )
+
+
+# ---- engine introspection / control ---------------------------------------
+
+
+@router.get("/v1/policy/metrics")
+def get_metrics() -> dict:
+    """Snapshot of engine counters + p50/p99 eval latency.
+
+    Designed for ad-hoc curl + dashboard polling. Doesn't persist
+    anything — all numbers are in-process state. Restart resets.
+    """
+    return policy_metrics.snapshot().to_dict()
+
+
+@router.post("/v1/policy/reload")
+def post_reload() -> dict:
+    """Force a hot-reload of LUMIN_POLICY_FILE.
+
+    On invalid YAML the previous engine stays in place — production-
+    safety choice over fail-open. Caller sees ``{"ok": false, ...}``
+    and can re-fix the file before the next call.
+    """
+    return policy_runtime.reload_engine()
+
+
+# ---- Policy CRUD (Phase 3 reads, Phase 4 writes) --------------------------
+
+
+@router.get("/v1/policies", response_model=PolicyListResponse)
+def list_policies(
+    agent: Optional[str] = Query(
+        None, description="Filter to policies that apply to this agent name"
+    ),
+    db: Database = Depends(get_db),
+) -> PolicyListResponse:
+    """List currently active policies.
+
+    DB-backed when the engine is sourced from the policies table; falls
+    through to the in-memory engine state when YAML is the source.
+
+    The ``?agent=`` filter narrows to rules that would actually fire
+    for events from that agent — the dashboard's AgentDetail page
+    calls this to show the "Active policies" section.
+    """
+    source = policy_runtime.engine_source()
+
+    if source == "db":
+        rows = db.fetchall_dict(
+            "SELECT * FROM policies WHERE enabled = true ORDER BY name"
+        )
+        out: list[PolicyOut] = []
+        for r in rows:
+            p = policy_store._row_to_policy(r)
+            if agent and not p.applies_to_agent(agent):
+                continue
+            out.append(_policy_to_out(p, source="db", version=int(r.get("version") or 1)))
+        return PolicyListResponse(policies=out, source="db", engine_loaded=True)
+
+    # YAML source (or fallback)
+    eng = policy_runtime.get_engine()
+    if eng is None:
+        return PolicyListResponse(policies=[], source="none", engine_loaded=False)
+    out2: list[PolicyOut] = []
+    for p in eng.policies:
+        if agent and not p.applies_to_agent(agent):
+            continue
+        out2.append(_policy_to_out(p, source=source))
+    return PolicyListResponse(policies=out2, source=source, engine_loaded=True)
+
+
+@router.get("/v1/policies/{name}", response_model=PolicyOut)
+def get_policy(name: str, db: Database = Depends(get_db)) -> PolicyOut:
+    """Single policy by name. DB row when DB-backed, else from the
+    in-memory YAML engine state."""
+    source = policy_runtime.engine_source()
+    if source == "db":
+        row = db.fetchone_dict(
+            "SELECT * FROM policies WHERE name = ? AND enabled = true", [name]
+        )
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"policy '{name}' not found")
+        return _policy_to_out(
+            policy_store._row_to_policy(row),
+            source="db",
+            version=int(row.get("version") or 1),
+        )
+    eng = policy_runtime.get_engine()
+    if eng is None:
+        raise HTTPException(status_code=404, detail="engine not loaded")
+    for p in eng.policies:
+        if p.name == name:
+            return _policy_to_out(p, source=source)
+    raise HTTPException(status_code=404, detail=f"policy '{name}' not found")
+
+
+@router.post("/v1/policies", response_model=PolicyOut, status_code=201)
+def create_policy(
+    body: PolicyCreate,
+    request: Request,
+    db: Database = Depends(get_db),
+) -> PolicyOut:
+    """Create a new policy. Validates against the engine's grammar
+    (trigger / action / severity enums) AND parses the condition
+    through SimpleEval to reject unparseable expressions.
+
+    On success: writes the row, bumps the engine's version watcher,
+    triggers an immediate reload so the new rule is live within the
+    response. The dashboard sees the new policy without a poll."""
+    p = _build_policy_from_create(body)
+    actor = _resolve_actor(request)
+    try:
+        saved = policy_store.create_policy(db, p, actor=actor)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+    # Atomic engine swap so subsequent /v1/spans calls fire against
+    # the new rule. Hot-reload errors leave the previous engine in
+    # place; we surface that to the caller via the reload_engine
+    # error path so they know the write happened but eval is stale.
+    reload_result = policy_runtime.reload_engine(db=db)
+    if not reload_result.get("ok"):
+        # Write succeeded; reload didn't. Log and continue — the
+        # next watcher tick will retry.
+        import logging
+        logging.getLogger("lumin.api.policy").warning(
+            "policy: post-create reload failed: %s", reload_result.get("error")
+        )
+
+    return _policy_to_out(saved, source="db", version=_lookup_version(db, saved.name))
+
+
+@router.put("/v1/policies/{name}", response_model=PolicyOut)
+def update_policy(
+    name: str,
+    body: PolicyUpdate,
+    request: Request,
+    db: Database = Depends(get_db),
+) -> PolicyOut:
+    """Partial update of a policy. Field-level — omitted fields keep
+    their current value."""
+    actor = _resolve_actor(request)
+
+    # Validate enum fields when provided
+    if body.trigger is not None and body.trigger not in VALID_TRIGGERS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"trigger must be one of {sorted(VALID_TRIGGERS)}",
+        )
+    if body.action is not None and body.action not in VALID_ACTIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"action must be one of {sorted(VALID_ACTIONS)}",
+        )
+    if body.severity is not None and body.severity not in VALID_SEVERITIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"severity must be one of {sorted(VALID_SEVERITIES)}",
+        )
+
+    # If condition changed, validate it parses (cheap SimpleEval AST parse)
+    if body.condition is not None:
+        _validate_condition_parses(body.condition)
+
+    try:
+        saved = policy_store.update_policy(
+            db, name,
+            description=body.description,
+            trigger=body.trigger,
+            condition=body.condition,
+            action=body.action,
+            severity=body.severity,
+            webhook_url=body.webhook_url,
+            scope_agents=body.scope_agents,
+            enabled=body.enabled,
+            actor=actor,
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"policy '{name}' not found")
+
+    reload_result = policy_runtime.reload_engine(db=db)
+    if not reload_result.get("ok"):
+        import logging
+        logging.getLogger("lumin.api.policy").warning(
+            "policy: post-update reload failed: %s", reload_result.get("error")
+        )
+    return _policy_to_out(saved, source="db", version=_lookup_version(db, saved.name))
+
+
+@router.delete("/v1/policies/{name}", status_code=204)
+def delete_policy(
+    name: str,
+    request: Request,
+    db: Database = Depends(get_db),
+):
+    """Soft-delete (enabled=false). The row stays in the table so
+    historical violations can still resolve a policy_name → row;
+    UPDATE with enabled=true revives it."""
+    actor = _resolve_actor(request)
+    deleted = policy_store.delete_policy(db, name, actor=actor)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"policy '{name}' not found")
+    reload_result = policy_runtime.reload_engine(db=db)
+    if not reload_result.get("ok"):
+        import logging
+        logging.getLogger("lumin.api.policy").warning(
+            "policy: post-delete reload failed: %s", reload_result.get("error")
+        )
+    return None
+
+
+@router.get("/v1/policies/{name}/audit", response_model=PolicyAuditResponse)
+def policy_audit(
+    name: str,
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    db: Database = Depends(get_db),
+) -> PolicyAuditResponse:
+    """Audit log for one policy. Most recent first."""
+    rows, total = policy_store.list_audit(db, policy_name=name, limit=limit, offset=offset)
+    entries = [
+        PolicyAuditEntry(
+            id=str(r["id"]),
+            policy_name=r["policy_name"],
+            action=r["action"],
+            before=r.get("before"),
+            after=r.get("after"),
+            actor=r.get("actor"),
+            created_at=r.get("created_at"),
+        )
+        for r in rows
+    ]
+    return PolicyAuditResponse(entries=entries, total=total)
+
+
+# ---- helpers --------------------------------------------------------------
+
+
+def _policy_to_out(p, source: str = "yaml", version: int = 1) -> PolicyOut:
+    """Project an SDK ``Policy`` dataclass onto the wire shape."""
+    return PolicyOut(
+        name=p.name,
+        description=p.description,
+        trigger=p.trigger,
+        condition=p.condition,
+        action=p.action,
+        severity=p.severity,
+        webhook_url=p.webhook_url,
+        scope_agents=list(p.scope_agents or []),
+        enabled=True,
+        source=source,
+        version=version,
+    )
+
+
+def _build_policy_from_create(body: PolicyCreate) -> Policy:
+    """Validate + materialize a Policy from a PolicyCreate body.
+
+    Triple-validates: enum fields, condition parseability, and (via
+    Policy dataclass) the rest. We do NOT trust the caller — same
+    rules YAML must obey apply here.
+    """
+    if not body.name or not body.name.strip():
+        raise HTTPException(status_code=400, detail="name is required")
+    if body.trigger not in VALID_TRIGGERS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"trigger must be one of {sorted(VALID_TRIGGERS)}",
+        )
+    if body.action not in VALID_ACTIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"action must be one of {sorted(VALID_ACTIONS)}",
+        )
+    if body.severity not in VALID_SEVERITIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"severity must be one of {sorted(VALID_SEVERITIES)}",
+        )
+    if not body.condition or not body.condition.strip():
+        raise HTTPException(status_code=400, detail="condition is required")
+
+    _validate_condition_parses(body.condition)
+
+    return Policy(
+        name=body.name.strip(),
+        description=body.description,
+        trigger=body.trigger,
+        condition=body.condition,
+        action=body.action,
+        severity=body.severity,
+        webhook_url=body.webhook_url,
+        scope_agents=list(body.scope_agents or []),
+    )
+
+
+_ALLOWED_NAMES = frozenset({"span", "trace"})
+_ALLOWED_FUNCTIONS = frozenset({"len", "str", "int", "float", "abs"})
+
+
+def _validate_condition_parses(condition: str) -> None:
+    """Raise HTTP 400 if the condition isn't a safe + valid simpleeval
+    expression.
+
+    Goes beyond a bare ``parse()`` (which accepts any syntactically
+    valid Python expression including ``__import__("os")``). We walk
+    the AST and reject:
+
+      - Bare-name references outside ``{span, trace}`` — catches
+        typos like ``trace.span_count > 0`` written under a span_end
+        trigger, AND blocks ``__import__`` / ``open`` / ``exec`` at
+        write time. simpleeval would refuse them at eval time too,
+        but operators expect a 400 when they save a broken rule, not
+        silently-skipped fires that look fine in the dashboard.
+      - Function calls outside the engine's safe whitelist —
+        ``foo(x)`` where ``foo`` isn't ``{len, str, int, float, abs}``.
+        Same UX rationale.
+    """
+    try:
+        from simpleeval import SimpleEval
+    except ImportError:
+        return
+    try:
+        SimpleEval().parse(condition)
+    except Exception as e:
+        raise HTTPException(
+            status_code=400, detail=f"condition is not a valid expression: {e}"
+        )
+
+    import ast as _ast
+    try:
+        tree = _ast.parse(condition, mode="eval")
+    except SyntaxError as e:
+        raise HTTPException(
+            status_code=400, detail=f"condition syntax error: {e}"
+        )
+
+    # Pass 1: identify every Name that's the direct target of a Call
+    # so we know which Names are "being called as functions" vs "being
+    # read as variables". Same Name node could only ever be one of
+    # those (ast nodes are unique), so a small id() set is enough.
+    call_func_names: set[int] = set()
+    method_call_nodes: list = []
+    bad_func_names: list = []
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.Call):
+            if isinstance(node.func, _ast.Name):
+                call_func_names.add(id(node.func))
+                if node.func.id not in _ALLOWED_FUNCTIONS:
+                    bad_func_names.append(node.func.id)
+            elif isinstance(node.func, _ast.Attribute):
+                # Method calls (x.startswith(...), __import__(...).system(...))
+                # are not exposed by the engine — reject at write time.
+                method_call_nodes.append(node)
+
+    if bad_func_names:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"condition calls disallowed function "
+                f"{bad_func_names[0]!r}; only "
+                f"{sorted(_ALLOWED_FUNCTIONS)} are allowed"
+            ),
+        )
+    if method_call_nodes:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "method calls (e.g. x.startswith(...)) are not "
+                "allowed in conditions"
+            ),
+        )
+
+    # Pass 2: every other Name lookup must be in the variable allowlist
+    # (span / trace). We deliberately allow function-call Names too —
+    # those were already validated in pass 1.
+    for node in _ast.walk(tree):
+        if not isinstance(node, _ast.Name):
+            continue
+        if id(node) in call_func_names:
+            continue
+        if node.id in _ALLOWED_NAMES:
+            continue
+        if node.id in _ALLOWED_FUNCTIONS:
+            # A function name used as a variable (e.g. ``f = len``) is
+            # weird but technically harmless — the engine never exposes
+            # the binding anyway. Reject to keep conditions readable.
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"safe function {node.id!r} can only be called "
+                    f"(e.g. {node.id}(x)), not referenced as a value"
+                ),
+            )
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"condition references unknown identifier "
+                f"{node.id!r}; only {sorted(_ALLOWED_NAMES)} are "
+                f"available (plus the safe functions "
+                f"{sorted(_ALLOWED_FUNCTIONS)})"
+            ),
+        )
+
+
+def _lookup_version(db: Database, name: str) -> int:
+    row = db.fetchone("SELECT version FROM policies WHERE name = ?", [name])
+    return int(row[0]) if row and row[0] is not None else 1
+
+
+def _resolve_actor(request: Request) -> str:
+    """Best-effort actor identity for audit log.
+
+    Prefers an ``X-Lumin-Actor`` header (operators set this from a CLI
+    or a future auth proxy). Falls back to client host. Never blocks
+    the write — audit is a best-effort artifact, not a security gate.
+    """
+    actor = request.headers.get("x-lumin-actor")
+    if actor:
+        return actor.strip()[:200]
+    client = request.client
+    if client and client.host:
+        return f"http:{client.host}"
+    return "anonymous"

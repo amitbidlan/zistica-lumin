@@ -7,14 +7,13 @@ import {
   Session,
   fetcher,
   formatCost,
-  formatDuration,
   formatScore,
   formatStartedAt,
 } from '@/lib/api';
 import { useTraceStream, WSMessage } from '@/lib/websocket';
 
 const COLS =
-  'grid grid-cols-[1fr_180px_100px_120px_100px_80px] gap-4 px-3 py-2';
+  'grid grid-cols-[1fr_180px_100px_120px_100px_80px] gap-4 px-4 py-2.5';
 const PAGE_SIZE_DEFAULT = 15;
 const PAGE_SIZES = [15, 25, 50, 100];
 const PAGE_SIZE_STORAGE_KEY = 'lumin.pageSize';
@@ -52,9 +51,6 @@ export default function SessionList() {
   const swrKey = `/v1/sessions?limit=${pageSize + 1}&offset=${offset}`;
   const { mutate } = useSWRConfig();
 
-  // Listen for new traces — when one arrives with a session_id, the
-  // session aggregations (trace_count, totals, last_seen) might have
-  // changed. Trigger a revalidation to refresh the session list.
   const wsState = useTraceStream((msg: WSMessage) => {
     if (msg.type === 'new_trace' && msg.trace.session_id && page === 0) {
       mutate(swrKey);
@@ -66,7 +62,6 @@ export default function SessionList() {
     keepPreviousData: true,
   });
 
-  // Catch-up revalidation on WS reconnect
   const wasDisconnected = useRef(false);
   useEffect(() => {
     if (wsState === 'disconnected') {
@@ -79,13 +74,13 @@ export default function SessionList() {
 
   if (error) {
     return (
-      <div className="text-red-400">
+      <div className="card p-4 text-rose-400">
         Failed to load sessions: {String(error.message ?? error)}
       </div>
     );
   }
   if (isLoading || !data) {
-    return <div className="text-[var(--muted)]">Loading…</div>;
+    return <div className="card p-8 text-center text-[var(--muted)]">Loading…</div>;
   }
 
   const hasMore = data.length > pageSize;
@@ -93,10 +88,13 @@ export default function SessionList() {
 
   if (visible.length === 0 && page === 0) {
     return (
-      <div className="text-[var(--muted)]">
-        No sessions yet. Wrap your agent calls in{' '}
-        <code className="font-mono">lumin.session(name=&quot;…&quot;)</code> to
-        group multi-turn conversations together.
+      <div className="card p-8 text-center">
+        <div className="text-[var(--foreground-soft)] mb-2">No sessions yet.</div>
+        <div className="text-[var(--muted)] text-sm">
+          Wrap your agent calls in{' '}
+          <code className="font-mono">lumin.session(name=&quot;…&quot;)</code> to
+          group multi-turn conversations together.
+        </div>
       </div>
     );
   }
@@ -105,10 +103,10 @@ export default function SessionList() {
   const endIdx = offset + visible.length;
 
   return (
-    <div>
-      <div className="border border-[var(--border)] rounded">
+    <div className="space-y-4">
+      <div className="card overflow-hidden">
         <div
-          className={`${COLS} text-xs uppercase tracking-wider text-[var(--muted)] border-b border-[var(--border)]`}
+          className={`${COLS} text-[10px] uppercase tracking-wider text-[var(--muted)] border-b border-[var(--border)]`}
         >
           <div>Session</div>
           <div>Last activity</div>
@@ -118,7 +116,7 @@ export default function SessionList() {
           <div>Tokens</div>
         </div>
         {visible.length === 0 ? (
-          <div className="px-3 py-8 text-center text-[var(--muted)]">
+          <div className="px-4 py-8 text-center text-[var(--muted)]">
             No sessions on this page.{' '}
             <button
               onClick={() => setPage(0)}
@@ -132,15 +130,15 @@ export default function SessionList() {
             <Link
               key={s.session_id}
               href={`/sessions/${encodeURIComponent(s.session_id)}`}
-              className={`${COLS} border-b border-[var(--border)] last:border-b-0 hover:bg-[#111418] transition-colors`}
+              className={`${COLS} text-sm border-b border-[var(--border)] last:border-b-0 hover:bg-[var(--background-hover)] transition-colors`}
             >
               <div className="font-mono truncate">{s.session_id}</div>
-              <div className="text-[var(--muted)]">
+              <div className="text-[var(--muted)] text-xs">
                 {formatStartedAt(s.last_seen)}
               </div>
-              <div className="font-mono">{s.trace_count}</div>
-              <div>{formatCost(s.total_cost_usd)}</div>
-              <div>{formatScore(s.quality_score)}</div>
+              <div className="metric-value">{s.trace_count}</div>
+              <div className="metric-value">{formatCost(s.total_cost_usd)}</div>
+              <div className="metric-value">{formatScore(s.quality_score)}</div>
               <div className="text-[var(--muted)] font-mono text-xs">
                 {s.total_tokens.toLocaleString()}
               </div>
@@ -149,74 +147,112 @@ export default function SessionList() {
         )}
       </div>
 
-      <div className="mt-4 flex items-center justify-between gap-3 flex-wrap text-xs">
-        <div className="flex items-center gap-3 text-[var(--muted)]">
-          <span>
-            {visible.length === 0 ? 'No results' : `${startIdx}–${endIdx}`}
-            {' · page '}
-            {page + 1}
-            {page === 0 && (
-              <span
-                className="ml-2 inline-flex items-center gap-1"
-                title={
-                  wsState === 'connected'
-                    ? 'WebSocket connected — sessions update live'
-                    : 'WebSocket unavailable — polling every 5s'
-                }
-              >
-                <span
-                  className={
-                    wsState === 'connected'
-                      ? 'inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse'
-                      : 'inline-block h-1.5 w-1.5 rounded-full bg-slate-500'
-                  }
-                />
-                {wsState === 'connected' ? 'live' : 'polling'}
-              </span>
-            )}
-          </span>
-          <span className="opacity-30">|</span>
-          <label className="flex items-center gap-1.5">
-            <span>Per page:</span>
-            <select
-              value={pageSize}
-              onChange={(e) => setPageSize(Number(e.target.value))}
-              className="bg-transparent border border-[var(--border)] rounded px-1.5 py-0.5 text-[var(--foreground)] focus:outline-none focus:border-[var(--accent)]"
-            >
-              {PAGE_SIZES.map((n) => (
-                <option key={n} value={n} className="bg-[var(--background)]">
-                  {n}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
+      <PaginationFooter
+        startIdx={startIdx}
+        endIdx={endIdx}
+        page={page}
+        pageSize={pageSize}
+        hasMore={hasMore}
+        wsState={wsState}
+        onSetPageSize={setPageSize}
+        onSetPage={setPage}
+        empty={visible.length === 0}
+      />
+    </div>
+  );
+}
 
-        <div className="flex items-center gap-2">
-          {page > 0 && (
-            <button
-              onClick={() => setPage(0)}
-              className="px-2 py-1 text-[var(--muted)] hover:text-[var(--foreground)] transition-colors"
-              title="Jump to first page"
+
+function PaginationFooter({
+  startIdx,
+  endIdx,
+  page,
+  pageSize,
+  hasMore,
+  wsState,
+  onSetPageSize,
+  onSetPage,
+  empty,
+}: {
+  startIdx: number;
+  endIdx: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+  wsState: 'connecting' | 'connected' | 'disconnected';
+  onSetPageSize: (n: number) => void;
+  onSetPage: (p: number | ((p: number) => number)) => void;
+  empty: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 flex-wrap text-xs">
+      <div className="flex items-center gap-3 text-[var(--muted)]">
+        <span>
+          {empty ? 'No results' : `${startIdx}–${endIdx}`}
+          {' · page '}{page + 1}
+          {page === 0 ? (
+            <span
+              className="ml-2 inline-flex items-center gap-1.5"
+              title={
+                wsState === 'connected'
+                  ? 'WebSocket connected — sessions update live'
+                  : 'WebSocket unavailable — polling every 5s'
+              }
             >
-              ⇤ First
-            </button>
-          )}
-          <button
-            onClick={() => setPage((p) => Math.max(0, p - 1))}
-            disabled={page === 0}
-            className="px-3 py-1 border border-[var(--border)] rounded hover:bg-[#111418] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              <span
+                className={
+                  wsState === 'connected'
+                    ? 'activity-dot active'
+                    : 'activity-dot dormant'
+                }
+                style={{ width: 6, height: 6 }}
+              />
+              {wsState === 'connected' ? 'live' : 'polling'}
+            </span>
+          ) : null}
+        </span>
+        <span className="opacity-30">·</span>
+        <label className="flex items-center gap-1.5">
+          <span>Per page</span>
+          <select
+            value={pageSize}
+            onChange={(e) => onSetPageSize(Number(e.target.value))}
+            className="form-input"
+            style={{ padding: '0.125rem 0.375rem', fontSize: 12, width: 'auto' }}
           >
-            ← Previous
-          </button>
+            {PAGE_SIZES.map((n) => (
+              <option key={n} value={n} className="bg-[var(--background)]">
+                {n}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <div className="flex items-center gap-2">
+        {page > 0 ? (
           <button
-            onClick={() => setPage((p) => p + 1)}
-            disabled={!hasMore}
-            className="px-3 py-1 border border-[var(--border)] rounded hover:bg-[#111418] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            onClick={() => onSetPage(0)}
+            className="pill"
+            title="Jump to first page"
           >
-            Next →
+            ⇤ First
           </button>
-        </div>
+        ) : null}
+        <button
+          onClick={() => onSetPage((p) => Math.max(0, p - 1))}
+          disabled={page === 0}
+          className="pill disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          ← Previous
+        </button>
+        <button
+          onClick={() => onSetPage((p) => p + 1)}
+          disabled={!hasMore}
+          className="pill disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          Next →
+        </button>
       </div>
     </div>
   );

@@ -16,7 +16,7 @@ const config = {
     return [
       {
         source: '/',
-        destination: '/traces',
+        destination: '/agents',
         permanent: false,
       },
     ];
@@ -26,6 +26,15 @@ const config = {
       {
         source: '/api/:path*',
         destination: `${API_URL}/:path*`,
+      },
+      // FastAPI's auto-generated /docs page hardcodes
+      // `url: '/openapi.json'` (browser-relative). Loading it through
+      // the dashboard proxy at /api/docs means the browser then tries
+      // to fetch /openapi.json from localhost:3000 — which 404s. Proxy
+      // that one absolute path too so Swagger UI can pull the spec.
+      {
+        source: '/openapi.json',
+        destination: `${API_URL}/openapi.json`,
       },
     ];
   },

@@ -113,3 +113,38 @@ async def test_http_exporter_swallows_connection_error():
     # Must not raise.
     await exporter.export([span])
     await exporter.close()
+
+
+def test_http_exporter_sets_x_lumin_project_header_when_configured():
+    """The TS exporters send X-Lumin-Project so the API can group
+    agents by framework. The Python SDK had the Config.project field
+    but didn't wire it through — every Python agent landed under
+    'default' in the agent grid. Verify the header is now set."""
+    e = HTTPExporter(host="http://localhost:8000", project="my-bot")
+    assert e._headers.get("X-Lumin-Project") == "my-bot"
+
+
+def test_http_exporter_omits_x_lumin_project_when_not_set():
+    """No project configured → header absent (not even empty string).
+    The API treats absent as 'default'."""
+    e = HTTPExporter(host="http://localhost:8000")
+    assert "X-Lumin-Project" not in e._headers
+
+
+def test_sdk_passes_config_project_through_to_exporter():
+    """End-to-end: lumin.configure(project=...) → HTTPExporter receives
+    it and sets the header."""
+    import time as _time
+    cfg = Config(host="http://127.0.0.1:1", project="test-project")
+    sdk = LuminSDK(config=cfg)
+    try:
+        # The SDK's exporter is created lazily on the background loop.
+        # Wait briefly for it.
+        for _ in range(50):
+            if sdk._exporter is not None:
+                break
+            _time.sleep(0.02)
+        assert sdk._exporter is not None
+        assert sdk._exporter._headers.get("X-Lumin-Project") == "test-project"
+    finally:
+        sdk.shutdown()

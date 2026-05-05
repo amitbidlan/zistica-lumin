@@ -6,8 +6,9 @@ from typing import AsyncIterator
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
+import policy_runtime
 from db import Database, get_db
-from routers import evals, sessions, spans, traces
+from routers import agents, evals, policy, sessions, spans, traces
 from ws import manager as ws_manager
 
 logger = logging.getLogger("lumin.api")
@@ -58,6 +59,48 @@ async def _cleanup_loop(db: Database, retention_days: int, interval_seconds: int
             logger.exception("retention cleanup failed (will retry next interval)")
 
 
+async def _policy_watch_loop(interval_seconds: int = 30) -> None:
+    """Background task: keep the in-memory engine in sync with its
+    source of truth.
+
+    Both watchers run on every tick:
+      - DB-token watcher (Phase 4): cheap (row_count + max_version)
+        check; reloads when CRUD edits land. This is the primary
+        path once policies are managed via the dashboard.
+      - YAML mtime watcher (Phase 1): only useful when the engine
+        is sourced from YAML. No-ops when DB is authoritative.
+
+    Operators can also POST /v1/policy/reload for an immediate
+    force-reload. Errors are logged and swallowed; a transient blip
+    must never crash the API.
+    """
+    while True:
+        try:
+            await asyncio.sleep(interval_seconds)
+            # DB first — it's the cheaper / more common path. If it
+            # reloads we're already up to date; otherwise the mtime
+            # check might still pick up a YAML edit on a fallback
+            # deployment.
+            reloaded = policy_runtime.maybe_reload_on_db_token_change()
+            if not reloaded:
+                policy_runtime.maybe_reload_on_mtime_change()
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            logger.exception("policy watcher failed (will retry)")
+
+
+def _policy_watch_enabled() -> bool:
+    return os.environ.get("LUMIN_POLICY_WATCH", "true").lower() in ("1", "true", "yes")
+
+
+def _policy_watch_interval() -> int:
+    try:
+        return max(1, int(os.environ.get("LUMIN_POLICY_WATCH_INTERVAL", "30")))
+    except ValueError:
+        return 30
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     # Register the running event loop so sync handlers (which run in the
@@ -74,6 +117,38 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         except Exception:
             logger.exception("could not start retention cleanup task")
 
+    # Phase 4 — one-shot YAML→DB bootstrap. Runs only when the policies
+    # table is empty AND LUMIN_POLICY_FILE is set; subsequent restarts
+    # see the now-populated DB and skip this entirely. After bootstrap
+    # the engine reads from the DB and YAML edits are informational.
+    try:
+        import policy_store
+        bootstrapped = policy_store.bootstrap_from_yaml_if_empty(
+            get_db(), os.environ.get("LUMIN_POLICY_FILE")
+        )
+        if bootstrapped:
+            logger.info("policy: bootstrap imported %d policies from YAML", bootstrapped)
+    except Exception:
+        logger.exception("policy bootstrap failed (continuing — engine falls back to YAML)")
+
+    # Eagerly load the policy engine at startup so metrics/snapshot
+    # reflect "loaded N policies" without waiting for the first ingest.
+    # Errors fall through to the in-process logger; we don't fail
+    # startup over a broken policy file.
+    try:
+        policy_runtime.get_engine()
+    except Exception:
+        logger.exception("policy engine eager-load failed (continuing)")
+
+    policy_watch_task: asyncio.Task[None] | None = None
+    if _policy_watch_enabled():
+        try:
+            policy_watch_task = asyncio.create_task(
+                _policy_watch_loop(_policy_watch_interval())
+            )
+        except Exception:
+            logger.exception("could not start policy mtime watcher")
+
     yield
 
     if cleanup_task is not None:
@@ -82,6 +157,41 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
             await cleanup_task
         except (asyncio.CancelledError, Exception):
             pass
+    if policy_watch_task is not None:
+        policy_watch_task.cancel()
+        try:
+            await policy_watch_task
+        except (asyncio.CancelledError, Exception):
+            pass
+
+    # Checkpoint + close the DuckDB connection on graceful shutdown.
+    # Without this, the WAL stays unmerged on disk; the next start
+    # tries to replay it and hits an internal "GetDefaultDatabase
+    # with no default database set" assertion that wedges the API.
+    # This was the source of every "corrupt WAL" stall during the
+    # phase 1-4 build. SIGKILL still leaves a stale WAL — that's a
+    # DuckDB limitation — but SIGTERM / SIGINT (Ctrl-C, supervisord
+    # stop, a plain `kill <pid>`) now flushes cleanly.
+    #
+    # NB: we reset ``db._db`` to None after close so a follow-up
+    # lifespan (TestClient reuses the singleton across tests) re-
+    # initializes fresh. Without this reset, every test after the
+    # first would hit "Connection already closed" via the stale
+    # _db singleton.
+    try:
+        import db as _db_module
+        with _db_module._db_lock:
+            current = _db_module._db
+            if current is not None:
+                try:
+                    current.execute("CHECKPOINT")
+                except Exception:
+                    logger.exception("db: CHECKPOINT failed at shutdown (continuing)")
+                current.close()
+                _db_module._db = None
+                logger.info("db: closed cleanly on shutdown")
+    except Exception:
+        logger.exception("db: shutdown close failed")
 
 
 app = FastAPI(
@@ -95,6 +205,8 @@ app.include_router(spans.router)
 app.include_router(traces.router)
 app.include_router(sessions.router)
 app.include_router(evals.router)
+app.include_router(policy.router)
+app.include_router(agents.router)
 
 
 @app.get("/health")
