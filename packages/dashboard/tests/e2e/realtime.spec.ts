@@ -73,8 +73,10 @@ test('new spans append to the timeline live while viewing a trace', async ({ pag
 
   await page.goto(`/traces/${traceId}`);
 
-  // Wait for the timeline header to render with 1 span
-  await expect(page.getByText(/Span timeline \(1 span\)/i)).toBeVisible();
+  // Wait for the spans tab to render with 1 span. (The trace detail page
+  // grew tabs in the policy-engine PR — what was a section header
+  // "Span timeline (1 span)" is now the "Spans (1)" tab label.)
+  await expect(page.getByRole('button', { name: /Spans \(1\)/ })).toBeVisible();
 
   // Now add two child spans
   const child1 = `child_a_${Date.now()}`;
@@ -92,8 +94,8 @@ test('new spans append to the timeline live while viewing a trace', async ({ pag
     },
   ]);
 
-  // Timeline should reflect 3 spans without page refresh
-  await expect(page.getByText(/Span timeline \(3 spans\)/i)).toBeVisible({ timeout: 5_000 });
+  // Spans tab should reflect 3 spans without page refresh
+  await expect(page.getByRole('button', { name: /Spans \(3\)/ })).toBeVisible({ timeout: 5_000 });
   await expect(page.getByText(child1)).toBeVisible();
   await expect(page.getByText(child2)).toBeVisible();
 });
