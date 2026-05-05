@@ -225,21 +225,40 @@ _SPAN_KIND_CLIENT = 3
 _SPAN_KIND_SERVER = 2
 
 
-def _classify_type(kind: int, attrs: Dict[str, Any]) -> str:
+def _classify_type(kind: int, attrs: Dict[str, Any], name: Optional[str] = None) -> str:
     """Best-effort span-type classification.
 
-    Spec says:
-      CLIENT + gen_ai.*    → llm
-      tool.name present    → tool
-      db.system present    → retrieval
-      otherwise            → custom
+    Priority (first match wins):
+      tool.name / gen_ai.tool.name / openclaw.tool.name → tool
+      db.system                                          → retrieval
+      span name 'openclaw.tool.*'                        → tool
+      span name 'openclaw.model.*'                       → llm
+      gen_ai.* attributes present + ANY span kind        → llm
+      span name 'openclaw.exec'                          → custom
+      otherwise                                          → custom
+
+    Why span-name patterns: OpenClaw's diagnostics-otel emits model
+    calls with SpanKind.INTERNAL (kind=1) rather than CLIENT (kind=3).
+    The strict-OTel rule "CLIENT + gen_ai.* → llm" misses every one
+    of them — operators see "type=custom" on what's clearly an LLM
+    call. The span name itself is a reliable signal.
+
+    Why we relaxed the kind requirement on gen_ai.*: tools beyond
+    OpenClaw also emit gen_ai attributes on INTERNAL spans (Logfire
+    does this for in-process Pydantic-AI calls, for example). Strict
+    kind matching kept producing too many type=custom rows.
     """
-    if "tool.name" in attrs or "gen_ai.tool.name" in attrs:
+    if "tool.name" in attrs or "gen_ai.tool.name" in attrs or "openclaw.tool.name" in attrs:
         return "tool"
     if "db.system" in attrs:
         return "retrieval"
+    if name:
+        if name.startswith("openclaw.tool."):
+            return "tool"
+        if name.startswith("openclaw.model.") or name.startswith("gen_ai."):
+            return "llm"
     has_gen_ai = any(k.startswith("gen_ai.") for k in attrs)
-    if kind == _SPAN_KIND_CLIENT and has_gen_ai:
+    if has_gen_ai:
         return "llm"
     return "custom"
 
@@ -264,13 +283,23 @@ def _stringify(value: Any, max_len: int = 32_768) -> Optional[str]:
 def _extract_input(attrs: Dict[str, Any]) -> Optional[str]:
     """Look for input/prompt content under any of the conventions we
     know about. Order matters — first hit wins.
+
+    Includes OpenClaw's `openclaw.content.*` and `openclaw.input` keys
+    so spans from `@openclaw/diagnostics-otel` carry their actual
+    prompt text into the dashboard. Without these, the OpenClaw
+    integration showed empty input columns even though the LLM call
+    plainly had a prompt — see PR follow-up to PR #30.
     """
     for k in (
         "gen_ai.prompt",
+        "gen_ai.input.messages",
         "input.value",
         "llm.input_messages",
-        "gen_ai.input.messages",
         "ai.prompt.messages",
+        "openclaw.content.input_messages",
+        "openclaw.content.system_prompt",
+        "openclaw.content.tool_input",
+        "openclaw.input",
     ):
         if k in attrs:
             return _stringify(attrs[k])
@@ -280,13 +309,32 @@ def _extract_input(attrs: Dict[str, Any]) -> Optional[str]:
 def _extract_output(attrs: Dict[str, Any]) -> Optional[str]:
     for k in (
         "gen_ai.completion",
+        "gen_ai.output.messages",
         "output.value",
         "llm.output_messages",
-        "gen_ai.output.messages",
         "ai.response.text",
+        "openclaw.content.output_messages",
+        "openclaw.content.tool_output",
+        "openclaw.output",
     ):
         if k in attrs:
             return _stringify(attrs[k])
+    return None
+
+
+def _extract_session_id(attrs: Dict[str, Any]) -> Optional[str]:
+    """Resolve session_id from OpenClaw conventions.
+
+    OpenClaw groups multi-turn conversations under `openclaw.session_id`
+    (per-thread) or `openclaw.channel.id` (per-channel). Whichever is
+    present wins. Lumin's session view groups traces with shared
+    session_id, so populating this lets the /sessions page work for
+    OpenClaw chat threads without any user config.
+    """
+    for k in ("openclaw.session_id", "openclaw.channel.id"):
+        v = attrs.get(k)
+        if isinstance(v, str) and v:
+            return v
     return None
 
 
@@ -307,6 +355,21 @@ _KNOWN_KEYS = frozenset({
     "llm.input_messages",
     "llm.output_messages",
     "ai.prompt.messages",
+    # OpenClaw native attributes — the diagnostics-otel plugin emits
+    # these on every model.call / tool.execution span. Stripping them
+    # from metadata so first-class fields don't double up.
+    "openclaw.provider",
+    "openclaw.model",
+    "openclaw.tool.name",
+    "openclaw.content.input_messages",
+    "openclaw.content.system_prompt",
+    "openclaw.content.tool_input",
+    "openclaw.content.output_messages",
+    "openclaw.content.tool_output",
+    "openclaw.input",
+    "openclaw.output",
+    "openclaw.session_id",
+    "openclaw.channel.id",
     "ai.response.text",
     "tool.name",
     "db.system",
@@ -368,8 +431,19 @@ def _build_span_input(
     trace_id = _hex_to_uuid(trace_id_hex) if trace_id_hex else span_id
     parent_id = _hex_to_uuid(parent_span_id_hex) if parent_span_id_hex else None
 
-    model = attrs.get("gen_ai.response.model") or attrs.get("gen_ai.request.model")
-    provider = attrs.get("gen_ai.system")
+    # Read the OTel GenAI semconv keys first; fall back to OpenClaw's
+    # native namespace when the strict-OTel attributes aren't set.
+    # Real-world: OpenClaw's diagnostics-otel emits both — but other
+    # tools (and older OpenClaw builds) may emit only one or the other.
+    model = (
+        attrs.get("gen_ai.response.model")
+        or attrs.get("gen_ai.request.model")
+        or attrs.get("openclaw.model")
+    )
+    provider = (
+        attrs.get("gen_ai.system")
+        or attrs.get("openclaw.provider")
+    )
     tokens_in = attrs.get("gen_ai.usage.input_tokens")
     tokens_out = attrs.get("gen_ai.usage.output_tokens")
     operation = attrs.get("gen_ai.operation.name")
@@ -393,7 +467,9 @@ def _build_span_input(
         tokens_in,
         tokens_out,
     )
-    span_type = _classify_type(kind, attrs)
+    # Span name flows into the classifier so name-prefix patterns
+    # ('openclaw.model.*' → llm) work when SpanKind isn't CLIENT.
+    span_type = _classify_type(kind, attrs, name=name)
     status, error_message = _status_from_otel(status_code, status_message)
 
     # Span name: OTel's span.name wins. Fall back to the gen_ai.operation.name
@@ -403,7 +479,13 @@ def _build_span_input(
     if resolved_name in (None, "", "span") and operation:
         resolved_name = operation
 
-    tool_name = attrs.get("gen_ai.tool.name") or attrs.get("tool.name")
+    tool_name = (
+        attrs.get("gen_ai.tool.name")
+        or attrs.get("tool.name")
+        or attrs.get("openclaw.tool.name")
+    )
+
+    session_id = _extract_session_id(attrs)
 
     return SpanInput(
         id=span_id,
@@ -423,6 +505,7 @@ def _build_span_input(
         tokens_output=tokens_out,
         cost_usd=cost,
         tool_name=str(tool_name) if tool_name else None,
+        session_id=session_id,
         metadata=_build_metadata(attrs),
     )
 
