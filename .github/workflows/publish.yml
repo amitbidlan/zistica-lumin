@@ -1,0 +1,116 @@
+name: Publish Docker image
+
+# Triggers on a pushed tag matching v* (e.g. v0.2.0). The CI workflow
+# already builds + smoke-tests the image on every PR + main push, so by
+# the time a tag exists the build is known good. This workflow's job is
+# just to push the published bits.
+#
+# Why tag-triggered (not main-push)?
+#   Every merge would ship a new :latest, which surprises users who
+#   `docker pull zistica/lumin` expecting yesterday's behavior. Tags
+#   are an explicit "ship this" signal — same pattern as Sentry,
+#   Grafana, and the OTel collector.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  # Lets a maintainer kick off a release manually for the current
+  # main HEAD without cutting a tag — useful for hotfix-style pushes.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Image tag to publish (without v prefix). Defaults to "latest" only.'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+# Cancel an in-flight publish if a newer tag/dispatch arrives. Two
+# parallel publishes pushing :latest would race — last writer wins —
+# and the result is non-deterministic.
+concurrency:
+  group: docker-publish-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    name: Build + push zistica/lumin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # QEMU lets us cross-build for arm64 from an amd64 runner. ~70%
+      # of OSS Docker users on macOS are on Apple Silicon now; shipping
+      # an amd64-only image makes them eat a slow emulation layer at
+      # `docker run` time. Multi-arch is one extra job-minute but a
+      # much better first-run experience.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Resolve image tags
+        id: tags
+        run: |
+          set -e
+          # Strip the v from a git tag (v0.2.0 -> 0.2.0). For a
+          # workflow_dispatch run, prefer the user-supplied tag input
+          # (no v stripping needed); empty input means "publish :latest
+          # only" — useful for re-publishing main without a version bump.
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            TAGS="zistica/lumin:${VERSION},zistica/lumin:latest"
+          else
+            DISPATCH_TAG="${{ github.event.inputs.tag }}"
+            if [ -n "${DISPATCH_TAG}" ]; then
+              VERSION="${DISPATCH_TAG#v}"
+              TAGS="zistica/lumin:${VERSION},zistica/lumin:latest"
+            else
+              VERSION="(latest only)"
+              TAGS="zistica/lumin:latest"
+            fi
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tags=${TAGS}"       >> "$GITHUB_OUTPUT"
+          echo "Will publish: ${TAGS}"
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build + push (linux/amd64 + linux/arm64)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          # Multi-arch via the buildx builder set up above. arm64 builds
+          # are slower (emulated) but worth it for Apple-Silicon devs.
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          # Reuse the GHA cache the CI Docker job populated on the merge
+          # commit — most layers should hit cache and the publish takes
+          # ~3-5 min instead of a full from-scratch rebuild.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # Useful labels for image consumers + Docker Hub UI.
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.tags.outputs.version }}
+            org.opencontainers.image.title=Lumin
+            org.opencontainers.image.description=Local-first AI agent observability — single Docker container
+
+      - name: Summary
+        run: |
+          echo "### :rocket: Published \`zistica/lumin\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Tags: \`${{ steps.tags.outputs.tags }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Version: \`${{ steps.tags.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Platforms: \`linux/amd64\`, \`linux/arm64\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Pull with: \`docker pull zistica/lumin:${{ steps.tags.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
