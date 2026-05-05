@@ -4,6 +4,14 @@ import Link from 'next/link';
 import Logo from '@/components/Logo';
 import ViolationsNavLink from '@/components/ViolationsNavLink';
 import NavLink from '@/components/NavLink';
+import ThemeToggle from '@/components/ThemeToggle';
+
+// Pre-hydration script — sets data-theme on <html> BEFORE React
+// hydrates so light-mode users don't see a dark flash on first paint.
+// Resolution: localStorage > prefers-color-scheme > default 'dark'.
+// Wrapped in a try/catch so a Safari-private-mode localStorage
+// throw doesn't blank the page.
+const THEME_INIT_SCRIPT = `(function(){try{var s=localStorage.getItem('lumin.theme');var p=window.matchMedia('(prefers-color-scheme: light)').matches;var t=s||(p?'light':'dark');if(t==='light'){document.documentElement.setAttribute('data-theme','light');}}catch(e){}})();`;
 
 export const metadata: Metadata = {
   title: {
@@ -34,7 +42,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* Inline theme bootstrap — must run before <body> renders to
+            avoid a dark→light flash on first paint. dangerouslySetInnerHTML
+            is the documented Next.js pattern for this; the script string
+            is a constant, no user input goes through it. */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body>
         <div className="min-h-screen flex flex-col">
           <header className="app-header px-6 py-3 flex items-center justify-between gap-4">
@@ -74,6 +89,7 @@ export default function RootLayout({
               >
                 GitHub
               </a>
+              <ThemeToggle />
               <span
                 className="ml-1 font-mono text-[10px] uppercase tracking-wider px-1.5 py-0.5 border border-[var(--border)] rounded text-[var(--muted)]"
                 title={`Lumin ${VERSION}`}
