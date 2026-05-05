@@ -291,7 +291,7 @@ See [`packages/integrations/mastra/`](packages/integrations/mastra/) for the ded
 
 ### OpenClaw
 
-[OpenClaw](https://github.com/openclaw/openclaw) ships native OpenTelemetry through its `diagnostics-otel` plugin — Lumin's OTLP/HTTP endpoint receives those traces directly, so **no agent-code changes, no `@lumin.trace`, no SDK install**.
+[OpenClaw](https://github.com/openclaw/openclaw) ships native OpenTelemetry through its [`diagnostics-otel`](https://docs.openclaw.ai/gateway/opentelemetry) plugin — Lumin's OTLP/HTTP endpoint receives those traces directly, so **no agent-code changes, no `@lumin.trace`, no SDK install**.
 
 ```bash
 # Step 1 — start Lumin
@@ -308,15 +308,19 @@ openclaw gateway restart
 # every OpenClaw run appears automatically
 ```
 
-OpenClaw's `diagnostics-otel` auto-appends `/v1/traces` to the configured base, so the POST lands at Lumin's OTLP route `http://localhost:8000/v1/otlp/v1/traces`. (If your OpenClaw is v2026.4.25+ and you prefer the signal-specific form, use `diagnostics.otel.traces.endpoint "http://localhost:8000/v1/otlp/v1/traces"` instead.)
+OpenClaw's `diagnostics-otel` plugin auto-appends `/v1/traces` to the configured base when the URL doesn't already include it ([per the OpenClaw OpenTelemetry export docs](https://docs.openclaw.ai/gateway/opentelemetry)), so the POST lands at Lumin's OTLP route `http://localhost:8000/v1/otlp/v1/traces`. If you'd rather be explicit, you can set the endpoint to the full path — both forms work:
 
-**What gets captured**
-- LLM calls — model, tokens, cost, duration
-- Tool calls — file, shell, web, email
-- Agent sessions end-to-end as a span tree
-- Policy violations auto-detected by Lumin's policy engine
+```bash
+openclaw config set diagnostics.otel.endpoint "http://localhost:8000/v1/otlp/v1/traces"
+```
 
-For an SDK-style integration with extra features (custom span subtypes, client-side cost calculation, span-name normalization), see [`@lumin-io/openclaw`](packages/integrations/openclaw/) — same end result, runs as an in-process exporter rather than a network hop.
+**What ends up in the dashboard** (the shapes the plugin emits today, per the upstream docs):
+- Model calls — provider / model / input + output token counts / duration; Lumin computes cost from its OpenAI + Anthropic pricing tables
+- `openclaw.exec` spans for tool / process invocations
+- Full span tree for an agent run, parent-child correctly nested
+- Policy violations auto-detected by Lumin's policy engine on every ingested span
+
+You'll need a recent OpenClaw with `diagnostics-otel` available (the plugin is the official observability path; verify with `openclaw --version` and check the [OpenTelemetry export docs](https://docs.openclaw.ai/gateway/opentelemetry) for the current minimum). Older OpenClaw releases that predate `diagnostics-otel` can use the in-process SDK exporter at [`@lumin-io/openclaw`](packages/integrations/openclaw/) instead, which is also useful when you want client-side cost calculation or custom span subtypes.
 
 ### Sessions (multi-turn conversations)
 

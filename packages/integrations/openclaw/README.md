@@ -6,7 +6,7 @@
 
 ## Quick Start
 
-Works out of the box with **OpenClaw v2026.2+** — no npm install, no agent code changes. Lumin exposes an OTLP/HTTP endpoint that OpenClaw's built-in `diagnostics-otel` plugin can write to directly.
+Works out of the box on any OpenClaw release that ships [`diagnostics-otel`](https://docs.openclaw.ai/gateway/opentelemetry) — no npm install, no agent code changes. Lumin exposes an OTLP/HTTP endpoint that OpenClaw's built-in plugin can write to directly.
 
 ```bash
 # Step 1 — start Lumin
@@ -23,19 +23,19 @@ openclaw gateway restart
 # every OpenClaw run appears automatically
 ```
 
-OpenClaw's `diagnostics-otel` auto-appends `/v1/traces` to the configured base, so the POST lands at Lumin's OTLP route `http://localhost:8000/v1/otlp/v1/traces`. On v2026.4.25+ you can use the signal-specific form instead:
+`diagnostics-otel` auto-appends `/v1/traces` to the configured base when the URL doesn't already include it (see the [OpenClaw OpenTelemetry export docs](https://docs.openclaw.ai/gateway/opentelemetry)) — the POST lands at Lumin's OTLP route `http://localhost:8000/v1/otlp/v1/traces`. If you'd rather be explicit:
 
 ```bash
-openclaw config set diagnostics.otel.traces.endpoint "http://localhost:8000/v1/otlp/v1/traces"
+openclaw config set diagnostics.otel.endpoint "http://localhost:8000/v1/otlp/v1/traces"
 ```
 
-**What gets captured**
-- LLM calls — model, tokens, cost, duration
-- Tool calls — file, shell, web, email
-- Agent sessions end-to-end as a span tree
-- Policy violations auto-detected by Lumin's [policy engine](../../../README.md#policy-engine)
+**What ends up in the dashboard**:
+- Model calls — provider / model / input + output token counts / duration; cost computed from Lumin's pricing tables
+- `openclaw.exec` spans for tool / process invocations
+- Full span tree for an agent run, parent-child correctly nested
+- Policy violations auto-detected by Lumin's policy engine on every ingested span
 
-When to install the `@lumin-io/openclaw` npm package below: you want client-side cost calculation, custom span subtypes (e.g. extended-thinking), or you're not using OpenClaw's built-in `diagnostics-otel` plugin.
+When you'd want the **in-process exporter** below instead of the OTLP path: client-side cost calculation, custom span subtypes (e.g. extended-thinking), or your OpenClaw build predates `diagnostics-otel`.
 
 ## Install
 
