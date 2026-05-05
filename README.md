@@ -26,7 +26,7 @@ Both ports matter:
 - **`3000`** — the dashboard (this is what you open in the browser)
 - **`8000`** — the API. The browser also connects to it directly for the WebSocket real-time stream. Skip this mapping and the dashboard still works, but new traces appear via 5-second polling instead of live push.
 
-Open <http://localhost:3000> — the dashboard is ready.
+Open <http://localhost:3000> — the agent grid (`/agents`) is the dashboard home. From there you can drill into individual agents, traces, sessions, and policy violations.
 
 Then in your agent:
 
@@ -60,16 +60,19 @@ That's it. No account, no API key, no data leaves your laptop.
 
 ## What you get
 
-- **Span timeline** — every LLM call, tool invocation, retrieval, and custom span rendered as an indented tree, click any span to expand its input/output JSON
-- **Multi-turn sessions** — group related traces under a single conversation; the dashboard's `/sessions` view shows turns in chronological order with aggregate cost, duration, and quality
-- **Real-time updates** — WebSocket stream pushes traces and spans into the dashboard the moment they're ingested, no refresh; falls back to 5-second polling if the socket can't connect
-- **Cost & token tracking** — automatic per-call breakdown for OpenAI and Anthropic model families
-- **Quality scoring** — bring-your-own evals via `POST /v1/evals`
-- **Framework integrations** — drop-in support for [LangChain](https://github.com/langchain-ai/langchain) (zero-config via `LUMIN_TRACING=true` — see [section](#langchain)), [LlamaIndex](https://github.com/run-llama/llama_index) (`LuminCallbackHandler` for query engines, retrieval, embeddings — [section](#llamaindex)), [CrewAI](https://github.com/crewAIInc/crewAI) (one-line `instrument_crew()` — [section](#crewai)), [Mastra](https://github.com/mastra-ai/mastra) (TypeScript agents, drop-in `LuminExporter` — see [`@lumin-io/mastra`](packages/integrations/mastra/)), and [Anthropic](https://github.com/anthropics/anthropic-sdk-python) (`instrument_anthropic()` captures Claude extended-thinking blocks as first-class child spans — [section](#anthropic))
-- **Cross-language SDKs** — Python and TypeScript with identical wire format and behavior
-- **Resilient by design** — the agent never fails because Lumin is down. Spans drop silently if the queue overflows, the exporter is unreachable, or the server returns an error
-- **Local-first** — single Docker image, DuckDB + SQLite, no external services, no cloud dependency
-- **90-day retention** — automatic cleanup task keeps the database from growing unbounded (configurable via env var)
+- **Agent grid** — `/agents` is the dashboard home. Every distinct trace name appears as an agent card, grouped by integration framework (OpenClaw / Mastra / VoltAgent / Python SDK). Each card shows last-seen activity, traces, cost, top model, and a 60-minute sparkline. Long-tail sections cap at 6 cards with a "view all" tile that drops you into the dedicated framework page.
+- **Live indicators** — every card has an activity dot (active / idle / dormant) that flips on WebSocket events without a page refresh. A "thinking" pill pulses on cards with traces in flight. Polling fallback when WS disconnects.
+- **Policy engine** — `/policies` UI to create, edit, and delete rules that fire when an agent misbehaves (cost runaways, prompt-injection patterns, PII in output, runaway loops). Rules are DB-backed with a full audit log; per-agent scoping via `scope.agents: [...]`. The engine evaluates server-side after every span/trace ingest, so TS integrations get the same enforcement as the Python SDK.
+- **Span timeline** — every LLM call, tool invocation, retrieval, and custom span rendered as an indented tree, click any span to expand its input/output JSON.
+- **Multi-turn sessions** — group related traces under a single conversation; the dashboard's `/sessions` view shows turns in chronological order with aggregate cost, duration, and quality.
+- **Real-time updates** — WebSocket stream pushes traces and spans into the dashboard the moment they're ingested, no refresh; falls back to 5-second polling if the socket can't connect.
+- **Cost & token tracking** — automatic per-call breakdown for OpenAI and Anthropic model families.
+- **Quality scoring** — bring-your-own evals via `POST /v1/evals`.
+- **Framework integrations** — drop-in support for [LangChain](https://github.com/langchain-ai/langchain) (zero-config via `LUMIN_TRACING=true` — see [section](#langchain)), [LlamaIndex](https://github.com/run-llama/llama_index) ([section](#llamaindex)), [CrewAI](https://github.com/crewAIInc/crewAI) ([section](#crewai)), [Anthropic](https://github.com/anthropics/anthropic-sdk-python) with extended-thinking visualization ([section](#anthropic)), [Mastra](https://github.com/mastra-ai/mastra) ([`@lumin-io/mastra`](packages/integrations/mastra/)), [OpenClaw](https://github.com/openclaw-ai) ([`@lumin-io/openclaw`](packages/integrations/openclaw/)), and [VoltAgent](https://github.com/voltagent/voltagent) ([`@lumin-io/voltagent`](packages/integrations/voltagent/)).
+- **Cross-language SDKs** — Python and TypeScript with identical wire format and behavior.
+- **Resilient by design** — the agent never fails because Lumin is down. Spans drop silently if the queue overflows, the exporter is unreachable, or the server returns an error.
+- **Local-first** — single Docker image, DuckDB + SQLite, no external services, no cloud dependency.
+- **90-day retention** — automatic cleanup task keeps the database from growing unbounded (configurable via env var).
 
 ---
 
@@ -103,14 +106,25 @@ Single Docker container runs the API on `:8000` and the Next.js standalone dashb
 
 | Path | Package | Tests |
 |---|---|---|
-| [`packages/sdk-python/`](packages/sdk-python/) | Python SDK with `@lumin.trace`, `lumin.span()`, `lumin.session()`, integrations | 172 |
+| [`packages/sdk-python/`](packages/sdk-python/) | Python SDK — `@lumin.trace`, `lumin.span()`, `lumin.session()`, policy engine, framework integrations | 209 |
 | [`packages/sdk-typescript/`](packages/sdk-typescript/) | `@lumin-io/sdk` — peer of the Python SDK | 59 |
-| [`packages/api/`](packages/api/) | FastAPI ingest + query API, DuckDB storage, WebSocket fanout, session aggregations | 61 |
-| [`packages/dashboard/`](packages/dashboard/) | Next.js 14 dashboard with paginated timeline + session view | build + 21 Playwright E2E |
+| [`packages/api/`](packages/api/) | FastAPI ingest + query API, DuckDB storage, WebSocket fanout, agent grid, server-side policy engine | 169 |
+| [`packages/integrations/openclaw/`](packages/integrations/openclaw/) | `@lumin-io/openclaw` — OTel exporter for OpenClaw agents | 59 |
+| [`packages/integrations/mastra/`](packages/integrations/mastra/) | `@lumin-io/mastra` — observability config + exporter for Mastra | 55 |
+| [`packages/integrations/voltagent/`](packages/integrations/voltagent/) | `@lumin-io/voltagent` — OTel-native exporter for VoltAgent | 62 |
+| [`packages/dashboard/`](packages/dashboard/) | Next.js 14 dashboard — agent grid, traces, sessions, violations, policy editor | build + 21 Playwright E2E |
 
 ---
 
 ## Install
+
+### Whole workspace (recommended for contributors)
+
+```bash
+./setup.sh
+```
+
+One-shot installer: creates `packages/api/.venv`, installs the local Python SDK editable, installs API dependencies, runs `npm ci` across all 5 Node packages — in the right order. Required because the API imports `lumin` from the sibling `packages/sdk-python`, not from PyPI (where an unrelated package shares the name).
 
 ### Python SDK
 
@@ -312,6 +326,47 @@ def my_agent(q): ...
 
 Resolution priority for a span's `session_id` (most specific wins): explicit `@trace(session_id=…)` > active `lumin.session()` context > parent span's `session_id` > `None`. Traces without a `session_id` stay in `/traces` as standalone runs and don't appear under any session.
 
+### Policy engine
+
+Define rules that fire when an agent misbehaves. Manage them in the dashboard at `/policies` (UI editor with audit log) or via a YAML file at startup (`LUMIN_POLICY_FILE=policies.yaml`). The first time the engine starts with a YAML file and an empty DB, the rules are imported once; from then on the DB is the source of truth.
+
+```yaml
+version: 1
+policies:
+  - name: cost_runaway
+    description: Trace cost exceeded $0.50 — likely runaway loop or context bloat
+    trigger: trace_end
+    condition: "trace.total_cost_usd > 0.50"
+    action: alert
+    severity: high
+
+  - name: pii_leak_email_in_response
+    trigger: span_end
+    condition: "span.type == 'llm' and '@' in str(span.output) and '.com' in str(span.output)"
+    action: flag
+    severity: medium
+
+  - name: slow_billing_only
+    description: Only fires for the billing agent
+    trigger: span_end
+    condition: "span.type == 'llm' and span.duration_ms > 15000"
+    action: alert
+    severity: medium
+    scope:
+      agents:
+        - billing_agent
+```
+
+Conditions are evaluated by [simpleeval](https://github.com/danthedeckie/simpleeval) — safe expressions only, no `eval()`. Available identifiers: `span` and `trace` (with `.duration_ms`, `.total_cost_usd`, `.span_count`, `.error_count`, `.tokens_input/output`, `.model`, `.input`, `.output`, `.type`, etc.). Available functions: `len`, `str`, `int`, `float`, `abs`. Anything else (`__import__`, `open`, method calls) is rejected at write time.
+
+`action: alert` POSTs the violation payload to the policy's `webhook_url` (or the global `lumin.configure(alert_webhook=…)` fallback). `action: flag` is silent — visible in `/violations` but no webhook fired. Violations are visible in three places:
+
+- A red badge on the agent's card on `/agents`
+- The `/violations` page (filterable by severity, policy name)
+- The `Policy` tab on each trace detail page
+
+`scope.agents: [name1, name2]` (Phase 3) limits a rule to specific agents. Empty / omitted means it applies to every agent. The agent identity is `trace.name` — see the [agent grid](#what-you-get) section.
+
 ---
 
 ## Configuration
@@ -320,16 +375,21 @@ Resolution priority for a span's `session_id` (most specific wins): explicit `@t
 |---|---|---|
 | `LUMIN_HOST` | `http://localhost:8000` | API endpoint the SDK posts to |
 | `LUMIN_API_KEY` | _(none)_ | Sent as `X-API-Key` header |
-| `LUMIN_PROJECT` | `default` | Project identifier |
+| `LUMIN_PROJECT` | `default` | Project identifier. Sent as the `X-Lumin-Project` header at ingest. The API normalizes to one of `{openclaw, mastra, voltagent, default}` — anything else folds to `default`. |
 | `LUMIN_TRACING` | _(unset)_ | Set to `true` to auto-attach the LangChain handler |
 | `LUMIN_DATA_DIR` | `./data` (or `/data` in Docker) | Where DuckDB + SQLite files live |
 | `LUMIN_RETENTION_DAYS` | `90` | Max age of traces before automatic cleanup |
 | `LUMIN_CLEANUP_INTERVAL_HOURS` | `24` | How often the cleanup task sweeps |
 | `LUMIN_CLEANUP_ENABLED` | `true` | Set to `false` to disable retention cleanup |
+| `LUMIN_POLICY_FILE` | _(none)_ | Path to a YAML file used to bootstrap the policy DB on first start. Once policies exist in the DB they take over; the file becomes informational. |
+| `LUMIN_POLICY_WATCH` | `true` | Background watcher that reloads the engine when the DB token (row count + max version) changes, or when `LUMIN_POLICY_FILE`'s mtime changes. |
+| `LUMIN_POLICY_WATCH_INTERVAL` | `30` (seconds) | Watcher poll cadence. Lower = faster reload, higher = less DB chatter. |
 
 ---
 
 ## Development
+
+The fastest path is `./setup.sh` from the repo root — it handles the dependency-order dance across Python + 5 Node packages. Per-package commands if you prefer:
 
 ```bash
 # Python SDK
@@ -337,43 +397,75 @@ cd packages/sdk-python
 python -m venv .venv && .venv/bin/pip install -e ".[test,langchain]"
 .venv/bin/pytest
 
-# FastAPI
+# FastAPI — the local SDK MUST be installed first or the API can't import lumin.
 cd packages/api
-python -m venv .venv && .venv/bin/pip install -r requirements.txt pytest httpx
+python -m venv .venv
+.venv/bin/pip install -e ../sdk-python
+.venv/bin/pip install -r requirements.txt pytest httpx
 .venv/bin/pytest
 
 # TypeScript SDK
 cd packages/sdk-typescript
-npm install && npm run build && npm test
+npm ci && npm run build && npm test
+
+# TS integrations (each has its own test suite)
+cd packages/integrations/openclaw  && npm ci && npm test
+cd packages/integrations/mastra    && npm ci && npm test
+cd packages/integrations/voltagent && npm ci && npm test
 
 # Dashboard
 cd packages/dashboard
-npm install && npm run dev   # http://localhost:3000
+npm ci && npm run dev   # http://localhost:3000
 
 # Dashboard E2E (browser tests, requires the Docker container running)
 cd packages/dashboard
 npm run test:e2e:install     # one-time: download Chromium
-npm run test:e2e             # 7 Playwright tests against localhost
+npm run test:e2e             # 21 Playwright tests against localhost
 ```
 
-CI runs all six jobs on every push and pull request — Python SDK, FastAPI, TypeScript SDK, Next.js dashboard build, Docker image build + smoke, and Playwright E2E (real Chromium against the live container). See [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+CI runs 9 jobs on every push and pull request — Python SDK, FastAPI, TypeScript SDK, three integration suites (OpenClaw / Mastra / VoltAgent), Next.js dashboard build, Docker image build + smoke, and Playwright E2E (real Chromium against the live container). See [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ---
 
 ## API reference (selected)
 
 ```
+# Ingest + traces
 POST   /v1/spans              # SDKs send here
 POST   /v1/traces             # Manual upsert
 GET    /v1/traces             # Paginated list (?limit=&offset=)
 GET    /v1/traces/{id}        # Single trace
 GET    /v1/traces/{id}/spans  # All spans for a trace
-GET    /v1/sessions           # Sessions, derived via GROUP BY session_id
+
+# Agents (derived from trace.name)
+GET    /v1/agents             # Grid; ?window_hours=, ?search=, ?project=, ?provider=
+GET    /v1/agents/{name}      # Detail: recent traces + violation breakdown
+
+# Sessions
+GET    /v1/sessions           # Derived via GROUP BY session_id
 GET    /v1/sessions/{id}      # Session detail with all traces in order
+
+# Policies (DB-backed CRUD; falls back to YAML when DB is empty)
+GET    /v1/policies           # ?agent= filters to rules that fire for that agent
+GET    /v1/policies/{name}
+POST   /v1/policies           # Validates condition through SimpleEval at write
+PUT    /v1/policies/{name}    # Bumps version, writes audit row
+DELETE /v1/policies/{name}    # Soft-delete (enabled=false)
+GET    /v1/policies/{name}/audit
+GET    /v1/policy/metrics     # Engine state + p50/p99 eval latency
+POST   /v1/policy/reload      # Force a hot-reload
+
+# Violations
+GET    /v1/violations         # ?severity=, ?policy_name=, ?trace_id=
+GET    /v1/violations/stats   # Counts by severity + policy
+
+# Evals
 POST   /v1/evals              # Submit a quality score
+
+# Misc
 WS     /ws/traces             # Real-time fanout — new_trace + new_span events
 GET    /health                # Liveness check
-GET    /docs                  # Auto-generated OpenAPI UI
+GET    /docs                  # Auto-generated Swagger UI (also at /api/docs through dashboard)
 ```
 
 **WebSocket message shape:**
