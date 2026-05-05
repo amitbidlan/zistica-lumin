@@ -68,6 +68,40 @@ def _parse_ts(ts: Optional[str]) -> Optional[datetime]:
     return dt
 
 
+# Known multi-phase frameworks: each emits N distinct root span names
+# per user interaction (``openclaw.run``, ``openclaw.message.processed``,
+# ``openclaw.harness.run``, ``openclaw.context.assembled``,
+# ``openclaw.diagnostic.phase``, ``openclaw.llm`` from this repo's plugin,
+# etc.). Without folding, the agent grid shows 5+ cards for what
+# operators reasonably think of as one agent.
+#
+# This mirrors ``otlp_decode._resolve_agent_identity``; the rule lives
+# in two places so each ingest rail can apply it without depending on
+# the other. ``_insert_span`` is the right home — it sits below both
+# the /v1/spans router and the /v1/otlp router, so any caller that
+# eventually persists a span gets the fold for free.
+_MULTI_PHASE_PREFIXES: tuple[str, ...] = ("openclaw.",)
+
+
+def _fold_agent_identity(name: Optional[str], parent_span_id: Optional[str]) -> Optional[str]:
+    """Collapse multi-phase ROOT span names under a single agent identity.
+
+    Only triggers on root spans (``parent_span_id is None``) — children
+    keep their phase names so the timeline still shows the breakdown.
+    Idempotent: ``openclaw`` itself doesn't start with ``openclaw.`` so
+    re-applying is a no-op (relevant when OTLP-side already folded).
+    """
+    if parent_span_id:
+        return name
+    if not name:
+        return name
+    for prefix in _MULTI_PHASE_PREFIXES:
+        if name.startswith(prefix):
+            # Strip the trailing "." so "openclaw.run" → "openclaw".
+            return prefix.rstrip(".")
+    return name
+
+
 def _resolve_status_and_error(span: SpanInput) -> tuple[str, Optional[str]]:
     error_message = span.error_message or span.error
     if span.status:
@@ -85,6 +119,7 @@ def _insert_span(db: Database, span: SpanInput, project: Optional[str] = None) -
     started_at = _parse_ts(span.started_at)
     ended_at = _parse_ts(span.ended_at)
     metadata_str = json.dumps(span.metadata) if span.metadata is not None else None
+    name = _fold_agent_identity(span.name, span.parent_span_id)
 
     db.execute(
         """
@@ -122,7 +157,7 @@ def _insert_span(db: Database, span: SpanInput, project: Optional[str] = None) -
             trace_id,
             span.parent_span_id,
             span.type or "custom",
-            span.name,
+            name,
             span.input,
             span.output,
             span.model,
@@ -173,6 +208,10 @@ def _upsert_trace_from_span(db: Database, span: SpanInput, project: Optional[str
     is_new_trace = pre_existing is None
 
     if span.parent_span_id is None:
+        # Apply the same fold as _insert_span so trace.name and
+        # span.name stay aligned (the dashboard groups agents by
+        # trace.name; mismatched values would split cards again).
+        folded_name = _fold_agent_identity(span.name, span.parent_span_id)
         db.execute(
             """
             INSERT INTO traces (
@@ -191,7 +230,7 @@ def _upsert_trace_from_span(db: Database, span: SpanInput, project: Optional[str
                 project = COALESCE(EXCLUDED.project, traces.project)
             """,
             [
-                trace_id, span.name, span.input, span.output,
+                trace_id, folded_name, span.input, span.output,
                 started_at, ended_at, span.session_id, ingest_at, project,
             ],
         )

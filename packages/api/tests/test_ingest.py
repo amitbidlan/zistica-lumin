@@ -184,3 +184,55 @@ def test_partial_batch_failure_aborts_whole_batch(client):
     # Confirm the good span did NOT land
     r = client.get("/v1/traces/ok-1")
     assert r.status_code == 404
+
+
+def test_openclaw_root_spans_fold_into_one_agent(client):
+    """Three different openclaw.* root-span names ingest as three
+    traces, all named 'openclaw' — agent grid sees one card."""
+    payload = {"spans": [
+        {"id": "t1", "trace_id": "t1", "name": "openclaw.run",
+         "started_at": "2026-05-06T05:00:00Z"},
+        {"id": "t2", "trace_id": "t2", "name": "openclaw.harness.run",
+         "started_at": "2026-05-06T05:00:01Z"},
+        {"id": "t3", "trace_id": "t3", "name": "openclaw.llm",
+         "started_at": "2026-05-06T05:00:02Z"},
+    ]}
+    r = client.post("/v1/spans", json=payload)
+    assert r.status_code == 200
+
+    for tid in ("t1", "t2", "t3"):
+        trace = client.get(f"/v1/traces/{tid}").json()
+        assert trace["name"] == "openclaw", f"{tid} got name={trace['name']!r}"
+
+    spans = client.get("/v1/traces/t1/spans").json()
+    assert spans[0]["name"] == "openclaw"
+
+
+def test_child_openclaw_spans_keep_phase_names(client):
+    """Children of an openclaw root keep their original phase names so
+    the timeline still shows model.call / tool.execution / etc."""
+    payload = {"spans": [
+        {"id": "root", "trace_id": "root", "name": "openclaw.run",
+         "started_at": "2026-05-06T05:00:00Z"},
+        {"id": "child", "trace_id": "root", "parent_span_id": "root",
+         "name": "openclaw.model.call", "type": "llm",
+         "started_at": "2026-05-06T05:00:01Z"},
+    ]}
+    r = client.post("/v1/spans", json=payload)
+    assert r.status_code == 200
+
+    spans = client.get("/v1/traces/root/spans").json()
+    by_id = {s["id"]: s for s in spans}
+    assert by_id["root"]["name"] == "openclaw"
+    assert by_id["child"]["name"] == "openclaw.model.call"
+
+
+def test_non_openclaw_names_pass_through(client):
+    """The fold is namespaced — anything that doesn't start with
+    a known multi-phase prefix is left alone."""
+    r = client.post("/v1/spans", json={"spans": [
+        {"id": "x", "trace_id": "x", "name": "my-custom-agent",
+         "started_at": "2026-05-06T05:00:00Z"},
+    ]})
+    assert r.status_code == 200
+    assert client.get("/v1/traces/x").json()["name"] == "my-custom-agent"
