@@ -616,3 +616,136 @@ def test_openclaw_attrs_dont_pollute_metadata(client):
     # Non-promoted keys still preserved (operators may want them)
     assert md.get("openclaw.api") == "openai-completions"
     assert md.get("openclaw.transport") == "auto"
+
+
+# ---- agent identity fold (PR #32 follow-up) ------------------------------
+
+
+def test_openclaw_root_spans_fold_to_one_agent(client):
+    """OpenClaw emits 5+ different root span names per user message
+    (openclaw.run, .message.processed, .harness.run, .liveness.warning,
+    .diagnostic.phase). Without the fold, /v1/agents shows them as
+    separate agent cards — misleading. With the fold, all become
+    one agent named after the resource service.name.
+    """
+    # 3 distinct root spans, 3 distinct trace IDs, all with service.name='openclaw'
+    payloads = []
+    for i, root_name in enumerate([
+        "openclaw.run",
+        "openclaw.harness.run",
+        "openclaw.liveness.warning",
+    ]):
+        trace_id = _hex_id(32)
+        payloads.append({
+            "resourceSpans": [{
+                "resource": {"attributes": [
+                    {"key": "service.name", "value": {"stringValue": "openclaw"}},
+                ]},
+                "scopeSpans": [{"spans": [{
+                    "traceId": trace_id, "spanId": _hex_id(16),
+                    "name": root_name, "kind": 1,
+                    "startTimeUnixNano": _now_ns(),
+                    "endTimeUnixNano":   _now_ns(1),
+                    "attributes": [],
+                }]}],
+            }]
+        })
+    for p in payloads:
+        _post_json(client, p)
+
+    # All three should land under ONE agent named "openclaw"
+    body = client.get("/v1/agents?window_hours=1").json()
+    openclaw_agents = [a for a in body["agents"] if a["name"] == "openclaw"]
+    assert len(openclaw_agents) == 1
+    assert openclaw_agents[0]["trace_count"] == 3
+
+    # And no agent card for the original phase names
+    other_phase_names = {a["name"] for a in body["agents"]} & {
+        "openclaw.run", "openclaw.harness.run", "openclaw.liveness.warning"
+    }
+    assert other_phase_names == set(), (
+        f"phase names should have folded; still see {other_phase_names}"
+    )
+
+
+def test_openclaw_fold_falls_back_when_service_name_missing(client):
+    """If the resource has no service.name, the fold uses the literal
+    'openclaw' prefix as the identity. Don't drop the rename just
+    because the service name wasn't set."""
+    trace_id = _hex_id(32)
+    payload = {
+        "resourceSpans": [{
+            "resource": {"attributes": []},  # no service.name
+            "scopeSpans": [{"spans": [{
+                "traceId": trace_id, "spanId": _hex_id(16),
+                "name": "openclaw.run", "kind": 1,
+                "startTimeUnixNano": _now_ns(),
+                "endTimeUnixNano":   _now_ns(1),
+                "attributes": [],
+            }]}],
+        }]
+    }
+    _post_json(client, payload)
+    body = client.get("/v1/agents?window_hours=1").json()
+    assert any(a["name"] == "openclaw" for a in body["agents"])
+
+
+def test_non_openclaw_root_names_are_left_alone(client):
+    """The fold must NOT touch other framework names — Mastra,
+    VoltAgent, plain Python SDK agents all keep their identities."""
+    trace_id = _hex_id(32)
+    payload = _otlp_json_payload(trace_id=trace_id, service_name="mastra-app", spans=[{
+        "traceId": trace_id, "spanId": _hex_id(16),
+        "name": "support_bot",  # what a real Mastra agent name looks like
+        "kind": 1,
+        "startTimeUnixNano": _now_ns(),
+        "endTimeUnixNano":   _now_ns(1),
+        "attributes": [],
+    }])
+    _post_json(client, payload)
+    body = client.get("/v1/agents?window_hours=1").json()
+    assert any(a["name"] == "support_bot" for a in body["agents"])
+
+
+def test_child_span_names_unchanged_by_fold(client):
+    """Children inside an OpenClaw trace keep their original names so
+    the span timeline still shows the phase breakdown.
+    """
+    trace_id = _hex_id(32)
+    root_id = _hex_id(16)
+    payload = {
+        "resourceSpans": [{
+            "resource": {"attributes": [
+                {"key": "service.name", "value": {"stringValue": "openclaw"}},
+            ]},
+            "scopeSpans": [{"spans": [
+                {
+                    "traceId": trace_id, "spanId": root_id,
+                    "name": "openclaw.run", "kind": 1,
+                    "startTimeUnixNano": _now_ns(),
+                    "endTimeUnixNano":   _now_ns(2),
+                    "attributes": [],
+                },
+                {
+                    "traceId": trace_id, "spanId": _hex_id(16),
+                    "parentSpanId": root_id,
+                    "name": "openclaw.model.call", "kind": 1,
+                    "startTimeUnixNano": _now_ns(),
+                    "endTimeUnixNano":   _now_ns(1),
+                    "attributes": [
+                        {"key": "openclaw.model", "value": {"stringValue": "qwen2.5:14b"}},
+                    ],
+                },
+            ]}],
+        }]
+    }
+    _post_json(client, payload)
+    trace_uuid = next(
+        t["id"] for t in client.get("/v1/traces").json()
+        if t["id"].replace("-", "") == trace_id
+    )
+    spans = client.get(f"/v1/traces/{trace_uuid}/spans").json()
+    by_id = {s["id"]: s["name"] for s in spans}
+    # Root renamed to "openclaw"; child kept its original name
+    assert "openclaw" in by_id.values()
+    assert "openclaw.model.call" in by_id.values()

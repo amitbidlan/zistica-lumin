@@ -403,6 +403,43 @@ def _status_from_otel(code: Any, message: Optional[str]) -> Tuple[str, Optional[
 # ---- the assembled span ---------------------------------------------------
 
 
+def _resolve_agent_identity(
+    name: Optional[str],
+    parent_span_id_hex: Optional[str],
+    service_name_hint: Optional[str],
+) -> Optional[str]:
+    """Collapse multi-phase root span names under one agent identity.
+
+    Lumin's agent grid groups by ``trace.name`` (the root span's name).
+    Frameworks like OpenClaw emit several distinct root span names per
+    user interaction — ``openclaw.run``, ``openclaw.message.processed``,
+    ``openclaw.harness.run``, ``openclaw.context.assembled``,
+    ``openclaw.liveness.warning``, ``openclaw.diagnostic.phase`` — each
+    landing as a separate trace_id. The unmodified grid then shows
+    five-plus ``agent`` cards for what operators rightly think of as
+    one agent (the bot itself).
+
+    Rule: when a ROOT span's name starts with a known framework
+    prefix, fold to the resource ``service.name`` (which OTel SDKs
+    auto-set from ``OTEL_SERVICE_NAME`` or the binary name) — falling
+    back to the prefix itself if no service name is present. Children
+    keep their original names so the span timeline still shows the
+    phase breakdown.
+
+    Today this only kicks in for the ``openclaw.`` prefix. Other
+    frameworks haven't shown the same multi-root-name pattern in
+    practice (Mastra and VoltAgent emit one root per interaction with
+    a user-defined name); add new prefixes here as we encounter them.
+    """
+    if parent_span_id_hex:
+        return name
+    if not name:
+        return name
+    if name.startswith("openclaw."):
+        return service_name_hint or "openclaw"
+    return name
+
+
 def _build_span_input(
     *,
     trace_id_hex: str,
@@ -415,6 +452,7 @@ def _build_span_input(
     status_code: Any,
     status_message: Optional[str],
     attrs: Dict[str, Any],
+    service_name_hint: Optional[str] = None,
 ) -> Optional[SpanInput]:
     """Materialize a Lumin SpanInput from already-normalized OTLP fields.
 
@@ -423,6 +461,10 @@ def _build_span_input(
     still flows; OTel implementations have shipped malformed spans
     before, and Rule 7 generalized says we never reject a whole
     batch over one bad row.
+
+    ``service_name_hint`` is the resource ``service.name`` from the
+    OTLP payload — used to collapse OpenClaw's multiple internal
+    root span names under a single agent identity in the grid.
     """
     if not span_id_hex or not started_at:
         return None
@@ -469,6 +511,9 @@ def _build_span_input(
     )
     # Span name flows into the classifier so name-prefix patterns
     # ('openclaw.model.*' → llm) work when SpanKind isn't CLIENT.
+    # Use the ORIGINAL name here, before the agent-identity fold,
+    # so model.call spans are still classified llm even when their
+    # root parent gets renamed.
     span_type = _classify_type(kind, attrs, name=name)
     status, error_message = _status_from_otel(status_code, status_message)
 
@@ -478,6 +523,16 @@ def _build_span_input(
     resolved_name = name or operation
     if resolved_name in (None, "", "span") and operation:
         resolved_name = operation
+
+    # Agent-identity fold for root spans (see _resolve_agent_identity).
+    # When this rewrites the name, stash the original under a metadata
+    # key so the span detail page can still surface what phase this was.
+    folded = _resolve_agent_identity(
+        resolved_name, parent_span_id_hex, service_name_hint
+    )
+    if folded != resolved_name and resolved_name:
+        attrs = {**attrs, "openclaw.span.original_name": resolved_name}
+        resolved_name = folded
 
     tool_name = (
         attrs.get("gen_ai.tool.name")
@@ -528,10 +583,15 @@ def parse_otlp_proto(export_request: Any) -> Tuple[List[SpanInput], Optional[str
 
     for resource_spans in export_request.resource_spans:
         resource_attrs = _attrs_from_proto(resource_spans.resource.attributes)
-        if service_name is None:
-            sn = resource_attrs.get("service.name")
-            if sn:
-                service_name = str(sn)
+        # Service name is per-resource. The batch-level `service_name`
+        # we return is the first one encountered (used by the router as
+        # a project hint); each span gets folded against ITS resource's
+        # service name though, so multi-resource batches stay correct.
+        resource_service_name = resource_attrs.get("service.name")
+        if resource_service_name:
+            resource_service_name = str(resource_service_name)
+        if service_name is None and resource_service_name:
+            service_name = resource_service_name
 
         for scope_spans in resource_spans.scope_spans:
             for span in scope_spans.spans:
@@ -563,6 +623,7 @@ def parse_otlp_proto(export_request: Any) -> Tuple[List[SpanInput], Optional[str
                     status_code=status_code,
                     status_message=status_message,
                     attrs=attrs,
+                    service_name_hint=resource_service_name,
                 )
                 if si is not None:
                     spans_out.append(si)
@@ -592,10 +653,11 @@ def parse_otlp_json(payload: dict) -> Tuple[List[SpanInput], Optional[str]]:
     for resource_spans in payload.get("resourceSpans", []) or []:
         resource = resource_spans.get("resource") or {}
         resource_attrs = _attrs_from_json(resource.get("attributes", []))
-        if service_name is None:
-            sn = resource_attrs.get("service.name")
-            if sn:
-                service_name = str(sn)
+        resource_service_name = resource_attrs.get("service.name")
+        if resource_service_name:
+            resource_service_name = str(resource_service_name)
+        if service_name is None and resource_service_name:
+            service_name = resource_service_name
 
         for scope_spans in resource_spans.get("scopeSpans", []) or []:
             for span in scope_spans.get("spans", []) or []:
@@ -640,6 +702,7 @@ def parse_otlp_json(payload: dict) -> Tuple[List[SpanInput], Optional[str]]:
                     status_code=status_code,
                     status_message=status_message,
                     attrs=attrs,
+                    service_name_hint=resource_service_name,
                 )
                 if si is not None:
                     spans_out.append(si)
