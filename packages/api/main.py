@@ -8,7 +8,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 import policy_runtime
 from db import Database, get_db
-from routers import agents, evals, otlp, policy, sessions, spans, traces
+from routers import agents, evals, otlp, policy, proxy, sessions, spans, traces
 from ws import manager as ws_manager
 
 logger = logging.getLogger("lumin.api")
@@ -208,6 +208,7 @@ app.include_router(evals.router)
 app.include_router(policy.router)
 app.include_router(agents.router)
 app.include_router(otlp.router)
+app.include_router(proxy.router)
 
 
 @app.get("/health")
