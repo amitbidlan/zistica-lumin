@@ -1,0 +1,45 @@
+{
+  "name": "@lumin-io/openclaw-diagnostics",
+  "version": "0.1.0",
+  "description": "Full-fidelity Lumin observability for OpenClaw — captures prompts, responses, tool I/O via OpenClaw's DiagnosticEvent bus (no privacy filter).",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "openclaw.plugin.json",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.4.25"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0",
+    "vitest": "^2.1.9"
+  },
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ],
+    "install": {
+      "npmSpec": "@lumin-io/openclaw-diagnostics",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.4.25"
+    },
+    "compat": {
+      "pluginApi": ">=2026.5.4"
+    }
+  }
+}
