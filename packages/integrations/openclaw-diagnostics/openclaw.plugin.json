@@ -9,15 +9,15 @@
     "properties": {
       "host": {
         "type": "string",
-        "description": "Lumin API base URL. Defaults to LUMIN_HOST env or http://localhost:8000."
+        "description": "Lumin API base URL. Defaults to http://localhost:8000. Override here for Docker / Kubernetes / remote deployments."
       },
       "project": {
         "type": "string",
         "description": "Lumin project label sent as X-Lumin-Project. Defaults to 'openclaw'."
       },
-      "captureSystemPrompt": {
+      "captureSystemMessage": {
         "type": "boolean",
-        "description": "Whether to capture the system prompt text on each model.call. Default false (system prompts are usually large and rarely actionable)."
+        "description": "Whether to capture the OpenAI-style system message text on each model.call. Default false (these payloads are usually large and rarely actionable for debugging)."
       },
       "maxContentChars": {
         "type": "number",

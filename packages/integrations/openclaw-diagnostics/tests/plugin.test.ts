@@ -30,6 +30,8 @@ import luminPlugin from "../src/index";
 interface RegisteredHooks {
   llm_input?: (event: unknown, ctx: unknown) => unknown;
   llm_output?: (event: unknown, ctx: unknown) => unknown;
+  before_tool_call?: (event: unknown, ctx: unknown) => unknown;
+  after_tool_call?: (event: unknown, ctx: unknown) => unknown;
 }
 
 interface FakeApi {
@@ -49,6 +51,8 @@ function buildFakeApi(pluginConfig?: Record<string, unknown>): {
     on: (name, handler) => {
       if (name === "llm_input") hooks.llm_input = handler;
       else if (name === "llm_output") hooks.llm_output = handler;
+      else if (name === "before_tool_call") hooks.before_tool_call = handler;
+      else if (name === "after_tool_call") hooks.after_tool_call = handler;
     },
   };
   return { api, hooks };
@@ -78,14 +82,16 @@ afterEach(() => {
 
 
 describe("plugin registration", () => {
-  test("subscribes to llm_input and llm_output", () => {
+  test("subscribes to llm + tool hooks", () => {
     const { api, hooks } = buildFakeApi();
     // @ts-expect-error - register is on the definePluginEntry options
     luminPlugin.register(api);
     expect(typeof hooks.llm_input).toBe("function");
     expect(typeof hooks.llm_output).toBe("function");
+    expect(typeof hooks.before_tool_call).toBe("function");
+    expect(typeof hooks.after_tool_call).toBe("function");
     expect(api.logger.info).toHaveBeenCalledWith(
-      expect.stringMatching(/subscribed to llm_input \+ llm_output/),
+      expect.stringMatching(/subscribed to llm_input \+ llm_output \+ before_tool_call \+ after_tool_call/),
     );
   });
 
@@ -363,5 +369,113 @@ describe("error swallowing (Rule 7)", () => {
       ),
     ).not.toThrow();
     await new Promise((r) => setTimeout(r, 5));
+  });
+});
+
+
+// ----- tool capture -----------------------------------------------------
+
+
+describe("tool I/O capture", () => {
+  test("before/after tool pair produces a single span with input + output", async () => {
+    const { api, hooks } = buildFakeApi({ host: "http://lumin.test" });
+    // @ts-expect-error
+    luminPlugin.register(api);
+
+    const ctx = {
+      runId: "run-tool-1",
+      trace: { traceId: "0123456789abcdef0123456789abcdef" },
+    };
+    hooks.before_tool_call!(
+      {
+        runId: "run-tool-1",
+        toolCallId: "tc-1",
+        toolName: "web.search",
+        params: { query: "weather tokyo" },
+      },
+      ctx,
+    );
+    hooks.after_tool_call!(
+      {
+        runId: "run-tool-1",
+        toolCallId: "tc-1",
+        toolName: "web.search",
+        params: { query: "weather tokyo" },
+        result: { temp: 18, condition: "cloudy" },
+        durationMs: 142,
+      },
+      ctx,
+    );
+
+    await new Promise((r) => setTimeout(r, 5));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const span = body.spans[0];
+    expect(span.type).toBe("tool");
+    expect(span.name).toBe("openclaw.tool.call");
+    expect(span.tool_name).toBe("web.search");
+    // Input is the params, JSON-stringified
+    expect(span.input).toContain("weather tokyo");
+    // Output is the result, JSON-stringified
+    expect(span.output).toContain("cloudy");
+    expect(span.output).toContain("18");
+    expect(span.duration_ms).toBe(142);
+    expect(span.status).toBe("ok");
+    // Trace id derived from the same OpenClaw traceId as model spans
+    // would use, so the dashboard fuses them into one timeline.
+    expect(span.trace_id).toBe("01234567-89ab-cdef-0123-456789abcdef");
+  });
+
+  test("tool error propagates as error-status span with error_message", async () => {
+    const { api, hooks } = buildFakeApi();
+    // @ts-expect-error
+    luminPlugin.register(api);
+
+    hooks.before_tool_call!(
+      { runId: "r2", toolCallId: "tc-2", toolName: "code.exec",
+        params: { script: "raise SystemExit" } },
+      undefined,
+    );
+    hooks.after_tool_call!(
+      { runId: "r2", toolCallId: "tc-2", toolName: "code.exec",
+        params: { script: "raise SystemExit" },
+        error: "process exited with non-zero status",
+        durationMs: 50 },
+      undefined,
+    );
+
+    await new Promise((r) => setTimeout(r, 5));
+    const span = JSON.parse(fetchMock.mock.calls[0][1].body).spans[0];
+    expect(span.status).toBe("error");
+    expect(span.error_message).toBe("process exited with non-zero status");
+    // Output is undefined for failed calls, but tool_name + input
+    // still surface so the operator can see what was attempted.
+    expect(span.output).toBeUndefined();
+    expect(span.tool_name).toBe("code.exec");
+    expect(span.input).toContain("raise SystemExit");
+  });
+
+  test("orphan after_tool_call (no before) still emits a span", async () => {
+    const { api, hooks } = buildFakeApi();
+    // @ts-expect-error
+    luminPlugin.register(api);
+
+    // Simulate the plugin loading mid-run: after-hook fires without
+    // a matching before. The span should still ship using the
+    // params from the after event.
+    hooks.after_tool_call!(
+      { runId: "r3", toolCallId: "tc-3", toolName: "fs.read",
+        params: { path: "/etc/hosts" },
+        result: "127.0.0.1 localhost",
+        durationMs: 12 },
+      undefined,
+    );
+
+    await new Promise((r) => setTimeout(r, 5));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const span = JSON.parse(fetchMock.mock.calls[0][1].body).spans[0];
+    expect(span.tool_name).toBe("fs.read");
+    expect(span.input).toContain("/etc/hosts");
+    expect(span.output).toContain("127.0.0.1");
   });
 });

@@ -1,7 +1,25 @@
 {
   "name": "@lumin-io/openclaw-diagnostics",
-  "version": "0.1.0",
-  "description": "Full-fidelity Lumin observability for OpenClaw — captures prompts, responses, tool I/O via OpenClaw's DiagnosticEvent bus (no privacy filter).",
+  "version": "0.1.5",
+  "description": "Full-fidelity Lumin observability for OpenClaw \u2014 captures prompts, responses, tool I/O, and reasoning traces via OpenClaw's typed-hook API.",
+  "homepage": "https://github.com/amitbidlan/zistica-lumin/tree/main/packages/integrations/openclaw-diagnostics",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/amitbidlan/zistica-lumin.git",
+    "directory": "packages/integrations/openclaw-diagnostics"
+  },
+  "bugs": {
+    "url": "https://github.com/amitbidlan/zistica-lumin/issues"
+  },
+  "keywords": [
+    "openclaw",
+    "lumin",
+    "observability",
+    "tracing",
+    "opentelemetry",
+    "ai-agent",
+    "llm-monitoring"
+  ],
   "license": "Apache-2.0",
   "type": "module",
   "main": "dist/index.js",
@@ -40,6 +58,9 @@
     },
     "compat": {
       "pluginApi": ">=2026.5.4"
+    },
+    "build": {
+      "openclawVersion": "2026.5.4"
     }
   }
 }
