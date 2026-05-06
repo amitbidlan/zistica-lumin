@@ -4,6 +4,14 @@ export const metadata = {
   title: 'Agents',
 };
 
+// Force dynamic rendering: AgentList reads filters from URL search params
+// via the URL-backed state hooks, which Next.js requires to be either
+// wrapped in Suspense or rendered dynamically. These pages always need
+// to fetch live data anyway (SWR + WebSocket), so prerendering an empty
+// shell adds no value — making them dynamic is cleaner than scattering
+// Suspense boundaries.
+export const dynamic = 'force-dynamic';
+
 export default function AgentsPage() {
   return (
     <div className="max-w-7xl mx-auto">

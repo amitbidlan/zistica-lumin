@@ -38,6 +38,10 @@ export function generateMetadata({ params }: { params: { key: string } }) {
   return { title: `${projectLabel(params.key)} agents` };
 }
 
+// AgentList reads filters from URL params (window/search/provider) —
+// requires dynamic rendering. See app/agents/page.tsx for context.
+export const dynamic = 'force-dynamic';
+
 /**
  * Dedicated framework view — shows every agent in one project / SDK,
  * with no truncation. Wrapper layout mirrors /agents (max-w-7xl + page
