@@ -13,6 +13,7 @@ import {
   formatStartedAt,
 } from '@/lib/api';
 import { useTraceStream, WSMessage } from '@/lib/websocket';
+import { useUrlBoolean, useUrlNumber } from '@/lib/url-state';
 
 const COLS =
   'grid grid-cols-[1fr_180px_100px_120px_100px_80px_110px] gap-4 px-4 py-2.5';
@@ -32,9 +33,14 @@ function readStoredPageSize(): number {
 }
 
 export default function TraceList() {
-  const [page, setPage] = useState(0);
+  // URL-backed so refresh, deep links, and back/forward all preserve
+  // the operator's filter set. ``page`` and ``onlyViolated`` go in
+  // the URL directly. ``pageSize`` keeps its existing localStorage
+  // home — it's a personal preference, not a per-view filter, and
+  // shouldn't bloat shared links.
+  const [page, setPage] = useUrlNumber('page', 0);
   const [pageSize, setPageSizeState] = useState(PAGE_SIZE_DEFAULT);
-  const [onlyViolated, setOnlyViolated] = useState(false);
+  const [onlyViolated, setOnlyViolated] = useUrlBoolean('violated', false);
 
   useEffect(() => {
     const stored = readStoredPageSize();
@@ -234,14 +240,14 @@ export default function TraceList() {
             </button>
           ) : null}
           <button
-            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            onClick={() => setPage(Math.max(0, page - 1))}
             disabled={page === 0}
             className="pill disabled:opacity-30 disabled:cursor-not-allowed"
           >
             ← Previous
           </button>
           <button
-            onClick={() => setPage((p) => p + 1)}
+            onClick={() => setPage(page + 1)}
             disabled={!hasMore}
             className="pill disabled:opacity-30 disabled:cursor-not-allowed"
           >

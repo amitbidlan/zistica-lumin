@@ -77,7 +77,7 @@ export default function SpanRow({
 
   const rowClass = isThinking
     ? 'w-full text-left px-3 py-2 transition-colors flex items-center gap-3 bg-violet-950/20 hover:bg-violet-950/40 border-l-2 border-violet-700'
-    : 'w-full text-left px-3 py-2 hover:bg-[#111418] transition-colors flex items-center gap-3';
+    : 'w-full text-left px-3 py-2 hover:bg-[var(--background-hover)] transition-colors flex items-center gap-3';
 
   const subtypeBadge = isThinking ? (
     <span
@@ -151,7 +151,7 @@ export default function SpanRow({
       {open && (
         <div
           className={`px-4 pb-3 pt-1 text-xs space-y-3 ${
-            isThinking ? 'bg-violet-950/10 border-l-2 border-violet-800/40' : 'bg-[#0d1014]'
+            isThinking ? 'bg-violet-950/10 border-l-2 border-violet-800/40' : 'bg-[var(--background-raised)]'
           }`}
         >
           {isThinking ? (

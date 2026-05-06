@@ -117,7 +117,11 @@ function SenderHeader({
 function UserBubble({ text }: { text: string }) {
   return (
     <div className="flex justify-end">
-      <div className="max-w-[80%] rounded-2xl rounded-br-sm bg-[var(--accent-bg,#1f2937)] border border-[var(--border)] px-4 py-2.5 text-sm whitespace-pre-wrap break-words">
+      {/* ``--accent-glow`` is the subtle accent-tinted background that
+          flips between dark and light mode — keeps user bubbles
+          distinguishable from assistant bubbles in both themes
+          without being shouty. */}
+      <div className="max-w-[80%] rounded-2xl rounded-br-sm bg-[var(--accent-glow)] border border-[var(--border)] px-4 py-2.5 text-sm whitespace-pre-wrap break-words">
         <div className="text-[10px] uppercase tracking-wider text-[var(--muted)] mb-1">
           User
         </div>
@@ -138,11 +142,25 @@ function AssistantBubble({ parts }: { parts: ChatAssistantParts }) {
     <div className="flex justify-start">
       <div className="max-w-[80%] space-y-2">
         {hasThinking ? (
-          <div className="rounded-2xl rounded-bl-sm border border-violet-800/60 bg-violet-950/20 overflow-hidden">
+          // Theme-aware reasoning accordion. The violet hue + low-
+          // opacity wash + deep-violet text stays readable in both
+          // light and dark mode because the colors come from
+          // ``--thinking-*`` tokens that flip with ``data-theme``.
+          // Pre-fix this used Tailwind's ``violet-950`` and
+          // ``violet-100`` directly, which collapsed to lavender-on-
+          // pale-violet in light mode and disappeared.
+          <div
+            className="rounded-2xl rounded-bl-sm border overflow-hidden"
+            style={{
+              borderColor: 'var(--thinking-border)',
+              background: 'var(--thinking-bg)',
+            }}
+          >
             <button
               type="button"
               onClick={() => setThinkingOpen(!thinkingOpen)}
-              className="w-full px-4 py-2 flex items-center gap-2 text-xs text-violet-200 hover:bg-violet-900/30 transition-colors"
+              className="w-full px-4 py-2 flex items-center gap-2 text-xs transition-colors hover:[background:var(--thinking-bg-hover)]"
+              style={{ color: 'var(--thinking-fg)' }}
               aria-expanded={thinkingOpen}
             >
               <span aria-hidden>🧠</span>
@@ -153,13 +171,19 @@ function AssistantBubble({ parts }: { parts: ChatAssistantParts }) {
               <span className="ml-auto font-mono">{thinkingOpen ? '−' : '+'}</span>
             </button>
             {thinkingOpen ? (
-              <pre className="px-4 pb-3 text-[12px] font-mono whitespace-pre-wrap break-words text-violet-100 border-t border-violet-800/40">
+              <pre
+                className="px-4 pb-3 text-[12px] font-mono whitespace-pre-wrap break-words border-t"
+                style={{
+                  color: 'var(--thinking-fg)',
+                  borderColor: 'var(--thinking-border)',
+                }}
+              >
                 {parts.thinking}
               </pre>
             ) : null}
           </div>
         ) : null}
-        <div className="rounded-2xl rounded-bl-sm bg-[#0d1014] border border-[var(--border)] px-4 py-2.5 text-sm whitespace-pre-wrap break-words">
+        <div className="rounded-2xl rounded-bl-sm bg-[var(--background-raised)] border border-[var(--border)] px-4 py-2.5 text-sm whitespace-pre-wrap break-words">
           <div className="text-[10px] uppercase tracking-wider text-[var(--muted)] mb-1">
             Assistant
           </div>
@@ -211,7 +235,7 @@ function Avatar({ name }: { name: string }) {
   return (
     <div
       aria-hidden
-      className="h-8 w-8 rounded-full bg-[var(--accent-bg,#1f2937)] border border-[var(--border)] flex items-center justify-center text-xs font-mono"
+      className="h-8 w-8 rounded-full bg-[var(--background-hover)] border border-[var(--border)] flex items-center justify-center text-xs font-mono"
     >
       {initials || '?'}
     </div>
