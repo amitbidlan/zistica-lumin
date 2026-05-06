@@ -92,6 +92,23 @@ interface LlmOutputEvent {
   };
 }
 
+interface BeforeToolCallEvent {
+  toolName: string;
+  params: Record<string, unknown>;
+  runId?: string;
+  toolCallId?: string;
+}
+
+interface AfterToolCallEvent {
+  toolName: string;
+  params: Record<string, unknown>;
+  runId?: string;
+  toolCallId?: string;
+  result?: unknown;
+  error?: string;
+  durationMs?: number;
+}
+
 interface HookContext {
   runId?: string;
   jobId?: string;
@@ -323,6 +340,72 @@ class PendingLlmRegistry {
 }
 
 
+// ----- pending tool-call registry ---------------------------------------
+//
+// Tools have their own lifecycle: ``before_tool_call`` carries the
+// invocation params; ``after_tool_call`` carries the result + duration.
+// The pair is correlated by ``toolCallId`` (stable across the two
+// events when the host populates it; we fall back to a synthetic key
+// derived from ``runId + toolName + ts`` when it's missing — only
+// matters if a single run somehow fires before/after for two tools
+// with no toolCallId, which the upstream API doesn't actually do).
+
+interface PendingToolCall {
+  startedAt: string;
+  startedAtMs: number;
+  toolName: string;
+  params?: Record<string, unknown>;
+  trace?: HookContext["trace"];
+  runId?: string;
+}
+
+class PendingToolCallRegistry {
+  private byKey = new Map<string, PendingToolCall>();
+  private cleanupHandle: ReturnType<typeof setTimeout> | undefined;
+
+  set(key: string, entry: PendingToolCall): void {
+    this.byKey.set(key, entry);
+    this.scheduleSweep();
+  }
+
+  take(key: string): PendingToolCall | undefined {
+    const v = this.byKey.get(key);
+    if (v) this.byKey.delete(key);
+    return v;
+  }
+
+  size(): number {
+    return this.byKey.size;
+  }
+
+  private scheduleSweep(): void {
+    if (this.cleanupHandle) return;
+    this.cleanupHandle = setTimeout(() => {
+      this.cleanupHandle = undefined;
+      const now = Date.now();
+      for (const [k, v] of this.byKey) {
+        if (now - v.startedAtMs > PENDING_TTL_MS) this.byKey.delete(k);
+      }
+      if (this.byKey.size > 0) this.scheduleSweep();
+    }, PENDING_TTL_MS);
+    if (typeof this.cleanupHandle === "object" && this.cleanupHandle && "unref" in this.cleanupHandle) {
+      (this.cleanupHandle as { unref?: () => void }).unref?.();
+    }
+  }
+}
+
+
+function toolCallKey(runId: string | undefined, toolCallId: string | undefined, toolName: string): string {
+  // Prefer toolCallId — it's the host's canonical identifier and
+  // doesn't collide across concurrent same-tool calls within a run.
+  // When missing, the run+tool fallback is good-enough since OpenClaw
+  // serializes tool calls per agent turn (one before/after pair
+  // outstanding at a time per run).
+  if (toolCallId) return `tcid:${toolCallId}`;
+  return `rt:${runId ?? "_"}::${toolName}`;
+}
+
+
 // ----- per-event translators ---------------------------------------------
 
 function buildSpanFromPair(
@@ -404,6 +487,59 @@ function buildSpanFromPair(
 }
 
 
+function buildSpanFromToolCall(
+  before: PendingToolCall,
+  after: AfterToolCallEvent,
+  cfg: LuminDiagnosticsConfig,
+  hookCtx: HookContext | undefined,
+): Record<string, unknown> {
+  const maxLen = cfg.maxContentChars ?? DEFAULT_MAX_CONTENT_CHARS;
+  const trace = hookCtx?.trace || before.trace;
+  const runId = after.runId ?? before.runId ?? "_";
+  // Tool spans share the run's traceId with the LLM span — that's
+  // exactly what fuses them into one trace timeline on the dashboard.
+  const traceId = asUuid(trace?.traceId, runId);
+  // Each tool call gets its own deterministic spanId derived from
+  // toolCallId + toolName so re-ingest of the same call lands on
+  // the same span row (idempotent like the LLM path).
+  const fp = `${runId}:tool:${after.toolCallId ?? after.toolName}`;
+  const spanId = asUuid(undefined, fp);
+  // Parent: the run's root span (so the tool call nests under the
+  // openclaw run in the timeline). We DON'T use trace.spanId as the
+  // parent because that's our own llm-call's spanId in the registry
+  // — we want the run-level parent. Falls back to undefined if the
+  // hook context didn't expose one; the dashboard still renders the
+  // tool span as a top-level entry under the openclaw trace.
+  const parentId = trace?.parentSpanId
+    ? asUuid(trace.parentSpanId, runId)
+    : undefined;
+
+  const isError = typeof after.error === "string" && after.error.length > 0;
+
+  return {
+    id: spanId,
+    trace_id: traceId,
+    parent_span_id: parentId,
+    name: "openclaw.tool.call",
+    type: "tool",
+    started_at: before.startedAt,
+    ended_at: nowIso(),
+    status: isError ? "error" : "ok",
+    error_message: isError ? after.error : undefined,
+    tool_name: after.toolName,
+    input: stringify(before.params ?? after.params ?? {}, maxLen),
+    output: after.result !== undefined ? stringify(after.result, maxLen) : undefined,
+    session_id: hookCtx?.sessionId,
+    duration_ms: after.durationMs,
+    metadata: {
+      "openclaw.runId": runId,
+      "openclaw.toolCallId": after.toolCallId,
+      "openclaw.toolName": after.toolName,
+    },
+  };
+}
+
+
 // ----- plugin entry -------------------------------------------------------
 
 export default definePluginEntry({
@@ -434,6 +570,7 @@ export default definePluginEntry({
     const cfg: LuminDiagnosticsConfig = apiAny.pluginConfig || {};
     const client = new LuminClient(cfg);
     const pending = new PendingLlmRegistry();
+    const toolPending = new PendingToolCallRegistry();
     const log = apiAny.logger;
 
     if (typeof apiAny.on !== "function") {
@@ -509,8 +646,55 @@ export default definePluginEntry({
       }
     });
 
+    // Tool hooks. Pair before/after via toolCallId (or runId+toolName
+    // fallback when the host doesn't populate it). The before-hook
+    // captures the params + start time; the after-hook attaches the
+    // result + duration and ships the span. ``before_tool_call`` and
+    // ``after_tool_call`` aren't conversation-gated upstream, so they
+    // register without any extra config beyond what llm_input already
+    // required for this plugin.
+    apiAny.on("before_tool_call", (rawEvent: unknown, rawCtx: unknown) => {
+      try {
+        const event = rawEvent as BeforeToolCallEvent;
+        const ctx = rawCtx as HookContext | undefined;
+        toolPending.set(toolCallKey(event.runId, event.toolCallId, event.toolName), {
+          startedAt: nowIso(),
+          startedAtMs: Date.now(),
+          toolName: event.toolName,
+          params: event.params,
+          trace: ctx?.trace,
+          runId: event.runId,
+        });
+      } catch (err) {
+        log?.warn?.(`lumin-diagnostics: before_tool_call handler failed: ${(err as Error).message}`);
+      }
+    });
+
+    apiAny.on("after_tool_call", (rawEvent: unknown, rawCtx: unknown) => {
+      try {
+        const event = rawEvent as AfterToolCallEvent;
+        const ctx = rawCtx as HookContext | undefined;
+        const key = toolCallKey(event.runId, event.toolCallId, event.toolName);
+        const entry = toolPending.take(key) ?? {
+          // Orphan after-call (e.g. before-hook missed because the
+          // plugin loaded mid-run). Synthesize a zero-duration entry
+          // so the span still reports the result + tool name.
+          startedAt: nowIso(),
+          startedAtMs: Date.now(),
+          toolName: event.toolName,
+          params: event.params,
+          trace: ctx?.trace,
+          runId: event.runId,
+        };
+        const span = buildSpanFromToolCall(entry, event, cfg, ctx);
+        void client.send(span).catch(() => {});
+      } catch (err) {
+        log?.warn?.(`lumin-diagnostics: after_tool_call handler failed: ${(err as Error).message}`);
+      }
+    });
+
     log?.info?.(
-      `lumin-diagnostics: subscribed to llm_input + llm_output → ${cfg.host || DEFAULT_HOST}/v1/spans (project=${cfg.project || DEFAULT_PROJECT})`,
+      `lumin-diagnostics: subscribed to llm_input + llm_output + before_tool_call + after_tool_call → ${cfg.host || DEFAULT_HOST}/v1/spans (project=${cfg.project || DEFAULT_PROJECT})`,
     );
   },
 });
