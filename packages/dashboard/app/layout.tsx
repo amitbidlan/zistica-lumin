@@ -19,7 +19,7 @@ export const metadata: Metadata = {
     template: '%s · Lumin',
   },
   description:
-    'Add 2 lines of code, see every step your agent takes. Runs entirely on your laptop. No account, no credit card, no data leaves your machine.',
+    'Add 2 lines of code, see every step your agent takes. Runs entirely on your laptop. No account, no credit card, no telemetry — Lumin never ships your traces anywhere.',
   applicationName: 'Lumin',
   authors: [{ name: 'Zistica Inc.' }],
   keywords: [
@@ -107,7 +107,7 @@ export default function RootLayout({
                 className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500"
                 aria-hidden
               />
-              Your data never leaves this machine.
+              Lumin runs locally · no telemetry, no cloud sync.
             </span>
             <span className="font-mono">
               Apache 2.0 · Zistica Inc. · 2026
