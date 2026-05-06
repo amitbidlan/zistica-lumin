@@ -68,7 +68,8 @@ That's it. No account, no API key, and Lumin itself never sends your traces anyw
 - **Real-time updates** — WebSocket stream pushes traces and spans into the dashboard the moment they're ingested, no refresh; falls back to 5-second polling if the socket can't connect.
 - **Cost & token tracking** — automatic per-call breakdown for OpenAI and Anthropic model families.
 - **Quality scoring** — bring-your-own evals via `POST /v1/evals`.
-- **Framework integrations** — drop-in support for [LangChain](https://github.com/langchain-ai/langchain) (zero-config via `LUMIN_TRACING=true` — see [section](#langchain)), [LlamaIndex](https://github.com/run-llama/llama_index) ([section](#llamaindex)), [CrewAI](https://github.com/crewAIInc/crewAI) ([section](#crewai)), [Anthropic](https://github.com/anthropics/anthropic-sdk-python) with extended-thinking visualization ([section](#anthropic)), [Mastra](https://github.com/mastra-ai/mastra) ([`@lumin-io/mastra`](packages/integrations/mastra/)), [OpenClaw](https://github.com/openclaw/openclaw) (zero-code via `diagnostics-otel` → Lumin's OTLP endpoint, see [section](#openclaw)), and [VoltAgent](https://github.com/voltagent/voltagent) ([`@lumin-io/voltagent`](packages/integrations/voltagent/)).
+- **Framework integrations** — drop-in support for [LangChain](https://github.com/langchain-ai/langchain) (zero-config via `LUMIN_TRACING=true` — see [section](#langchain)), [LlamaIndex](https://github.com/run-llama/llama_index) ([section](#llamaindex)), [CrewAI](https://github.com/crewAIInc/crewAI) ([section](#crewai)), [Anthropic](https://github.com/anthropics/anthropic-sdk-python) with extended-thinking visualization ([section](#anthropic)), [Mastra](https://github.com/mastra-ai/mastra) ([`@lumin-io/mastra`](packages/integrations/mastra/)), [OpenClaw](https://github.com/openclaw/openclaw) (two paths — zero-code OTLP receiver _or_ full-content typed-hook plugin [`@lumin-io/openclaw-diagnostics`](packages/integrations/openclaw-diagnostics/), see [section](#openclaw)), and [VoltAgent](https://github.com/voltagent/voltagent) ([`@lumin-io/voltagent`](packages/integrations/voltagent/)).
+- **OpenAI-compatible LLM proxy** — point any OpenAI / Ollama / Anthropic-compat client base URL at `http://localhost:8000/v1/openai` and Lumin captures the request, response, tokens, cost, and (W3C `traceparent` if you send one) for every call without touching agent code. Streaming and non-streaming both work.
 - **Cross-language SDKs** — Python and TypeScript with identical wire format and behavior.
 - **Resilient by design** — the agent never fails because Lumin is down. Spans drop silently if the queue overflows, the exporter is unreachable, or the server returns an error.
 - **Local-first** — single Docker image, DuckDB + SQLite, no external services, no cloud dependency.
@@ -110,6 +111,7 @@ Single Docker container runs the API on `:8000` and the Next.js standalone dashb
 | [`packages/sdk-typescript/`](packages/sdk-typescript/) | `@lumin-io/sdk` — peer of the Python SDK | 59 |
 | [`packages/api/`](packages/api/) | FastAPI ingest + query API, DuckDB storage, WebSocket fanout, agent grid, server-side policy engine | 169 |
 | [`packages/integrations/openclaw/`](packages/integrations/openclaw/) | `@lumin-io/openclaw` — OTel exporter for OpenClaw agents | 59 |
+| [`packages/integrations/openclaw-diagnostics/`](packages/integrations/openclaw-diagnostics/) | `@lumin-io/openclaw-diagnostics` — typed-hook plugin (full-content prompts, replies, thinking) | 9 |
 | [`packages/integrations/mastra/`](packages/integrations/mastra/) | `@lumin-io/mastra` — observability config + exporter for Mastra | 55 |
 | [`packages/integrations/voltagent/`](packages/integrations/voltagent/) | `@lumin-io/voltagent` — OTel-native exporter for VoltAgent | 62 |
 | [`packages/dashboard/`](packages/dashboard/) | Next.js 14 dashboard — agent grid, traces, sessions, violations, policy editor | build + 21 Playwright E2E |
@@ -291,36 +293,86 @@ See [`packages/integrations/mastra/`](packages/integrations/mastra/) for the ded
 
 ### OpenClaw
 
-[OpenClaw](https://github.com/openclaw/openclaw) ships native OpenTelemetry through its [`diagnostics-otel`](https://docs.openclaw.ai/gateway/opentelemetry) plugin — Lumin's OTLP/HTTP endpoint receives those traces directly, so **no agent-code changes, no `@lumin.trace`, no SDK install**.
+[OpenClaw](https://github.com/openclaw/openclaw) has two integration paths with Lumin. They compose — you can run both at once, or pick the one that matches what you need.
+
+#### Path A — zero-code OTLP receiver (no content)
+
+OpenClaw's bundled [`diagnostics-otel`](https://docs.openclaw.ai/gateway/opentelemetry) plugin emits OTLP spans for every model call, tool execution, and run phase. Lumin's OTLP/HTTP endpoint receives them directly — **no agent-code changes, no SDK install**.
 
 ```bash
 # Step 1 — start Lumin
 docker run -p 3000:3000 -p 8000:8000 zistica/lumin
 
-# Step 2 — enable diagnostics + point OpenClaw at Lumin
+# Step 2 — point OpenClaw at Lumin
 openclaw config set diagnostics.enabled true
 openclaw config set diagnostics.otel.enabled true
-openclaw config set diagnostics.otel.traces true
 openclaw config set diagnostics.otel.endpoint "http://localhost:8000/v1/otlp"
-openclaw gateway restart
+openclaw daemon restart
 
 # Step 3 — open http://localhost:3000
-# every OpenClaw run appears automatically
+# every OpenClaw run lands in the agent grid automatically
 ```
 
-OpenClaw's `diagnostics-otel` plugin auto-appends `/v1/traces` to the configured base when the URL doesn't already include it ([per the OpenClaw OpenTelemetry export docs](https://docs.openclaw.ai/gateway/opentelemetry)), so the POST lands at Lumin's OTLP route `http://localhost:8000/v1/otlp/v1/traces`. If you'd rather be explicit, you can set the endpoint to the full path — both forms work:
+You get: provider / model / token counts / duration / cost, the full phase tree (run → harness.run → model.call → tool.execution), and policy enforcement. **You do NOT get prompts, responses, or tool I/O** — `diagnostics-otel` exposes a `captureContent` flag, but the runtime never populates the underlying event fields (the flag is effectively a no-op as of OpenClaw 2026.5.x).
+
+#### Path B — full-content via [`@lumin-io/openclaw-diagnostics`](packages/integrations/openclaw-diagnostics/) (recommended)
+
+To capture prompts, assistant replies, tool I/O, and reasoning-model thinking, install the typed-hook plugin from npm:
 
 ```bash
-openclaw config set diagnostics.otel.endpoint "http://localhost:8000/v1/otlp/v1/traces"
+openclaw plugins install @lumin-io/openclaw-diagnostics
 ```
 
-**What ends up in the dashboard** (the shapes the plugin emits today, per the upstream docs):
-- Model calls — provider / model / input + output token counts / duration; Lumin computes cost from its OpenAI + Anthropic pricing tables
-- `openclaw.exec` spans for tool / process invocations
-- Full span tree for an agent run, parent-child correctly nested
-- Policy violations auto-detected by Lumin's policy engine on every ingested span
+Then enable conversation access for it in `~/.openclaw/openclaw.json` (non-bundled plugins are conversation-gated by default):
 
-You'll need a recent OpenClaw with `diagnostics-otel` available (the plugin is the official observability path; verify with `openclaw --version` and check the [OpenTelemetry export docs](https://docs.openclaw.ai/gateway/opentelemetry) for the current minimum). Older OpenClaw releases that predate `diagnostics-otel` can use the in-process SDK exporter at [`@lumin-io/openclaw`](packages/integrations/openclaw/) instead, which is also useful when you want client-side cost calculation or custom span subtypes.
+```json
+{
+  "plugins": {
+    "entries": {
+      "lumin-diagnostics": {
+        "hooks": { "allowConversationAccess": true }
+      }
+    }
+  }
+}
+```
+
+Restart the gateway (`openclaw daemon restart`) and the plugin subscribes to OpenClaw's `llm_input` / `llm_output` typed hooks — full content lands at `http://localhost:8000/v1/spans` per turn, complete with thinking blocks for reasoning models (gpt-oss, o-series, claude-extended-thinking). Combine with Path A for the full picture, or run on its own if you only want the LLM-level view.
+
+#### Older OpenClaw releases
+
+OpenClaw releases predating `diagnostics-otel` can use the in-process SDK exporter at [`@lumin-io/openclaw`](packages/integrations/openclaw/) instead — useful for client-side cost calculation or custom span subtypes.
+
+### OpenAI-compatible LLM proxy
+
+Lumin's third ingest rail. Point any OpenAI / Ollama / Anthropic-compat client at `http://localhost:8000/v1/openai` and Lumin proxies the request to your real backend, captures the request + response on the way back, and never blocks the call. Works with any client library — no SDK install, no decorator, no framework integration needed.
+
+```python
+from openai import OpenAI
+
+# Just change the base_url. That's it.
+client = OpenAI(
+    base_url="http://localhost:8000/v1/openai/v1",
+    api_key="sk-…",  # forwarded to OpenAI verbatim
+)
+
+resp = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[{"role": "user", "content": "Hello"}],
+)
+```
+
+```bash
+# Override the upstream per-process via env, default is api.openai.com:
+export LUMIN_PROXY_OPENAI_BASE="http://localhost:11434"   # local Ollama
+# or per-request via header:
+curl http://localhost:8000/v1/openai/v1/chat/completions \
+  -H "X-Lumin-Upstream: https://api.anthropic.com" \
+  -H "X-Lumin-Project: openclaw" \
+  -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}'
+```
+
+**What you get**: every call recorded with model, provider, prompt, response, tokens, cost, status. Streaming responses pass through chunk-by-chunk; the assembled message + usage land in the span when the stream closes. If the caller sends a W3C `traceparent` header, the proxy reuses the inbound trace_id so the span fuses with whatever upstream observability tool drove the call. Upstream timeouts / 5xx persist as `status=error` spans so failed calls show up in the dashboard.
 
 ### Sessions (multi-turn conversations)
 
