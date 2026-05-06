@@ -33,6 +33,32 @@ function thinkingText(input: string | null): string {
   return input;
 }
 
+/**
+ * Pull a model's reasoning trace out of span metadata. Two integrations
+ * use this pattern:
+ *   - @lumin-io/openclaw-diagnostics (typed-hook plugin) writes the
+ *     full thinking blocks to ``openclaw.content.thinking``.
+ *   - Future framework adapters can use ``content.thinking`` as a
+ *     conventional key — we look for both shapes.
+ *
+ * Distinct from the dedicated "thinking" sub-span emitted by the
+ * Anthropic SDK integration (handled above via ``span_subtype ===
+ * 'thinking'``). Reasoning models that don't emit separate spans
+ * still get their reasoning surfaced.
+ */
+function metadataThinking(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== 'object') return null;
+  const md = metadata as Record<string, unknown>;
+  const candidates = [
+    md['openclaw.content.thinking'],
+    md['content.thinking'],
+  ];
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.length > 0) return c;
+  }
+  return null;
+}
+
 export default function SpanRow({
   span,
   depth,
@@ -135,9 +161,21 @@ export default function SpanRow({
               accent="thinking"
             />
           ) : (
-            span.input != null && span.input !== '' && (
-              <Field label="Input" value={prettyJson(span.input)} />
-            )
+            <>
+              {/* Reasoning trace from metadata (e.g. OpenClaw plugin's
+                  openclaw.content.thinking field). Rendered ABOVE
+                  Input so the operator sees WHY the model answered
+                  before they see the prompt + reply. */}
+              {(() => {
+                const thinking = metadataThinking(span.metadata);
+                return thinking ? (
+                  <Field label="Reasoning" value={thinking} accent="thinking" />
+                ) : null;
+              })()}
+              {span.input != null && span.input !== '' && (
+                <Field label="Input" value={prettyJson(span.input)} />
+              )}
+            </>
           )}
           {!isThinking && span.output != null && span.output !== '' && (
             <Field label="Output" value={prettyJson(span.output)} />
