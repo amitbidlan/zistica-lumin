@@ -1,6 +1,6 @@
 {
   "name": "@lumin-io/openclaw-diagnostics",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Full-fidelity Lumin observability for OpenClaw \u2014 captures prompts, responses, tool I/O, and reasoning traces via OpenClaw's typed-hook API.",
   "homepage": "https://github.com/amitbidlan/zistica-lumin/tree/main/packages/integrations/openclaw-diagnostics",
   "repository": {
