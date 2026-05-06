@@ -17,7 +17,7 @@
       },
       "captureSystemPrompt": {
         "type": "boolean",
-        "description": "Whether to capture the system prompt text on each model.call. Default false (system prompts are usually large and rarely actionable)."
+        "description": "Whether to capture the system-role message text on each model.call. Default false (these are usually large and rarely actionable for debugging)."
       },
       "maxContentChars": {
         "type": "number",

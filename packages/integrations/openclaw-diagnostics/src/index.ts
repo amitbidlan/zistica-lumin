@@ -462,7 +462,7 @@ function buildSpanFromPair(
       "openclaw.images_count": pending.imagesCount,
       // Lightweight summary of what was replayed to the model, so an
       // operator can see "this turn carried N prior messages and an
-      // M-character system prompt" without dragging the actual
+      // M-character system-role message" without dragging the actual
       // payload into the trace's input field.
       "openclaw.history_message_count": pending.historyMessageCount,
       "openclaw.system_prompt_chars": pending.systemPromptChars,

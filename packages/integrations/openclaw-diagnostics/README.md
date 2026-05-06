@@ -70,7 +70,7 @@ All optional, set under `plugins.entries.lumin-diagnostics.config` in `openclaw.
 |---|---|---|
 | `host` | `http://localhost:8000` | Lumin API base URL. Set this in your `openclaw.json` to point at a Lumin instance running anywhere other than the default localhost (e.g. `http://lumin.internal:8000`, `http://host.docker.internal:8000`). |
 | `project` | `openclaw` | Sent as `X-Lumin-Project` so the agent grid groups OpenClaw runs together. |
-| `captureSystemPrompt` | `false` | Whether to write the full system prompt to `metadata.openclaw.content.system_prompt`. Off by default — system prompts are often large and rarely actionable. The character count is captured either way. |
+| `captureSystemPrompt` | `false` | Whether to write the full system-role message to `metadata.openclaw.content.system_prompt`. Off by default — these are often large and rarely actionable for debugging. The character count is captured either way. |
 | `maxContentChars` | `32768` | Per-attribute content cap. Truncated values are tagged `…(truncated)`. |
 | `timeoutMs` | `5000` | HTTP timeout for the POST to Lumin. |
 
