@@ -46,6 +46,12 @@ export default function ChatView({
   }
   const parsed = parseOpenClawPrompt(headline.input);
   const assistant = extractAssistantParts(headline);
+  // Tool spans for this trace, ordered by start time so the chat view
+  // shows them in the order the agent actually invoked them.
+  const tools = spans
+    .filter((s) => s.type === 'tool')
+    .slice()
+    .sort((a, b) => (a.started_at ?? '').localeCompare(b.started_at ?? ''));
 
   return (
     <div className="space-y-4">
@@ -56,9 +62,12 @@ export default function ChatView({
       />
       <div className="space-y-3">
         <UserBubble text={parsed.userText} />
-        <AssistantBubble parts={assistant} />
+        <AssistantWork
+          parts={assistant}
+          tools={tools}
+        />
       </div>
-      <TurnFooter span={headline} />
+      <TurnFooter span={headline} tools={tools} />
     </div>
   );
 }
@@ -132,9 +141,15 @@ function UserBubble({ text }: { text: string }) {
 }
 
 
-function AssistantBubble({ parts }: { parts: ChatAssistantParts }) {
-  // Default-collapsed thinking — reasoning traces are long and most
-  // operators want to see the reply first. Click to expand.
+function AssistantWork({
+  parts,
+  tools,
+}: {
+  parts: ChatAssistantParts;
+  tools: Span[];
+}) {
+  // Default-collapsed reasoning — long traces get out of the way of
+  // the visible reply, which is what most operators are scanning for.
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const hasThinking = parts.thinking && parts.thinking.length > 0;
 
@@ -142,13 +157,10 @@ function AssistantBubble({ parts }: { parts: ChatAssistantParts }) {
     <div className="flex justify-start">
       <div className="max-w-[80%] space-y-2">
         {hasThinking ? (
-          // Theme-aware reasoning accordion. The violet hue + low-
-          // opacity wash + deep-violet text stays readable in both
-          // light and dark mode because the colors come from
-          // ``--thinking-*`` tokens that flip with ``data-theme``.
-          // Pre-fix this used Tailwind's ``violet-950`` and
-          // ``violet-100`` directly, which collapsed to lavender-on-
-          // pale-violet in light mode and disappeared.
+          // Theme-aware reasoning accordion. Same ``--thinking-*``
+          // tokens flip across light/dark so the violet stays
+          // readable in both. See the SpanRow.tsx fallback for the
+          // /spans timeline equivalent.
           <div
             className="rounded-2xl rounded-bl-sm border overflow-hidden"
             style={{
@@ -183,6 +195,14 @@ function AssistantBubble({ parts }: { parts: ChatAssistantParts }) {
             ) : null}
           </div>
         ) : null}
+        {/* Tool invocations rendered between reasoning and the
+            visible reply — that's the temporal order the agent
+            actually executes (think → search → fetch → answer).
+            Each tool gets its own collapsible accordion with the
+            input/output JSON inline. */}
+        {tools.map((t) => (
+          <ToolAccordion key={t.id} span={t} />
+        ))}
         <div className="rounded-2xl rounded-bl-sm bg-[var(--background-raised)] border border-[var(--border)] px-4 py-2.5 text-sm whitespace-pre-wrap break-words">
           <div className="text-[10px] uppercase tracking-wider text-[var(--muted)] mb-1">
             Assistant
@@ -195,7 +215,117 @@ function AssistantBubble({ parts }: { parts: ChatAssistantParts }) {
 }
 
 
-function TurnFooter({ span }: { span: Span }) {
+// Per-tool icon. Falls back to a generic wrench for tools we don't
+// recognize. The icon is purely cosmetic — the tool name is always
+// shown next to it for unambiguous identification.
+function toolIcon(toolName: string): string {
+  const n = toolName.toLowerCase();
+  if (n.includes('search')) return '🔎';
+  if (n.includes('fetch') || n.includes('http') || n.includes('web')) return '🌐';
+  if (n.includes('file') || n.includes('read') || n.includes('write')) return '📄';
+  if (n.includes('exec') || n.includes('shell') || n.includes('run')) return '💻';
+  if (n.includes('code')) return '💻';
+  if (n.includes('memory') || n.includes('recall')) return '🧠';
+  if (n.includes('image') || n.includes('vision')) return '🖼️';
+  return '🔧';
+}
+
+
+function formatDurationShort(ms: number | null | undefined): string {
+  if (ms == null) return '—';
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(2)}s`;
+}
+
+
+function prettyJsonOrText(s: string | null | undefined): string {
+  if (s == null || s === '') return '(empty)';
+  try {
+    return JSON.stringify(JSON.parse(s), null, 2);
+  } catch {
+    return s;
+  }
+}
+
+
+function ToolAccordion({ span }: { span: Span }) {
+  const [open, setOpen] = useState(false);
+  const isError = span.status === 'error';
+  const name = span.tool_name ?? span.name ?? 'tool';
+  const dur = formatDurationShort(span.duration_ms);
+  // Same neutral surface as the assistant bubble so tools read as
+  // part of the bot's work. Error tools get a red accent so they
+  // stand out without needing to expand.
+  const baseBorder = isError ? 'rgba(239, 68, 68, 0.45)' : 'var(--border)';
+  const baseBg = isError ? 'rgba(239, 68, 68, 0.08)' : 'var(--background-raised)';
+  return (
+    <div
+      className="rounded-2xl rounded-bl-sm border overflow-hidden"
+      style={{ borderColor: baseBorder, background: baseBg }}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="w-full px-4 py-2 flex items-center gap-2 text-xs transition-colors hover:bg-[var(--background-hover)]"
+        aria-expanded={open}
+      >
+        <span aria-hidden>{toolIcon(name)}</span>
+        <span className="font-mono">{name}</span>
+        <span className="text-[var(--muted)] font-mono ml-1">{dur}</span>
+        <span
+          className={
+            isError
+              ? 'text-[10px] uppercase tracking-wider px-1.5 py-0.5 border rounded text-red-300 border-red-700 bg-red-900/30'
+              : 'text-[10px] uppercase tracking-wider text-[var(--muted)]'
+          }
+        >
+          {isError ? 'error' : 'ok'}
+        </span>
+        <span className="ml-auto font-mono text-[var(--muted)]">{open ? '−' : '+'}</span>
+      </button>
+      {open ? (
+        <div
+          className="px-4 pb-3 pt-1 text-[11px] space-y-2 border-t"
+          style={{ borderColor: 'var(--border)' }}
+        >
+          {span.input != null && span.input !== '' ? (
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-[var(--muted)] mb-1">
+                Input
+              </div>
+              <pre className="font-mono whitespace-pre-wrap break-all border border-[var(--border)] rounded p-2 max-h-64 overflow-auto">
+                {prettyJsonOrText(span.input)}
+              </pre>
+            </div>
+          ) : null}
+          {span.output != null && span.output !== '' ? (
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-[var(--muted)] mb-1">
+                Output
+              </div>
+              <pre className="font-mono whitespace-pre-wrap break-all border border-[var(--border)] rounded p-2 max-h-64 overflow-auto">
+                {prettyJsonOrText(span.output)}
+              </pre>
+            </div>
+          ) : null}
+          {span.error_message ? (
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-red-400 mb-1">
+                Error
+              </div>
+              <pre className="font-mono whitespace-pre-wrap break-all border border-red-900/50 bg-red-950/20 rounded p-2 text-red-200">
+                {span.error_message}
+              </pre>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+
+function TurnFooter({ span, tools }: { span: Span; tools: Span[] }) {
   const md = (span.metadata ?? {}) as Record<string, unknown>;
   const historyCount = typeof md['openclaw.history_message_count'] === 'number'
     ? (md['openclaw.history_message_count'] as number)
@@ -206,6 +336,7 @@ function TurnFooter({ span }: { span: Span }) {
   const thinkingChars = typeof md['openclaw.thinking_chars'] === 'number'
     ? (md['openclaw.thinking_chars'] as number)
     : undefined;
+  const toolErrors = tools.filter((t) => t.status === 'error').length;
 
   return (
     <div className="border-t border-[var(--border)] pt-3 flex flex-wrap items-center gap-x-6 gap-y-1 text-[11px] text-[var(--muted)] font-mono">
@@ -216,6 +347,14 @@ function TurnFooter({ span }: { span: Span }) {
         </span>
       ) : null}
       {span.duration_ms != null ? <span>{span.duration_ms} ms</span> : null}
+      {tools.length > 0 ? (
+        <span>
+          {tools.length} tool{tools.length === 1 ? '' : 's'}
+          {toolErrors > 0 ? (
+            <span className="text-red-400 ml-1">({toolErrors} error{toolErrors === 1 ? '' : 's'})</span>
+          ) : null}
+        </span>
+      ) : null}
       {historyCount !== undefined ? <span>{historyCount} prior messages</span> : null}
       {sysPromptChars !== undefined ? <span>{sysPromptChars.toLocaleString()} sysprompt chars</span> : null}
       {thinkingChars !== undefined ? <span>{thinkingChars.toLocaleString()} thinking chars</span> : null}
