@@ -181,6 +181,81 @@ describe("span emission", () => {
     expect(span.trace_id).toBe("01234567-89ab-cdef-0123-456789abcdef");
   });
 
+  test("thinking blocks are surfaced in metadata, not lost", async () => {
+    const { api, hooks } = buildFakeApi();
+    // @ts-expect-error
+    luminPlugin.register(api);
+
+    hooks.llm_input!(
+      { runId: "r1", sessionId: "s", provider: "ollama", model: "gpt-oss:120b-cloud",
+        prompt: "hi", historyMessages: [] },
+      undefined,
+    );
+    hooks.llm_output!(
+      {
+        runId: "r1",
+        sessionId: "s",
+        provider: "ollama",
+        model: "gpt-oss:120b-cloud",
+        assistantTexts: ["Hi Amit! How can I help you today?"],
+        // Reasoning-model output: thinking block precedes the visible
+        // text inside lastAssistant.content.
+        lastAssistant: {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "User just says hi. Respond simply." },
+            { type: "text", text: "Hi Amit! How can I help you today?" },
+          ],
+        },
+        usage: { input: 14505, output: 124 },
+      },
+      undefined,
+    );
+
+    await new Promise((r) => setTimeout(r, 5));
+    const span = JSON.parse(fetchMock.mock.calls[0][1].body).spans[0];
+    // Visible output stays clean — operators see what the user saw.
+    expect(span.output).toBe("Hi Amit! How can I help you today?");
+    // Thinking is not lost — it lives on metadata for drill-down.
+    expect(span.metadata["openclaw.content.thinking"]).toBe(
+      "User just says hi. Respond simply.",
+    );
+    expect(span.metadata["openclaw.thinking_chars"]).toBeGreaterThan(0);
+  });
+
+  test("non-reasoning model: no thinking metadata fields written", async () => {
+    const { api, hooks } = buildFakeApi();
+    // @ts-expect-error
+    luminPlugin.register(api);
+
+    hooks.llm_input!(
+      { runId: "r2", sessionId: "s", provider: "openai", model: "gpt-4o-mini",
+        prompt: "hi", historyMessages: [] },
+      undefined,
+    );
+    hooks.llm_output!(
+      {
+        runId: "r2",
+        sessionId: "s",
+        provider: "openai",
+        model: "gpt-4o-mini",
+        assistantTexts: ["Hi!"],
+        // No thinking blocks, just a text reply.
+        lastAssistant: {
+          role: "assistant",
+          content: [{ type: "text", text: "Hi!" }],
+        },
+        usage: { input: 3, output: 1 },
+      },
+      undefined,
+    );
+
+    await new Promise((r) => setTimeout(r, 5));
+    const span = JSON.parse(fetchMock.mock.calls[0][1].body).spans[0];
+    expect(span.metadata["openclaw.content.thinking"]).toBeUndefined();
+    expect(span.metadata["openclaw.thinking_chars"]).toBeUndefined();
+  });
+
   test("llm_output without prior llm_input still emits a span", async () => {
     const { api, hooks } = buildFakeApi();
     // @ts-expect-error

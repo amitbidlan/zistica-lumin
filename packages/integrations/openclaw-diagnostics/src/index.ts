@@ -174,6 +174,33 @@ function nowIso(): string {
 }
 
 
+/**
+ * Walk an OpenClaw assistant message's content blocks and concatenate
+ * any ``{type: "thinking", thinking: "..."}`` payloads. Reasoning
+ * models attach these BEFORE the visible text, but
+ * ``assistantTexts`` strips them. Returning undefined means "no
+ * thinking blocks present" — the caller should leave the metadata
+ * field absent rather than write an empty string.
+ *
+ * Defensive: lastAssistant is typed as ``unknown`` and provider
+ * shapes drift, so every step type-checks before recursing.
+ */
+function extractThinkingFromAssistant(lastAssistant: unknown): string | undefined {
+  if (!lastAssistant || typeof lastAssistant !== "object") return undefined;
+  const content = (lastAssistant as { content?: unknown }).content;
+  if (!Array.isArray(content)) return undefined;
+  const parts: string[] = [];
+  for (const block of content) {
+    if (!block || typeof block !== "object") continue;
+    const b = block as { type?: unknown; thinking?: unknown; text?: unknown };
+    if (b.type === "thinking" && typeof b.thinking === "string" && b.thinking.length > 0) {
+      parts.push(b.thinking);
+    }
+  }
+  return parts.length > 0 ? parts.join("\n\n") : undefined;
+}
+
+
 // ----- transport ----------------------------------------------------------
 
 class LuminClient {
@@ -308,6 +335,17 @@ function buildSpanFromPair(
     ? output.assistantTexts.join("\n")
     : (output.lastAssistant !== undefined ? safeJsonStringify(output.lastAssistant) : undefined);
 
+  // Reasoning models (gpt-oss, claude-extended-thinking, o-series) emit
+  // ``{type: "thinking", thinking: "..."}`` blocks under
+  // ``lastAssistant.content`` BEFORE the visible text. ``assistantTexts``
+  // strips those out — fine for the operator-facing output, but we
+  // lose the reasoning trace entirely. Pull thinking out separately
+  // and surface it as a metadata field so operators can see WHY the
+  // model answered the way it did. Defensive parse: lastAssistant is
+  // typed as unknown by the public hook contract, so we check before
+  // walking it.
+  const thinkingText = extractThinkingFromAssistant(output.lastAssistant);
+
   return {
     id: spanId,
     trace_id: traceId,
@@ -335,6 +373,19 @@ function buildSpanFromPair(
       // payload into the trace's input field.
       "openclaw.history_message_count": pending.historyMessageCount,
       "openclaw.system_prompt_chars": pending.systemPromptChars,
+      // Reasoning trace for models that emit thinking blocks. Always
+      // captured (no opt-in) because the whole point of an
+      // observability tool is to show WHY the agent answered the way
+      // it did — silently dropping the reasoning would defeat the
+      // purpose. Field is absent (not empty) when the model didn't
+      // emit thinking, so dashboard rendering can branch on
+      // presence rather than length.
+      ...(thinkingText !== undefined
+        ? {
+            "openclaw.content.thinking": stringify(thinkingText, maxLen),
+            "openclaw.thinking_chars": thinkingText.length,
+          }
+        : {}),
       ...(cfg.captureSystemPrompt && pending.systemPrompt
         ? { "openclaw.content.system_prompt": stringify(pending.systemPrompt, maxLen) }
         : {}),
