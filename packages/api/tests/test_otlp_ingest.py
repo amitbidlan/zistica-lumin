@@ -452,3 +452,300 @@ def test_empty_body_is_ok(client):
         headers={"Content-Type": "application/x-protobuf"},
     )
     assert r.status_code == 200
+
+
+# ---- OpenClaw-shaped spans (PR #30 follow-up) ----------------------------
+#
+# OpenClaw's diagnostics-otel emits a mix of strict-OTel attributes
+# (gen_ai.system, gen_ai.request.model) and its own openclaw.* keys
+# for things the OTel spec doesn't cover (request_bytes, content
+# text). It also emits model-call spans with SpanKind.INTERNAL (1)
+# rather than CLIENT (3). The decoder needs to handle both.
+
+
+def test_openclaw_model_call_classified_as_llm_via_name(client):
+    """SpanKind.INTERNAL + name 'openclaw.model.call' → type='llm'.
+
+    Pre-fix: type='custom' because the strict CLIENT+gen_ai.* gate
+    didn't match. Operators saw real LLM calls labeled 'custom' in
+    the dashboard, no LLM filter, no policy gating.
+    """
+    trace_id = _hex_id(32)
+    span_id = _hex_id(16)
+    payload = _otlp_json_payload(trace_id=trace_id, spans=[{
+        "traceId": trace_id, "spanId": span_id,
+        "name": "openclaw.model.call",
+        "kind": 1,  # INTERNAL — this is the bit pre-fix decoder choked on
+        "startTimeUnixNano": _now_ns(),
+        "endTimeUnixNano":   _now_ns(1),
+        "attributes": [
+            {"key": "openclaw.provider", "value": {"stringValue": "ollama"}},
+            {"key": "openclaw.model", "value": {"stringValue": "llama3.2:latest"}},
+            {"key": "openclaw.api", "value": {"stringValue": "openai-completions"}},
+        ],
+    }])
+    _post_json(client, payload)
+
+    trace_uuid = next(
+        t["id"] for t in client.get("/v1/traces").json()
+        if t["id"].replace("-", "") == trace_id
+    )
+    spans = client.get(f"/v1/traces/{trace_uuid}/spans").json()
+    s = spans[0]
+    assert s["type"] == "llm", f"expected llm, got {s['type']}"
+    assert s["model"] == "llama3.2:latest"
+    assert s["provider"] == "ollama"
+
+
+def test_openclaw_content_keys_extracted_to_input_output(client):
+    """openclaw.content.input_messages / openclaw.content.output_messages
+    populate span.input / span.output — without this they sat in
+    metadata only and the dashboard's input/output columns were empty.
+    """
+    trace_id = _hex_id(32)
+    span_id = _hex_id(16)
+    payload = _otlp_json_payload(trace_id=trace_id, spans=[{
+        "traceId": trace_id, "spanId": span_id,
+        "name": "openclaw.model.call",
+        "kind": 1,
+        "startTimeUnixNano": _now_ns(),
+        "endTimeUnixNano":   _now_ns(1),
+        "attributes": [
+            {"key": "openclaw.provider", "value": {"stringValue": "ollama"}},
+            {"key": "openclaw.model", "value": {"stringValue": "llama3.2:latest"}},
+            {"key": "openclaw.content.input_messages",
+             "value": {"stringValue": "user: hello"}},
+            {"key": "openclaw.content.output_messages",
+             "value": {"stringValue": "assistant: hi back"}},
+        ],
+    }])
+    _post_json(client, payload)
+
+    trace_uuid = next(
+        t["id"] for t in client.get("/v1/traces").json()
+        if t["id"].replace("-", "") == trace_id
+    )
+    s = client.get(f"/v1/traces/{trace_uuid}/spans").json()[0]
+    assert s["input"] == "user: hello"
+    assert s["output"] == "assistant: hi back"
+
+
+def test_openclaw_tool_execution_classified_as_tool(client):
+    """openclaw.tool.execution with openclaw.tool.name → type='tool'."""
+    trace_id = _hex_id(32)
+    span_id = _hex_id(16)
+    payload = _otlp_json_payload(trace_id=trace_id, spans=[{
+        "traceId": trace_id, "spanId": span_id,
+        "name": "openclaw.tool.execution",
+        "kind": 1,
+        "startTimeUnixNano": _now_ns(),
+        "endTimeUnixNano":   _now_ns(1),
+        "attributes": [
+            {"key": "openclaw.tool.name", "value": {"stringValue": "memory_get"}},
+        ],
+    }])
+    _post_json(client, payload)
+
+    trace_uuid = next(
+        t["id"] for t in client.get("/v1/traces").json()
+        if t["id"].replace("-", "") == trace_id
+    )
+    s = client.get(f"/v1/traces/{trace_uuid}/spans").json()[0]
+    assert s["type"] == "tool"
+    assert s["tool_name"] == "memory_get"
+
+
+def test_openclaw_session_id_propagates(client):
+    """openclaw.session_id on a root span flows into trace.session_id
+    so /sessions can group multi-turn OpenClaw chats correctly.
+    """
+    trace_id = _hex_id(32)
+    span_id = _hex_id(16)
+    payload = _otlp_json_payload(trace_id=trace_id, spans=[{
+        "traceId": trace_id, "spanId": span_id,
+        "name": "openclaw.run", "kind": 1,
+        "startTimeUnixNano": _now_ns(),
+        "endTimeUnixNano":   _now_ns(2),
+        "attributes": [
+            {"key": "openclaw.session_id",
+             "value": {"stringValue": "tg:5706212396:dm"}},
+        ],
+    }])
+    _post_json(client, payload)
+
+    trace_uuid = next(
+        t["id"] for t in client.get("/v1/traces").json()
+        if t["id"].replace("-", "") == trace_id
+    )
+    body = client.get(f"/v1/traces/{trace_uuid}").json()
+    assert body["session_id"] == "tg:5706212396:dm"
+
+
+def test_openclaw_attrs_dont_pollute_metadata(client):
+    """Once we promote openclaw.* keys to first-class fields, they
+    should NOT also live in metadata — would double the row size and
+    confuse readers."""
+    trace_id = _hex_id(32)
+    span_id = _hex_id(16)
+    payload = _otlp_json_payload(trace_id=trace_id, spans=[{
+        "traceId": trace_id, "spanId": span_id,
+        "name": "openclaw.model.call",
+        "kind": 1,
+        "startTimeUnixNano": _now_ns(),
+        "endTimeUnixNano":   _now_ns(1),
+        "attributes": [
+            {"key": "openclaw.provider", "value": {"stringValue": "ollama"}},
+            {"key": "openclaw.model", "value": {"stringValue": "llama3.2:latest"}},
+            {"key": "openclaw.input", "value": {"stringValue": "test"}},
+            {"key": "openclaw.api", "value": {"stringValue": "openai-completions"}},
+            {"key": "openclaw.transport", "value": {"stringValue": "auto"}},
+        ],
+    }])
+    _post_json(client, payload)
+
+    trace_uuid = next(
+        t["id"] for t in client.get("/v1/traces").json()
+        if t["id"].replace("-", "") == trace_id
+    )
+    s = client.get(f"/v1/traces/{trace_uuid}/spans").json()[0]
+    md = s["metadata"] or {}
+    # Promoted keys not in metadata
+    assert "openclaw.provider" not in md
+    assert "openclaw.model" not in md
+    assert "openclaw.input" not in md
+    # Non-promoted keys still preserved (operators may want them)
+    assert md.get("openclaw.api") == "openai-completions"
+    assert md.get("openclaw.transport") == "auto"
+
+
+# ---- agent identity fold (PR #32 follow-up) ------------------------------
+
+
+def test_openclaw_root_spans_fold_to_one_agent(client):
+    """OpenClaw emits 5+ different root span names per user message
+    (openclaw.run, .message.processed, .harness.run, .liveness.warning,
+    .diagnostic.phase). Without the fold, /v1/agents shows them as
+    separate agent cards — misleading. With the fold, all become
+    one agent named after the resource service.name.
+    """
+    # 3 distinct root spans, 3 distinct trace IDs, all with service.name='openclaw'
+    payloads = []
+    for i, root_name in enumerate([
+        "openclaw.run",
+        "openclaw.harness.run",
+        "openclaw.liveness.warning",
+    ]):
+        trace_id = _hex_id(32)
+        payloads.append({
+            "resourceSpans": [{
+                "resource": {"attributes": [
+                    {"key": "service.name", "value": {"stringValue": "openclaw"}},
+                ]},
+                "scopeSpans": [{"spans": [{
+                    "traceId": trace_id, "spanId": _hex_id(16),
+                    "name": root_name, "kind": 1,
+                    "startTimeUnixNano": _now_ns(),
+                    "endTimeUnixNano":   _now_ns(1),
+                    "attributes": [],
+                }]}],
+            }]
+        })
+    for p in payloads:
+        _post_json(client, p)
+
+    # All three should land under ONE agent named "openclaw"
+    body = client.get("/v1/agents?window_hours=1").json()
+    openclaw_agents = [a for a in body["agents"] if a["name"] == "openclaw"]
+    assert len(openclaw_agents) == 1
+    assert openclaw_agents[0]["trace_count"] == 3
+
+    # And no agent card for the original phase names
+    other_phase_names = {a["name"] for a in body["agents"]} & {
+        "openclaw.run", "openclaw.harness.run", "openclaw.liveness.warning"
+    }
+    assert other_phase_names == set(), (
+        f"phase names should have folded; still see {other_phase_names}"
+    )
+
+
+def test_openclaw_fold_falls_back_when_service_name_missing(client):
+    """If the resource has no service.name, the fold uses the literal
+    'openclaw' prefix as the identity. Don't drop the rename just
+    because the service name wasn't set."""
+    trace_id = _hex_id(32)
+    payload = {
+        "resourceSpans": [{
+            "resource": {"attributes": []},  # no service.name
+            "scopeSpans": [{"spans": [{
+                "traceId": trace_id, "spanId": _hex_id(16),
+                "name": "openclaw.run", "kind": 1,
+                "startTimeUnixNano": _now_ns(),
+                "endTimeUnixNano":   _now_ns(1),
+                "attributes": [],
+            }]}],
+        }]
+    }
+    _post_json(client, payload)
+    body = client.get("/v1/agents?window_hours=1").json()
+    assert any(a["name"] == "openclaw" for a in body["agents"])
+
+
+def test_non_openclaw_root_names_are_left_alone(client):
+    """The fold must NOT touch other framework names — Mastra,
+    VoltAgent, plain Python SDK agents all keep their identities."""
+    trace_id = _hex_id(32)
+    payload = _otlp_json_payload(trace_id=trace_id, service_name="mastra-app", spans=[{
+        "traceId": trace_id, "spanId": _hex_id(16),
+        "name": "support_bot",  # what a real Mastra agent name looks like
+        "kind": 1,
+        "startTimeUnixNano": _now_ns(),
+        "endTimeUnixNano":   _now_ns(1),
+        "attributes": [],
+    }])
+    _post_json(client, payload)
+    body = client.get("/v1/agents?window_hours=1").json()
+    assert any(a["name"] == "support_bot" for a in body["agents"])
+
+
+def test_child_span_names_unchanged_by_fold(client):
+    """Children inside an OpenClaw trace keep their original names so
+    the span timeline still shows the phase breakdown.
+    """
+    trace_id = _hex_id(32)
+    root_id = _hex_id(16)
+    payload = {
+        "resourceSpans": [{
+            "resource": {"attributes": [
+                {"key": "service.name", "value": {"stringValue": "openclaw"}},
+            ]},
+            "scopeSpans": [{"spans": [
+                {
+                    "traceId": trace_id, "spanId": root_id,
+                    "name": "openclaw.run", "kind": 1,
+                    "startTimeUnixNano": _now_ns(),
+                    "endTimeUnixNano":   _now_ns(2),
+                    "attributes": [],
+                },
+                {
+                    "traceId": trace_id, "spanId": _hex_id(16),
+                    "parentSpanId": root_id,
+                    "name": "openclaw.model.call", "kind": 1,
+                    "startTimeUnixNano": _now_ns(),
+                    "endTimeUnixNano":   _now_ns(1),
+                    "attributes": [
+                        {"key": "openclaw.model", "value": {"stringValue": "qwen2.5:14b"}},
+                    ],
+                },
+            ]}],
+        }]
+    }
+    _post_json(client, payload)
+    trace_uuid = next(
+        t["id"] for t in client.get("/v1/traces").json()
+        if t["id"].replace("-", "") == trace_id
+    )
+    spans = client.get(f"/v1/traces/{trace_uuid}/spans").json()
+    by_id = {s["id"]: s["name"] for s in spans}
+    # Root renamed to "openclaw"; child kept its original name
+    assert "openclaw" in by_id.values()
+    assert "openclaw.model.call" in by_id.values()
