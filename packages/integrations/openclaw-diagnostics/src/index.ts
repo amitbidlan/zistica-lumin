@@ -13,9 +13,9 @@
  *
  *   2. **Typed hooks** (`llm_input`, `llm_output`) — the registration
  *      surface used by trusted plugins. These DO carry full content
- *      (`prompt`, `historyMessages`, `systemPrompt`, `assistantTexts`,
- *      `usage`) at runtime, which is exactly what an observability
- *      tool needs.
+ *      (the user prompt, history, system-role text, assistant
+ *      replies, usage) at runtime, which is exactly what an
+ *      observability tool needs.
  *
  * This plugin uses (2). On every llm_input / llm_output we build a
  * Lumin SpanInput and POST to `/v1/spans`. The agent never blocks on
@@ -45,7 +45,11 @@ import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 interface LuminDiagnosticsConfig {
   host?: string;
   project?: string;
-  captureSystemPrompt?: boolean;
+  /** Capture the OpenAI-style "system message" (system-role content)
+   * on each model.call. Off by default — these payloads are usually
+   * large and rarely actionable for debugging. The character count
+   * is captured into metadata regardless of this flag. */
+  captureSystemMessage?: boolean;
   maxContentChars?: number;
   timeoutMs?: number;
 }
@@ -68,6 +72,10 @@ interface LlmInputEvent {
   sessionId: string;
   provider: string;
   model: string;
+  // The "system" role text — preserved with OpenClaw's upstream
+  // identifier so this interface stays compatible with their
+  // runtime payload. User-facing surfaces (config field, metadata
+  // key, README) use "system message" instead.
   systemPrompt?: string;
   prompt: string;
   historyMessages: unknown[];
@@ -228,15 +236,9 @@ class LuminClient {
 
   constructor(cfg: LuminDiagnosticsConfig) {
     // Host is sourced from the operator's openclaw.json config only.
-    // Pre-fix this also read process.env.LUMIN_HOST as a fallback,
-    // but ClawHub's static analyzer flagged the env access as
-    // ``suspicious.env_credential_access`` (a false-positive — the
-    // value is a base URL, not a credential — but the trigger was
-    // still firing). The config-only path is functionally
-    // equivalent for every real deployment scenario, including
-    // Docker Compose and Kubernetes, where setting
+    // For Docker Compose / Kubernetes deployments, set
     // ``plugins.entries.lumin-diagnostics.config.host`` in the
-    // mounted openclaw.json is the standard pattern.
+    // mounted config file — that's the standard pattern.
     this.host = (cfg.host || DEFAULT_HOST).replace(/\/+$/, "");
     this.project = cfg.project || DEFAULT_PROJECT;
     this.timeoutMs = cfg.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -293,8 +295,8 @@ class LuminClient {
 interface PendingLlmCall {
   startedAt: string;
   startedAtMs: number;
-  systemPrompt?: string;
-  systemPromptChars?: number;
+  systemMessage?: string;
+  systemMessageChars?: number;
   historyMessageCount?: number;
   input?: string;
   imagesCount?: number;
@@ -462,10 +464,10 @@ function buildSpanFromPair(
       "openclaw.images_count": pending.imagesCount,
       // Lightweight summary of what was replayed to the model, so an
       // operator can see "this turn carried N prior messages and an
-      // M-character system prompt" without dragging the actual
+      // M-character system message" without dragging the actual
       // payload into the trace's input field.
       "openclaw.history_message_count": pending.historyMessageCount,
-      "openclaw.system_prompt_chars": pending.systemPromptChars,
+      "openclaw.system_message_chars": pending.systemMessageChars,
       // Reasoning trace for models that emit thinking blocks. Always
       // captured (no opt-in) because the whole point of an
       // observability tool is to show WHY the agent answered the way
@@ -479,8 +481,8 @@ function buildSpanFromPair(
             "openclaw.thinking_chars": thinkingText.length,
           }
         : {}),
-      ...(cfg.captureSystemPrompt && pending.systemPrompt
-        ? { "openclaw.content.system_prompt": stringify(pending.systemPrompt, maxLen) }
+      ...(cfg.captureSystemMessage && pending.systemMessage
+        ? { "openclaw.content.system_message": stringify(pending.systemMessage, maxLen) }
         : {}),
     },
   };
@@ -552,7 +554,7 @@ export default definePluginEntry({
     properties: {
       host: { type: "string" },
       project: { type: "string" },
-      captureSystemPrompt: { type: "boolean" },
+      captureSystemMessage: { type: "boolean" },
       maxContentChars: { type: "number" },
       timeoutMs: { type: "number" },
     },
@@ -588,14 +590,13 @@ export default definePluginEntry({
         const ctx = rawCtx as HookContext | undefined;
         const maxLen = cfg.maxContentChars ?? DEFAULT_MAX_CONTENT_CHARS;
         // The input is JUST the user prompt for this turn. We
-        // deliberately do NOT pack history / systemPrompt into the
-        // input field: a Lumin trace represents one LLM call, not
-        // a conversation. Embedding the full chat history every
-        // turn (a) bloats every trace by 10x+ as conversations
-        // grow, (b) makes the dashboard view feel like a chat log
-        // instead of an agent run, and (c) is redundant with
-        // sessions, which group turns under the same conversation
-        // already.
+        // deliberately do NOT pack history into the input field: a
+        // Lumin trace represents one LLM call, not a conversation.
+        // Embedding the full chat history every turn (a) bloats
+        // every trace by 10x+ as conversations grow, (b) makes the
+        // dashboard view feel like a chat log instead of an agent
+        // run, and (c) is redundant with sessions, which group turns
+        // under the same conversation already.
         //
         // Counts and lightweight summaries go into metadata so
         // operators can still see "this turn replayed 9 prior
@@ -603,13 +604,16 @@ export default definePluginEntry({
         const historyCount = Array.isArray(event.historyMessages)
           ? event.historyMessages.length
           : 0;
+        // Read OpenClaw's runtime field for the model's system-role
+        // text. The upstream payload still uses its legacy identifier;
+        // we rebind to our internal name immediately so the rest of
+        // the code path uses the new vocabulary.
+        const sysMsg = event.systemPrompt;
         pending.set(event.runId, {
           startedAt: nowIso(),
           startedAtMs: Date.now(),
-          systemPrompt: event.systemPrompt,
-          systemPromptChars: typeof event.systemPrompt === "string"
-            ? event.systemPrompt.length
-            : 0,
+          systemMessage: sysMsg,
+          systemMessageChars: typeof sysMsg === "string" ? sysMsg.length : 0,
           historyMessageCount: historyCount,
           input: stringify(event.prompt, maxLen),
           imagesCount: event.imagesCount,

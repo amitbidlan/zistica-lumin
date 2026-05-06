@@ -19,7 +19,7 @@ Per LLM turn:
 - Token usage (input / output)
 - Model + provider + harness ID
 - Trace ID stitched from OpenClaw's diagnostic context (so the typed-hook span fuses with whatever else you've ingested via OTel for the same run)
-- Lightweight summary in metadata: `history_message_count`, `system_prompt_chars`, `images_count`
+- Lightweight summary in metadata: `history_message_count`, `system_message_chars`, `images_count`
 
 Per tool call:
 
@@ -70,7 +70,7 @@ All optional, set under `plugins.entries.lumin-diagnostics.config` in `openclaw.
 |---|---|---|
 | `host` | `http://localhost:8000` | Lumin API base URL. Set this in your `openclaw.json` to point at a Lumin instance running anywhere other than the default localhost (e.g. `http://lumin.internal:8000`, `http://host.docker.internal:8000`). |
 | `project` | `openclaw` | Sent as `X-Lumin-Project` so the agent grid groups OpenClaw runs together. |
-| `captureSystemPrompt` | `false` | Whether to write the full system prompt to `metadata.openclaw.content.system_prompt`. Off by default — system prompts are often large and rarely actionable. The character count is captured either way. |
+| `captureSystemMessage` | `false` | Whether to write the full system message text to `metadata.openclaw.content.system_message`. Off by default — these payloads are often large and rarely actionable for debugging. The character count is captured into metadata either way. |
 | `maxContentChars` | `32768` | Per-attribute content cap. Truncated values are tagged `…(truncated)`. |
 | `timeoutMs` | `5000` | HTTP timeout for the POST to Lumin. |
 
@@ -84,7 +84,7 @@ Example:
         "hooks": { "allowConversationAccess": true },
         "config": {
           "host": "http://my-lumin-host:8000",
-          "captureSystemPrompt": true,
+          "captureSystemMessage": true,
           "maxContentChars": 65536
         }
       }
