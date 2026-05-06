@@ -11,7 +11,7 @@ This plugin uses a different surface — OpenClaw's typed-hook API (`api.on('llm
 
 ## What you get
 
-Per turn:
+Per LLM turn:
 
 - Prompt text (just this turn's user message — not the whole replayed history)
 - Assistant reply text
@@ -20,6 +20,15 @@ Per turn:
 - Model + provider + harness ID
 - Trace ID stitched from OpenClaw's diagnostic context (so the typed-hook span fuses with whatever else you've ingested via OTel for the same run)
 - Lightweight summary in metadata: `history_message_count`, `system_prompt_chars`, `images_count`
+
+Per tool call:
+
+- Tool name + invocation params (input)
+- Tool result (output) — when the tool succeeds
+- Error message — when the tool fails
+- Duration in ms
+- `toolCallId` and `runId` correlation in metadata
+- Same `trace_id` as the LLM span for the same run, so the dashboard renders the LLM call and its tool invocations as a single trace timeline
 
 ## Installation
 
