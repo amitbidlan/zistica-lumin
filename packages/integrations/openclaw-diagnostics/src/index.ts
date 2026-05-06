@@ -210,7 +210,17 @@ class LuminClient {
   private failureLogged = false;
 
   constructor(cfg: LuminDiagnosticsConfig) {
-    this.host = (cfg.host || process.env.LUMIN_HOST || DEFAULT_HOST).replace(/\/+$/, "");
+    // Host is sourced from the operator's openclaw.json config only.
+    // Pre-fix this also read process.env.LUMIN_HOST as a fallback,
+    // but ClawHub's static analyzer flagged the env access as
+    // ``suspicious.env_credential_access`` (a false-positive — the
+    // value is a base URL, not a credential — but the trigger was
+    // still firing). The config-only path is functionally
+    // equivalent for every real deployment scenario, including
+    // Docker Compose and Kubernetes, where setting
+    // ``plugins.entries.lumin-diagnostics.config.host`` in the
+    // mounted openclaw.json is the standard pattern.
+    this.host = (cfg.host || DEFAULT_HOST).replace(/\/+$/, "");
     this.project = cfg.project || DEFAULT_PROJECT;
     this.timeoutMs = cfg.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
@@ -500,7 +510,7 @@ export default definePluginEntry({
     });
 
     log?.info?.(
-      `lumin-diagnostics: subscribed to llm_input + llm_output → ${cfg.host || process.env.LUMIN_HOST || DEFAULT_HOST}/v1/spans (project=${cfg.project || DEFAULT_PROJECT})`,
+      `lumin-diagnostics: subscribed to llm_input + llm_output → ${cfg.host || DEFAULT_HOST}/v1/spans (project=${cfg.project || DEFAULT_PROJECT})`,
     );
   },
 });
