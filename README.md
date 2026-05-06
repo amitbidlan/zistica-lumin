@@ -1,6 +1,6 @@
 # Lumin
 
-> Local-first AI agent observability. Runs on your laptop. No account. No data leaves your machine.
+> Local-first AI agent observability. Runs on your laptop. No account, no telemetry — Lumin never ships your traces anywhere.
 
 [![CI](https://github.com/amitbidlan/zistica-lumin/actions/workflows/ci.yml/badge.svg)](https://github.com/amitbidlan/zistica-lumin/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
@@ -42,7 +42,7 @@ my_agent("What is the capital of France?")
 # Trace appears in the dashboard.
 ```
 
-That's it. No account, no API key, no data leaves your laptop.
+That's it. No account, no API key, and Lumin itself never sends your traces anywhere — they live in a DuckDB file on disk. (Whatever LLM provider your agent calls is its own conversation, of course.)
 
 ---
 
