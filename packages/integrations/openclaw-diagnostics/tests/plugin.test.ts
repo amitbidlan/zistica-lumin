@@ -168,8 +168,13 @@ describe("span emission", () => {
     expect(span.tokens_input).toBe(42);
     expect(span.tokens_output).toBe(9);
     expect(span.output).toBe("npm is a package manager.");
-    expect(span.input).toContain("what is npm");
-    expect(span.input).toContain("hi");
+    // Input is JUST this turn's user prompt — not the conversation
+    // history. The history count lives on metadata so operators can
+    // still see how many prior turns replayed without the trace
+    // ballooning into a chat log.
+    expect(span.input).toBe("what is npm");
+    expect(span.input).not.toContain("hi");
+    expect(span.metadata["openclaw.history_message_count"]).toBe(1);
     // Trace stitching: trace_id derives from the inbound traceparent
     // hex, formatted as a UUID. The same input always produces the
     // same UUID — tests can assert on the deterministic shape.

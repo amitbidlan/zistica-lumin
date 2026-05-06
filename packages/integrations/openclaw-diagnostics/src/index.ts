@@ -240,6 +240,8 @@ interface PendingLlmCall {
   startedAt: string;
   startedAtMs: number;
   systemPrompt?: string;
+  systemPromptChars?: number;
+  historyMessageCount?: number;
   input?: string;
   imagesCount?: number;
   trace?: HookContext["trace"];
@@ -327,6 +329,12 @@ function buildSpanFromPair(
       "openclaw.harnessId": output.harnessId,
       "openclaw.resolvedRef": output.resolvedRef,
       "openclaw.images_count": pending.imagesCount,
+      // Lightweight summary of what was replayed to the model, so an
+      // operator can see "this turn carried N prior messages and an
+      // M-character system prompt" without dragging the actual
+      // payload into the trace's input field.
+      "openclaw.history_message_count": pending.historyMessageCount,
+      "openclaw.system_prompt_chars": pending.systemPromptChars,
       ...(cfg.captureSystemPrompt && pending.systemPrompt
         ? { "openclaw.content.system_prompt": stringify(pending.systemPrompt, maxLen) }
         : {}),
@@ -381,23 +389,31 @@ export default definePluginEntry({
         const event = rawEvent as LlmInputEvent;
         const ctx = rawCtx as HookContext | undefined;
         const maxLen = cfg.maxContentChars ?? DEFAULT_MAX_CONTENT_CHARS;
-        // Compose input as a structured document:
-        // { systemPrompt, history, prompt }. JSON.stringify so the
-        // dashboard renders the structure rather than a flat blob.
-        const inputDoc: Record<string, unknown> = {
-          prompt: event.prompt,
-        };
-        if (event.historyMessages && Array.isArray(event.historyMessages) && event.historyMessages.length > 0) {
-          inputDoc.history = event.historyMessages;
-        }
-        if (cfg.captureSystemPrompt && event.systemPrompt) {
-          inputDoc.systemPrompt = event.systemPrompt;
-        }
+        // The input is JUST the user prompt for this turn. We
+        // deliberately do NOT pack history / systemPrompt into the
+        // input field: a Lumin trace represents one LLM call, not
+        // a conversation. Embedding the full chat history every
+        // turn (a) bloats every trace by 10x+ as conversations
+        // grow, (b) makes the dashboard view feel like a chat log
+        // instead of an agent run, and (c) is redundant with
+        // sessions, which group turns under the same conversation
+        // already.
+        //
+        // Counts and lightweight summaries go into metadata so
+        // operators can still see "this turn replayed 9 prior
+        // history messages" without the full payload.
+        const historyCount = Array.isArray(event.historyMessages)
+          ? event.historyMessages.length
+          : 0;
         pending.set(event.runId, {
           startedAt: nowIso(),
           startedAtMs: Date.now(),
           systemPrompt: event.systemPrompt,
-          input: stringify(inputDoc, maxLen),
+          systemPromptChars: typeof event.systemPrompt === "string"
+            ? event.systemPrompt.length
+            : 0,
+          historyMessageCount: historyCount,
+          input: stringify(event.prompt, maxLen),
           imagesCount: event.imagesCount,
           trace: ctx?.trace,
         });
