@@ -16,6 +16,8 @@ import {
   formatStartedAt,
 } from '@/lib/api';
 import { useTraceStream, WSMessage } from '@/lib/websocket';
+import { isChatShapedTrace } from '@/lib/chat-shape';
+import ChatView from './ChatView';
 import SpanTimeline from './SpanTimeline';
 
 export default function TraceDetail({ id }: { id: string }) {
@@ -23,7 +25,12 @@ export default function TraceDetail({ id }: { id: string }) {
   const spansKey = `/v1/traces/${id}/spans`;
   const violationsKey = `/v1/violations?trace_id=${id}`;
   const { mutate } = useSWRConfig();
-  const [tab, setTab] = useState<'spans' | 'policy'>('spans');
+  const [tab, setTab] = useState<'spans' | 'chat' | 'policy'>('spans');
+  // Once we've classified this trace as chat-shaped we want the
+  // first render after data loads to land on the Chat tab — but we
+  // shouldn't keep flipping the tab back if the user manually
+  // switches to Spans. ``initialModeApplied`` is the latch.
+  const [initialModeApplied, setInitialModeApplied] = useState(false);
 
   // Subscribe to real-time span events for THIS trace. New spans are
   // appended to the SWR cache, which re-renders SpanTimeline with the
@@ -87,6 +94,20 @@ export default function TraceDetail({ id }: { id: string }) {
     }
   }, [wsState, traceKey, spansKey, mutate]);
 
+  // Auto-default to the Chat tab when the trace is chat-shaped, but
+  // only on first classification — once the operator picks a tab
+  // manually, the latch keeps their choice. Runs after data loads;
+  // the `initialModeApplied` guard prevents flipping back if the
+  // SWR cache revalidates with a different shape.
+  useEffect(() => {
+    if (initialModeApplied) return;
+    if (!traceQ.data || !spansQ.data) return;
+    if (isChatShapedTrace(traceQ.data, spansQ.data)) {
+      setTab('chat');
+    }
+    setInitialModeApplied(true);
+  }, [initialModeApplied, traceQ.data, spansQ.data]);
+
   if (traceQ.error) {
     return (
       <div className="text-red-400">
@@ -100,6 +121,7 @@ export default function TraceDetail({ id }: { id: string }) {
 
   const trace = traceQ.data;
   const spans = spansQ.data;
+  const chatShaped = isChatShapedTrace(trace, spans);
 
   return (
     <div className="space-y-6">
@@ -140,6 +162,15 @@ export default function TraceDetail({ id }: { id: string }) {
 
       <section>
         <div className="flex items-center gap-1 border-b border-[var(--border)] mb-3">
+          {/* The Chat tab is conditional: surfacing it on every trace
+              (e.g. a Python SDK function-call agent) would be noisy.
+              It only appears for chat-shaped traces — chat-shaped
+              integrations also default into it. */}
+          {chatShaped ? (
+            <TabButton active={tab === 'chat'} onClick={() => setTab('chat')}>
+              Chat
+            </TabButton>
+          ) : null}
           <TabButton active={tab === 'spans'} onClick={() => setTab('spans')}>
             Spans ({spans.length})
           </TabButton>
@@ -151,7 +182,9 @@ export default function TraceDetail({ id }: { id: string }) {
           </TabButton>
         </div>
 
-        {tab === 'spans' ? (
+        {tab === 'chat' ? (
+          <ChatView trace={trace} spans={spans} />
+        ) : tab === 'spans' ? (
           spans.length === 0 ? (
             <div className="text-[var(--muted)] text-sm">
               No spans for this trace.

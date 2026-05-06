@@ -33,6 +33,32 @@ function thinkingText(input: string | null): string {
   return input;
 }
 
+/**
+ * Pull a model's reasoning trace out of span metadata. Two integrations
+ * use this pattern:
+ *   - @lumin-io/openclaw-diagnostics (typed-hook plugin) writes the
+ *     full thinking blocks to ``openclaw.content.thinking``.
+ *   - Future framework adapters can use ``content.thinking`` as a
+ *     conventional key — we look for both shapes.
+ *
+ * Distinct from the dedicated "thinking" sub-span emitted by the
+ * Anthropic SDK integration (handled above via ``span_subtype ===
+ * 'thinking'``). Reasoning models that don't emit separate spans
+ * still get their reasoning surfaced.
+ */
+function metadataThinking(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== 'object') return null;
+  const md = metadata as Record<string, unknown>;
+  const candidates = [
+    md['openclaw.content.thinking'],
+    md['content.thinking'],
+  ];
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.length > 0) return c;
+  }
+  return null;
+}
+
 export default function SpanRow({
   span,
   depth,
@@ -51,7 +77,7 @@ export default function SpanRow({
 
   const rowClass = isThinking
     ? 'w-full text-left px-3 py-2 transition-colors flex items-center gap-3 bg-violet-950/20 hover:bg-violet-950/40 border-l-2 border-violet-700'
-    : 'w-full text-left px-3 py-2 hover:bg-[#111418] transition-colors flex items-center gap-3';
+    : 'w-full text-left px-3 py-2 hover:bg-[var(--background-hover)] transition-colors flex items-center gap-3';
 
   const subtypeBadge = isThinking ? (
     <span
@@ -125,7 +151,7 @@ export default function SpanRow({
       {open && (
         <div
           className={`px-4 pb-3 pt-1 text-xs space-y-3 ${
-            isThinking ? 'bg-violet-950/10 border-l-2 border-violet-800/40' : 'bg-[#0d1014]'
+            isThinking ? 'bg-violet-950/10 border-l-2 border-violet-800/40' : 'bg-[var(--background-raised)]'
           }`}
         >
           {isThinking ? (
@@ -135,9 +161,21 @@ export default function SpanRow({
               accent="thinking"
             />
           ) : (
-            span.input != null && span.input !== '' && (
-              <Field label="Input" value={prettyJson(span.input)} />
-            )
+            <>
+              {/* Reasoning trace from metadata (e.g. OpenClaw plugin's
+                  openclaw.content.thinking field). Rendered ABOVE
+                  Input so the operator sees WHY the model answered
+                  before they see the prompt + reply. */}
+              {(() => {
+                const thinking = metadataThinking(span.metadata);
+                return thinking ? (
+                  <Field label="Reasoning" value={thinking} accent="thinking" />
+                ) : null;
+              })()}
+              {span.input != null && span.input !== '' && (
+                <Field label="Input" value={prettyJson(span.input)} />
+              )}
+            </>
           )}
           {!isThinking && span.output != null && span.output !== '' && (
             <Field label="Output" value={prettyJson(span.output)} />

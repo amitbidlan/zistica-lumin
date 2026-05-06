@@ -13,6 +13,7 @@ import {
   formatDuration,
 } from '@/lib/api';
 import { useTraceStream, WSMessage, ConnectionState } from '@/lib/websocket';
+import { useUrlNumber, useUrlString } from '@/lib/url-state';
 import Sparkline from '@/components/Sparkline';
 
 const WINDOW_OPTIONS = [
@@ -75,16 +76,16 @@ export default function AgentList({
    * dedicated /agents/framework/[key] route. */
   lockedFramework?: string;
 } = {}) {
-  const [window_, setWindow] = useState(24);
-  const [search, setSearch] = useState('');
-  const [projectFilter,  setProjectFilter]  = useState<string>(lockedFramework ?? 'all');
-  const [providerFilter, setProviderFilter] = useState<string>('all');
-
-  // Keep state in sync if the route prop changes (e.g. client-side
-  // nav from /agents/framework/default → /agents/framework/openclaw).
-  useEffect(() => {
-    if (lockedFramework) setProjectFilter(lockedFramework);
-  }, [lockedFramework]);
+  // Filter state is URL-backed so refresh / deep-link / back-button
+  // preserve what the operator was looking at. ``lockedFramework``
+  // (route param) takes precedence over the URL ``project`` filter
+  // because the dedicated /agents/framework/[key] route IS the
+  // hard-narrowed view.
+  const [window_, setWindow] = useUrlNumber('window', 24);
+  const [search, setSearch] = useUrlString('q', '');
+  const [projectFilterRaw, setProjectFilter] = useUrlString('project', 'all');
+  const [providerFilter, setProviderFilter] = useUrlString('provider', 'all');
+  const projectFilter = lockedFramework ?? projectFilterRaw;
 
   const params = new URLSearchParams();
   params.set('window_hours', String(window_));
