@@ -40,6 +40,15 @@
   --wash-violet:   rgba(167, 139, 250, 0.04);
   --wordmark-from: #e7eaee;
   --wordmark-to:   #94a3b8;
+  /* "Thinking" accent used by the chat-shaped trace view's
+     reasoning accordion (and the SpanRow thinking sub-span). Both
+     themes share violet hues so the brand reads consistent —
+     only the contrast swaps. */
+  --thinking-bg:        rgba(167, 139, 250, 0.10);
+  --thinking-bg-hover:  rgba(167, 139, 250, 0.18);
+  --thinking-border:    rgba(167, 139, 250, 0.35);
+  --thinking-fg:        #c4b5fd;
+  --thinking-fg-soft:   #a78bfa;
   /* Color-scheme tells the browser what tone the page is — affects
      native form controls, scrollbars on macOS, and image rendering. */
   color-scheme: dark;
@@ -66,6 +75,15 @@
   --wash-violet:       rgba(139, 92, 246, 0.04);
   --wordmark-from:     #0f172a;
   --wordmark-to:       #475569;
+  /* Light-mode thinking palette: deeper violet text on a faint violet
+     wash so the reasoning text stays readable on a near-white page
+     surface. Without these, the dark-mode lavender-on-deep-violet
+     would render as pale-on-pale and disappear. */
+  --thinking-bg:        rgba(124, 58, 237, 0.06);
+  --thinking-bg-hover:  rgba(124, 58, 237, 0.12);
+  --thinking-border:    rgba(124, 58, 237, 0.30);
+  --thinking-fg:        #5b21b6;
+  --thinking-fg-soft:   #6d28d9;
   color-scheme: light;
 }
 
