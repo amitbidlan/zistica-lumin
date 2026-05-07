@@ -226,6 +226,83 @@ export const fetcher = async (path: string) => {
 };
 
 
+// ---- Agent Firewall — rule templates (Slice 3 Tier 1.05 dashboard) -----
+
+export type TemplateField = {
+  id: string;
+  label: string;
+  hint?: string;
+  type: 'multi-select' | 'select' | 'text' | 'number';
+  default?: unknown;
+  required?: boolean;
+  // multi-select / select
+  choices?: Array<{ id: string; label: string; value?: string }>;
+};
+
+export type TemplateSummary = {
+  id: string;
+  name: string;
+  icon?: string;
+  summary?: string;
+  category?: string;
+  field_count: number;
+};
+
+export type TemplateDetail = {
+  id: string;
+  name: string;
+  icon?: string;
+  summary?: string;
+  category?: string;
+  fields: TemplateField[];
+  defaults?: Record<string, unknown>;
+  condition?: string;
+  description?: string;
+};
+
+export type TemplateInstantiateResponse = {
+  name: string;
+  lifecycle: string;
+  mode: string;
+  action: string;
+  severity: string;
+  condition: string;
+  description: string;
+  template_id: string;
+};
+
+export async function fetchTemplates(): Promise<{ templates: TemplateSummary[] }> {
+  return fetcher('/v1/firewall/templates');
+}
+
+export async function fetchTemplateDetail(id: string): Promise<TemplateDetail> {
+  return fetcher(`/v1/firewall/templates/${encodeURIComponent(id)}`);
+}
+
+export async function instantiateTemplate(
+  templateId: string,
+  body: { name: string; field_values: Record<string, unknown>; mode?: string },
+): Promise<TemplateInstantiateResponse> {
+  const res = await fetch(
+    `${API_BASE}/v1/firewall/templates/${encodeURIComponent(templateId)}/instantiate`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    let detail = text;
+    try {
+      detail = JSON.parse(text).detail ?? text;
+    } catch {}
+    throw new Error(`HTTP ${res.status}: ${detail}`);
+  }
+  return res.json();
+}
+
+
 // ---- Agent Firewall — labels (Slice 3 PR C) -----------------------------
 
 export type LabelRequest = {
