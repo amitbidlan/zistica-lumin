@@ -34,6 +34,7 @@ import policy_store
 from db import Database, get_db
 
 from firewall import decide as fw_decide
+from firewall import suggester as fw_suggester
 from firewall.templates import loader as fw_templates
 from models import TemplateInstantiateRequest
 
@@ -593,3 +594,75 @@ def instantiate_template(
         "description": saved.description,
         "template_id": template_id,
     }
+
+
+# ---- pattern suggester (§5.5 — Slice 3 PR D) ----------------------------
+
+
+class SuggestRequest(BaseModel):
+    """Body for POST /v1/policies/suggest. Operator clicks "Block this
+    pattern" on a fired decision; we synthesize a draft policy."""
+    decision_id: str
+
+
+class PromoteSuggestionRequest(BaseModel):
+    """Body for POST /v1/policies/suggest/{id}/promote. The operator
+    can rename the policy at promotion time — the auto-generated name
+    is fine but operators usually want something descriptive."""
+    name: str
+
+
+@router.post("/v1/policies/suggest")
+def suggest_policy(payload: SuggestRequest, db: Database = Depends(get_db)) -> Dict[str, Any]:
+    """Generate a draft policy from a fired decision. Persists the
+    suggestion in the pattern_suggestions table so operators can
+    revisit / dismiss / promote later."""
+    try:
+        return fw_suggester.suggest_from_decision(db, payload.decision_id)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/v1/policies/suggest/{suggestion_id}")
+def get_suggestion(suggestion_id: str, db: Database = Depends(get_db)) -> Dict[str, Any]:
+    out = fw_suggester.get_suggestion(db, suggestion_id)
+    if out is None:
+        raise HTTPException(status_code=404, detail=f"suggestion {suggestion_id!r} not found")
+    return out
+
+
+@router.post("/v1/policies/suggest/{suggestion_id}/promote")
+def promote_suggestion(
+    suggestion_id: str,
+    payload: PromoteSuggestionRequest,
+    db: Database = Depends(get_db),
+) -> Dict[str, Any]:
+    """Promote a suggestion into a real policy. Lands in mode=shadow."""
+    try:
+        saved = fw_suggester.promote_suggestion(db, suggestion_id, payload.name.strip())
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+    # Reload engine so the new rule is live.
+    try:
+        policy_runtime.reload_engine(db=db)
+    except Exception:
+        logger.exception("suggester: post-promote reload failed")
+
+    return {
+        "name": saved.name,
+        "lifecycle": getattr(saved, "lifecycle", "post_ingest"),
+        "mode": getattr(saved, "mode", "shadow"),
+        "action": saved.action,
+        "severity": saved.severity,
+        "condition": saved.condition,
+        "suggestion_id": suggestion_id,
+    }
+
+
+@router.post("/v1/policies/suggest/{suggestion_id}/dismiss")
+def dismiss_suggestion(suggestion_id: str, db: Database = Depends(get_db)) -> Dict[str, Any]:
+    fw_suggester.dismiss_suggestion(db, suggestion_id)
+    return {"id": suggestion_id, "dismissed": True}
