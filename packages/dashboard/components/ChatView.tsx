@@ -65,8 +65,14 @@ export default function ChatView({
 
 
 function pickHeadlineSpan(spans: Span[]): Span | undefined {
-  // Prefer an llm-typed span; fall back to the first span overall.
-  return spans.find((s) => s.type === 'llm') ?? spans[0];
+  // ChatView is only meaningful when there's an actual model call —
+  // its renderer parses the input as a user prompt and the output as
+  // an assistant reply. Falling back to a tool-only span would feed
+  // tool params (raw JSON) to the user-bubble renderer, producing
+  // nonsense. Return undefined when no LLM span is present so the
+  // caller's "No LLM span on this trace" message kicks in and the
+  // trace falls back to the task-shape default panels.
+  return spans.find((s) => s.type === 'llm');
 }
 
 
