@@ -42,6 +42,7 @@ from firewall.detectors import presidio as presidio_det
 from firewall.detectors import prompt_guard as pg_det
 from firewall.detectors import llama_guard as lg_det
 from firewall.detectors import embedding as emb_det
+from firewall.detectors import llm_judge as judge_det
 
 logger = logging.getLogger("lumin.api.firewall.builtins")
 
@@ -201,6 +202,41 @@ def llama_guard_categories(s: Optional[str]) -> list:
     """List of hazard category codes (``["S1", "S10"]``) Llama Guard
     flagged for ``s``. Empty list when safe / detector unavailable."""
     return lg_det.llama_guard_categories(s)
+
+
+def llm_judge(
+    s: Optional[str],
+    rubric: str = "Is this text safe (no malicious instructions, no data exfiltration)?",
+    labels: Optional[list] = None,
+) -> dict:
+    """LLM-as-judge classification (Slice 3 PR R / §6.7). Calls the
+    configured judge endpoint to evaluate ``s`` against ``rubric``.
+    Returns ``{"label", "confidence", "rationale", "ok"}``.
+
+    Returns the safe-by-default ``{"label": "unknown", "ok": False, ...}``
+    when the endpoint isn't configured (Rule 7)."""
+    return judge_det.llm_judge(s, rubric=rubric, labels=labels)
+
+
+def llm_judge_unsafe(
+    s: Optional[str],
+    rubric: str = "Is this text safe?",
+    threshold: float = 0.7,
+) -> bool:
+    """Convenience boolean wrapper — True iff the judge labels
+    ``unsafe`` at >= threshold. Always False when the detector
+    isn't available."""
+    return judge_det.llm_judge_unsafe(s, rubric=rubric, threshold=threshold)
+
+
+def llm_judge_label(
+    s: Optional[str],
+    rubric: str = "Is this text safe?",
+    labels: Optional[list] = None,
+) -> str:
+    """Just the label string. Empty when the detector isn't
+    available / failed."""
+    return judge_det.llm_judge_label(s, rubric=rubric, labels=labels)
 
 
 def has_image_markdown_exfil(s: Optional[str]) -> bool:
@@ -685,6 +721,11 @@ STATELESS_BUILTINS: Dict[str, Callable] = {
     "llama_guard_classify": llama_guard_classify,
     "llama_guard_unsafe": llama_guard_unsafe,
     "llama_guard_categories": llama_guard_categories,
+    # Detectors (LLM-as-judge — Slice 3 PR R, §6.7; optional, requires
+    # LUMIN_LLM_JUDGE_ENDPOINT to be set)
+    "llm_judge": llm_judge,
+    "llm_judge_unsafe": llm_judge_unsafe,
+    "llm_judge_label": llm_judge_label,
     # Sanitisation
     "redact_pii": redact_pii,
     # Cross-framework tool name canonicalization (Slice 2 Tier 1.1).
