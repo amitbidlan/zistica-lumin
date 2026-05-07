@@ -1049,3 +1049,49 @@ def bypass_summary_endpoint(
     from firewall import bypass_log as fw_bypass
     since = datetime.now(timezone.utc) - timedelta(days=days)
     return fw_bypass.bypass_summary(db, since=since)
+
+
+# ---- Local classifier (Slice 3 PR S — §6.8 / §11.6) ----------------------
+
+
+class ClassifierTrainRequest(BaseModel):
+    """Body for POST /v1/firewall/classifier/retrain."""
+    model_id: str = "default"
+    backend: str = "linear"
+    min_examples: int = Field(20, ge=2, le=100_000)
+
+
+@router.post("/v1/firewall/classifier/retrain")
+def retrain_classifier_endpoint(
+    payload: ClassifierTrainRequest, db: Database = Depends(get_db)
+) -> Dict[str, Any]:
+    """Train a fresh classifier over the labels table. Returns the
+    new version's training summary. 503 when sklearn isn't
+    installed; 400 on too-few labels or unsupported backend."""
+    from firewall.detectors import local_classifier as lc_det
+    if not lc_det.available:
+        raise HTTPException(
+            status_code=503,
+            detail="local classifier requires scikit-learn — pip install 'scikit-learn>=1.3'",
+        )
+    try:
+        return lc_det.train(
+            db,
+            model_id=payload.model_id,
+            backend=payload.backend,
+            min_examples=payload.min_examples,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+@router.get("/v1/firewall/classifier/models")
+def list_classifier_models_endpoint(
+    db: Database = Depends(get_db),
+) -> Dict[str, Any]:
+    """List all trained classifier versions. Used by the dashboard
+    classifier page."""
+    from firewall.detectors import local_classifier as lc_det
+    return {"models": lc_det.list_models(db)}

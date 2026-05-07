@@ -62,3 +62,12 @@ opentelemetry-proto>=1.30
 # (pulls torch as a transitive; if you've already opted into Prompt
 # Guard 2 above, that's already installed.)
 # sentence-transformers>=2.6
+# OPTIONAL — scikit-learn for the local fine-tuned classifier
+# (Slice 3 PR S — §6.8 / §11.6). The detector trains a
+# LogisticRegression over a TfidfVectorizer on the operator's
+# ``labels`` table and exposes ``org_classifier_score()`` /
+# ``org_classifier_predict()`` builtins. Trains in <60s on a few
+# hundred labels; sub-ms inference. Detector degrades gracefully
+# (score → 0.0) when uninstalled. Activate by:
+#     pip install 'scikit-learn>=1.3'
+# scikit-learn>=1.3

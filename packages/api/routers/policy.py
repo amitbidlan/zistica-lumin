@@ -569,6 +569,9 @@ _ALLOWED_FUNCTIONS = frozenset({
     "behavioral_anomaly_score",
     # LLM-as-judge (Slice 3 PR R — §6.7; opt-in via LUMIN_LLM_JUDGE_ENDPOINT)
     "llm_judge", "llm_judge_unsafe", "llm_judge_label",
+    # Local fine-tuned classifier (Slice 3 PR S — §6.8 / §11.6;
+    # opt-in via sklearn install + dashboard "Retrain classifier")
+    "org_classifier_score", "org_classifier_predict",
 })
 
 
