@@ -1,6 +1,8 @@
 # @lumin-io/openclaw-diagnostics
 
-> Full-fidelity Lumin observability for [OpenClaw](https://github.com/openclaw/openclaw) — every prompt, response, tool I/O, and reasoning trace, captured per turn.
+> Full-fidelity Lumin observability **and synchronous policy enforcement** for [OpenClaw](https://github.com/openclaw/openclaw) — every prompt, response, tool I/O, and reasoning trace captured per turn, every tool call checked against your firewall before it runs.
+
+**v0.2.0 adds the Agent Firewall path.** Every `before_tool_call` hook now POSTs to Lumin's `/v1/policy/decide` endpoint and translates the response into OpenClaw's typed-hook return contract — `block`, rewrite `params`, or `requireApproval`. Default fail-mode is `allow` (Rule 7: agent never blocks on Lumin), with `onFirewallError: "deny"` available for fail-closed deployments. Set `enforce: false` to fall back to v0.1.x observation-only behavior.
 
 [![npm](https://img.shields.io/npm/v/@lumin-io/openclaw-diagnostics.svg?style=flat-square)](https://www.npmjs.com/package/@lumin-io/openclaw-diagnostics)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=flat-square)](https://github.com/amitbidlan/zistica-lumin/blob/main/LICENSE)
@@ -73,6 +75,9 @@ All optional, set under `plugins.entries.lumin-diagnostics.config` in `openclaw.
 | `captureSystemMessage` | `false` | Whether to write the full system message text to `metadata.openclaw.content.system_message`. Off by default — these payloads are often large and rarely actionable for debugging. The character count is captured into metadata either way. |
 | `maxContentChars` | `32768` | Per-attribute content cap. Truncated values are tagged `…(truncated)`. |
 | `timeoutMs` | `5000` | HTTP timeout for the POST to Lumin. |
+| `enforce` | `true` | **(v0.2.0)** Whether to call `/v1/policy/decide` synchronously on every `before_tool_call`. Set to `false` to fall back to observation-only behavior. |
+| `decideTimeoutMs` | `75` | **(v0.2.0)** Hard timeout for the synchronous decide call. Tighter than `timeoutMs` because every tool call pays this latency. |
+| `onFirewallError` | `"allow"` | **(v0.2.0)** Fail-mode when the firewall is unreachable: `"allow"` (Rule 7 default) lets the tool run, `"deny"` cancels it. |
 
 Example:
 
