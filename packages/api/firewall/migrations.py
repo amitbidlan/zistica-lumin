@@ -140,6 +140,19 @@ CREATE TABLE IF NOT EXISTS policy_versions (
 );
 """
 
+# Single-row-per-key store for firewall feature flags. Today: only
+# the panic_disable bit. Keeping it generic so future flags (drift
+# threshold, classifier toggles, replay seed) don't each get a
+# bespoke table.
+_CREATE_FIREWALL_KV = """
+CREATE TABLE IF NOT EXISTS firewall_kv (
+    k VARCHAR PRIMARY KEY,
+    v VARCHAR,
+    updated_at TIMESTAMP,
+    updated_by VARCHAR
+);
+"""
+
 
 # Indexes — one per query pattern we know we need from §5 of the spec.
 # Adding more later is cheap; missing them at launch shows up as a
@@ -213,6 +226,7 @@ def apply(conn) -> None:
         _CREATE_LABELS,
         _CREATE_PATTERN_SUGGESTIONS,
         _CREATE_POLICY_VERSIONS,
+        _CREATE_FIREWALL_KV,
         *_POLICY_EXTENSIONS,
         *_INDEXES,
     )

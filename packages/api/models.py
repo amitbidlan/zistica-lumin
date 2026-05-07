@@ -260,7 +260,13 @@ class PolicyListResponse(BaseModel):
 
 
 class PolicyCreate(BaseModel):
-    """Body for POST /v1/policies (Phase 4)."""
+    """Body for POST /v1/policies (Phase 4).
+
+    Agent Firewall fields (lifecycle/mode/priority/...) are optional —
+    when omitted they take spec defaults. Notably ``mode`` defaults to
+    ``shadow`` per §10.1 of AGENT_FIREWALL_SPEC.md: a freshly authored
+    rule never blocks live traffic until an operator promotes it.
+    """
 
     name: str
     description: Optional[str] = None
@@ -271,6 +277,13 @@ class PolicyCreate(BaseModel):
     webhook_url: Optional[str] = None
     scope_agents: List[str] = Field(default_factory=list)
     enabled: bool = True
+
+    # Agent Firewall fields. None on create = use spec default.
+    lifecycle: Optional[str] = None
+    mode: Optional[str] = None
+    priority: Optional[int] = None
+    on_timeout: Optional[str] = None
+    on_internal_error: Optional[str] = None
 
 
 class PolicyUpdate(BaseModel):
@@ -286,6 +299,13 @@ class PolicyUpdate(BaseModel):
     webhook_url: Optional[str] = None
     scope_agents: Optional[List[str]] = None
     enabled: Optional[bool] = None
+
+    # Agent Firewall fields. None = leave the existing value untouched.
+    lifecycle: Optional[str] = None
+    mode: Optional[str] = None
+    priority: Optional[int] = None
+    on_timeout: Optional[str] = None
+    on_internal_error: Optional[str] = None
 
 
 class PolicyAuditEntry(BaseModel):
