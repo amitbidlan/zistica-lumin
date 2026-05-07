@@ -904,3 +904,37 @@ def ack_drift_alert(alert_id: str, db: Database = Depends(get_db)) -> Dict[str, 
     from firewall import drift as fw_drift
     fw_drift.acknowledge_alert(db, alert_id)
     return {"id": alert_id, "acknowledged": True}
+
+
+# ---- Trace replay (Slice 3 PR M — §5.10 / §14.1) -----------------------
+#
+# Run a past trace through the current policy set and report what *would*
+# have happened. Read-only — no decisions written, no approvals created.
+
+
+class ReplayRequest(BaseModel):
+    """Body for POST /v1/firewall/test/replay."""
+    trace_id: str
+    # Optional filter: when set, only decisions where the matched
+    # policy_name is in this list are returned. Useful for "what
+    # would JUST this candidate rule do?" workflows.
+    policy_ids: Optional[List[str]] = None
+
+
+@router.post("/v1/firewall/test/replay")
+def replay_endpoint(
+    payload: ReplayRequest, db: Database = Depends(get_db)
+) -> Dict[str, Any]:
+    """Replay ``trace_id`` against the current engine. Returns a
+    structured per-span decision list + summary counts.
+
+    404 when the trace doesn't exist or has no spans. 400 on
+    invalid request shape. The replay endpoint is read-only — no
+    decisions / approvals / circuit-breaker state are written."""
+    from firewall import replay as fw_replay
+    try:
+        return fw_replay.replay_trace(db, payload.trace_id, payload.policy_ids)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
