@@ -1,6 +1,6 @@
 {
   "name": "@lumin-io/openclaw-diagnostics",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Lumin observability + Agent Firewall for OpenClaw \u2014 captures prompts, responses, tool I/O, and synchronously enforces firewall policies on every tool call.",
   "homepage": "https://github.com/amitbidlan/zistica-lumin/tree/main/packages/integrations/openclaw-diagnostics",
   "repository": {
