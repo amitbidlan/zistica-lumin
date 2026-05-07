@@ -74,6 +74,7 @@ export default function RootLayout({
               <NavLink href="/traces">Traces</NavLink>
               <NavLink href="/sessions">Sessions</NavLink>
               <NavLink href="/policies">Policies</NavLink>
+              <NavLink href="/templates">Templates</NavLink>
               <NavLink href="/decisions">Decisions</NavLink>
               <ApprovalsNavLink />
               <ViolationsNavLink />

@@ -3,7 +3,14 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { API_BASE, Policy, PolicyAction, PolicySeverity } from '@/lib/api';
+import {
+  API_BASE,
+  Policy,
+  PolicyAction,
+  PolicySeverity,
+  FirewallLifecycle,
+  FirewallMode,
+} from '@/lib/api';
 
 /**
  * Form for creating or editing a policy. The same component handles
@@ -47,6 +54,24 @@ export default function PolicyEditor({
   );
   const [enabled, setEnabled] = useState(initial?.enabled ?? true);
 
+  // Slice 3 PR B — firewall verb authoring. Lifecycle drives whether
+  // the post-ingest action vocab (flag/alert) or the firewall vocab
+  // (block/require_approval/rewrite/allow) is shown for the action
+  // dropdown. Mode is only meaningful for firewall lifecycles —
+  // post-ingest rules ignore it on the engine side.
+  const [lifecycle, setLifecycle] = useState<FirewallLifecycle>(
+    (initial?.lifecycle ?? 'post_ingest') as FirewallLifecycle,
+  );
+  const [policyMode, setPolicyMode] = useState<FirewallMode>(
+    (initial?.mode ?? 'shadow') as FirewallMode,
+  );
+  const [priority, setPriority] = useState<number>(initial?.priority ?? 0);
+  const [onTimeout, setOnTimeout] = useState<'allow' | 'deny'>(
+    (initial?.on_timeout as 'allow' | 'deny' | undefined) ?? 'allow',
+  );
+
+  const isFirewallLifecycle = lifecycle !== 'post_ingest';
+
   const [submitting, setSubmitting] = useState(false);
   const [submitErr, setSubmitErr] = useState<string | null>(null);
   const [conditionWarn, setConditionWarn] = useState<string | null>(null);
@@ -82,6 +107,10 @@ export default function PolicyEditor({
             webhook_url: webhookUrl || null,
             scope_agents: scope,
             enabled,
+            lifecycle,
+            mode: policyMode,
+            priority,
+            on_timeout: onTimeout,
           }),
         });
         if (!res.ok) {
@@ -105,6 +134,10 @@ export default function PolicyEditor({
               webhook_url: webhookUrl || null,
               scope_agents: scope,
               enabled,
+              lifecycle,
+              mode: policyMode,
+              priority,
+              on_timeout: onTimeout,
             }),
           },
         );
@@ -175,12 +208,30 @@ export default function PolicyEditor({
       </div>
 
       <div className="card p-5 space-y-4">
+        <Field
+          label="Lifecycle"
+          hint="When the firewall evaluates this rule. post_ingest is the legacy advisory path (records violations after the span lands). The other 4 are synchronous — the rule's action takes effect inline."
+        >
+          <select
+            value={lifecycle}
+            onChange={(e) => setLifecycle(e.target.value as FirewallLifecycle)}
+            className="form-input"
+          >
+            <option value="post_ingest">post_ingest — advisory, runs after span ingest</option>
+            <option value="before_proxy_call">before_proxy_call — gates LLM input</option>
+            <option value="after_proxy_call">after_proxy_call — gates LLM output</option>
+            <option value="before_tool_call">before_tool_call — gates tool invocation</option>
+            <option value="after_tool_call">after_tool_call — gates tool result</option>
+          </select>
+        </Field>
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Field label="Trigger" hint="When the engine evaluates this rule.">
+          <Field label="Trigger" hint="post_ingest only. span_end fires per LLM/tool call; trace_end fires once per agent run.">
             <select
               value={trigger}
               onChange={(e) => setTrigger(e.target.value as 'span_end' | 'trace_end')}
               className="form-input"
+              disabled={isFirewallLifecycle}
             >
               <option value="span_end">span_end (per LLM/tool call)</option>
               <option value="trace_end">trace_end (per agent run)</option>
@@ -198,17 +249,81 @@ export default function PolicyEditor({
               <option value="critical">critical</option>
             </select>
           </Field>
-          <Field label="Action" hint="alert posts to webhook; flag is silent.">
+          <Field
+            label="Action"
+            hint={
+              isFirewallLifecycle
+                ? 'block / require_approval / rewrite — synchronous decisions for firewall lifecycles. allow short-circuits lower-priority rules.'
+                : 'alert posts to webhook; flag is silent.'
+            }
+          >
             <select
               value={action}
-              onChange={(e) => setAction(e.target.value as 'flag' | 'alert')}
+              onChange={(e) => setAction(e.target.value as PolicyAction)}
               className="form-input"
             >
-              <option value="flag">flag</option>
-              <option value="alert">alert</option>
+              {isFirewallLifecycle ? (
+                <>
+                  <option value="block">block</option>
+                  <option value="require_approval">require_approval</option>
+                  <option value="rewrite">rewrite</option>
+                  <option value="flag">flag (record only)</option>
+                  <option value="allow">allow (short-circuit)</option>
+                </>
+              ) : (
+                <>
+                  <option value="flag">flag</option>
+                  <option value="alert">alert</option>
+                </>
+              )}
             </select>
           </Field>
         </div>
+
+        {isFirewallLifecycle ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2 border-t border-[var(--border)]">
+            <Field
+              label="Mode"
+              hint="shadow records but never blocks; flag returns flag verb; enforce takes the configured action. New rules default to shadow per security policy — promote via the ModeToggle on this page after reviewing the 30d forecast."
+            >
+              <select
+                value={policyMode}
+                onChange={(e) => setPolicyMode(e.target.value as FirewallMode)}
+                className="form-input"
+              >
+                <option value="shadow">shadow (recommended for new rules)</option>
+                <option value="flag">flag</option>
+                <option value="enforce">enforce</option>
+              </select>
+            </Field>
+            <Field
+              label="Priority"
+              hint="Higher fires first within a lifecycle. An explicit allow short-circuits lower-priority rules. Range -100 to +100."
+            >
+              <input
+                type="number"
+                value={priority}
+                onChange={(e) => setPriority(Number(e.target.value))}
+                min={-100}
+                max={100}
+                className="form-input"
+              />
+            </Field>
+            <Field
+              label="On timeout"
+              hint="Fallback when the require_approval round-trip exceeds the timeout window."
+            >
+              <select
+                value={onTimeout}
+                onChange={(e) => setOnTimeout(e.target.value as 'allow' | 'deny')}
+                className="form-input"
+              >
+                <option value="allow">allow (Rule 7 default)</option>
+                <option value="deny">deny (high-severity)</option>
+              </select>
+            </Field>
+          </div>
+        ) : null}
 
         <Field
           label="Condition"
