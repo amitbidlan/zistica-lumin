@@ -42,6 +42,7 @@ from firewall.detectors import presidio as presidio_det
 from firewall.detectors import prompt_guard as pg_det
 from firewall.detectors import llama_guard as lg_det
 from firewall.detectors import embedding as emb_det
+from firewall.detectors import ipi as ipi_det
 
 logger = logging.getLogger("lumin.api.firewall.builtins")
 
@@ -201,6 +202,31 @@ def llama_guard_categories(s: Optional[str]) -> list:
     """List of hazard category codes (``["S1", "S10"]``) Llama Guard
     flagged for ``s``. Empty list when safe / detector unavailable."""
     return lg_det.llama_guard_categories(s)
+
+
+def ipi_score(s: Optional[str]) -> float:
+    """Indirect prompt injection score (0.0-1.0) — wraps Prompt Guard
+    2 with HTML stripping, ASCII smuggling detection, and multi-
+    passage scoring. The recommended ``after_tool_call`` detector
+    when tool output flows back to the model.
+
+    Always available — falls back to a regex+Unicode heuristic when
+    Prompt Guard 2 isn't installed (Rule 7)."""
+    return ipi_det.ipi_score(s)
+
+
+def ipi_unsafe(s: Optional[str], threshold: float = 0.7) -> bool:
+    """True iff IPI score >= ``threshold``. Convenience wrapper for
+    ``action: rewrite`` rules at ``after_tool_call``."""
+    return ipi_det.ipi_unsafe(s, threshold)
+
+
+def ipi_passages(s: Optional[str]) -> list:
+    """Per-passage breakdown — list of ``{"passage", "score",
+    "marker"}`` dicts. Useful for dashboard surfaces that want to
+    show *which* part of a multi-result tool output tripped the
+    rule, not just that something did."""
+    return ipi_det.ipi_passages(s)
 
 
 def has_image_markdown_exfil(s: Optional[str]) -> bool:
@@ -667,6 +693,10 @@ STATELESS_BUILTINS: Dict[str, Callable] = {
     "llama_guard_classify": llama_guard_classify,
     "llama_guard_unsafe": llama_guard_unsafe,
     "llama_guard_categories": llama_guard_categories,
+    # Detectors (IPI sniffer — always-on, escalates with Prompt Guard 2)
+    "ipi_score": ipi_score,
+    "ipi_unsafe": ipi_unsafe,
+    "ipi_passages": ipi_passages,
     # Sanitisation
     "redact_pii": redact_pii,
     # Cross-framework tool name canonicalization (Slice 2 Tier 1.1).
