@@ -4,6 +4,7 @@ import Link from 'next/link';
 import Logo from '@/components/Logo';
 import ViolationsNavLink from '@/components/ViolationsNavLink';
 import NavLink from '@/components/NavLink';
+import PanicBanner from '@/components/PanicBanner';
 import ThemeToggle from '@/components/ThemeToggle';
 
 // Pre-hydration script — sets data-theme on <html> BEFORE React
@@ -52,6 +53,7 @@ export default function RootLayout({
       </head>
       <body>
         <div className="min-h-screen flex flex-col">
+          <PanicBanner />
           <header className="app-header px-6 py-3 flex items-center justify-between gap-4">
             <Link
               href="/agents"
@@ -71,6 +73,7 @@ export default function RootLayout({
               <NavLink href="/traces">Traces</NavLink>
               <NavLink href="/sessions">Sessions</NavLink>
               <NavLink href="/policies">Policies</NavLink>
+              <NavLink href="/decisions">Decisions</NavLink>
               <ViolationsNavLink />
               <span className="opacity-30 mx-1">·</span>
               <a

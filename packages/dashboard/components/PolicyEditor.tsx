@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { API_BASE, Policy, PolicySeverity } from '@/lib/api';
+import { API_BASE, Policy, PolicyAction, PolicySeverity } from '@/lib/api';
 
 /**
  * Form for creating or editing a policy. The same component handles
@@ -30,7 +30,14 @@ export default function PolicyEditor({
     initial?.trigger ?? 'span_end',
   );
   const [condition, setCondition] = useState(initial?.condition ?? '');
-  const [action, setAction] = useState<'flag' | 'alert'>(initial?.action ?? 'flag');
+  // The Policy.action union now includes the firewall verbs (allow,
+  // block, require_approval, rewrite) alongside the legacy
+  // post_ingest verbs (flag, alert). The editor doesn't yet expose
+  // the firewall verbs (separate slice — operators set them via
+  // YAML or the API for now), but the local state has to accept the
+  // wider union so loading an existing firewall rule doesn't trip
+  // the type checker.
+  const [action, setAction] = useState<PolicyAction>(initial?.action ?? 'flag');
   const [severity, setSeverity] = useState<PolicySeverity>(
     initial?.severity ?? 'medium',
   );
