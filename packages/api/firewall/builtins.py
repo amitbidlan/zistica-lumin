@@ -548,6 +548,21 @@ def build_history_builtins(db) -> Dict[str, Callable]:
         or stack multiple thresholds for tiered actions."""
         return emb_det.max_similarity(db, text, corpus_name)
 
+    def behavioral_anomaly_score(
+        tool_name: Optional[str],
+        params: Optional[Dict[str, Any]],
+        agent: Optional[str],
+        session_id: Optional[str] = None,
+    ) -> float:
+        """Behavioral anomaly score (0..∞-ish, capped 100) for the
+        current call against the rolling per-(agent, tool) baseline.
+        Returns 0.0 when baseline data is sparse (Rule 7). See
+        ``firewall.anomaly`` for signal composition."""
+        from firewall import anomaly as fw_anomaly
+        return fw_anomaly.behavioral_anomaly_score(
+            db, tool_name, params, agent, session_id=session_id,
+        )
+
     return {
         "session_total_tokens": session_total_tokens,
         "session_total_cost": session_total_cost,
@@ -560,6 +575,9 @@ def build_history_builtins(db) -> Dict[str, Callable]:
         # the corpus lives in DuckDB; see firewall.detectors.embedding)
         "similar_to_corpus": similar_to_corpus,
         "max_corpus_similarity": max_corpus_similarity,
+        # Behavioral anomaly (Slice 3 PR Q — §11.4 — DB-bound
+        # baseline lives in spans table)
+        "behavioral_anomaly_score": behavioral_anomaly_score,
     }
 
 
