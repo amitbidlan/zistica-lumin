@@ -355,3 +355,108 @@ def test_history_cache_hits_within_1s():
         assert first == second  # cached, not refetched
     finally:
         db.close()
+
+
+# ---- Cross-framework tool name detection (Slice 2 Tier 1.1) -------------
+
+
+def test_is_shell_tool_openclaw():
+    """OpenClaw uses 'exec' for the shell tool — Slice 1 dogfood
+    discovered our OWASP rule hardcoded 'shell' and silently never
+    fired. is_shell_tool() canonicalizes."""
+    from firewall.builtins import is_shell_tool
+    for name in ["exec", "shell", "bash", "sh", "terminal", "system"]:
+        assert is_shell_tool(name), f"{name!r} should be a shell tool"
+
+
+def test_is_shell_tool_framework_variants():
+    from firewall.builtins import is_shell_tool
+    for name in [
+        "run_command", "execute_command", "run_shell", "shell_exec",
+        "code_exec", "code_interpreter", "python_repl", "python_exec",
+    ]:
+        assert is_shell_tool(name), f"{name!r} should be a shell tool"
+
+
+def test_is_shell_tool_case_insensitive():
+    from firewall.builtins import is_shell_tool
+    assert is_shell_tool("EXEC")
+    assert is_shell_tool("Shell")
+    assert is_shell_tool("  bash  ")  # also strips whitespace
+
+
+def test_is_shell_tool_rejects_non_shell():
+    from firewall.builtins import is_shell_tool
+    for name in ["fetch", "web_search", "sql_query", "fs_read", "edit"]:
+        assert not is_shell_tool(name), f"{name!r} should NOT be a shell tool"
+
+
+def test_is_shell_tool_safe_on_none():
+    from firewall.builtins import is_shell_tool
+    assert is_shell_tool(None) is False
+    assert is_shell_tool(123) is False
+    assert is_shell_tool("") is False
+
+
+def test_is_web_fetch_tool():
+    from firewall.builtins import is_web_fetch_tool
+    for name in [
+        "fetch", "http_fetch", "web_fetch", "curl",
+        "brave_search", "google_search", "duckduckgo_search",
+    ]:
+        assert is_web_fetch_tool(name), f"{name!r} should be a web fetch tool"
+    assert not is_web_fetch_tool("exec")
+    assert not is_web_fetch_tool("sql_query")
+
+
+def test_is_db_write_tool():
+    from firewall.builtins import is_db_write_tool
+    for name in [
+        "sql_exec", "execute_sql", "postgres_query",
+        "mongo_write", "model_create", "db_write",
+    ]:
+        assert is_db_write_tool(name), f"{name!r} should be a db write tool"
+    assert not is_db_write_tool("exec")
+    assert not is_db_write_tool("fetch")
+
+
+def test_is_filesystem_tool():
+    from firewall.builtins import is_filesystem_tool
+    for name in [
+        "fs_write", "file_read", "write_file", "create_file", "edit",
+    ]:
+        assert is_filesystem_tool(name), f"{name!r} should be a fs tool"
+    assert not is_filesystem_tool("exec")  # shell, not direct fs
+
+
+def test_tool_classifiers_in_stateless_map():
+    """All four classifiers must be in STATELESS_BUILTINS so the
+    decide engine wires them into the simpleeval functions table.
+    Without this, conditions using the classifiers parse fine in the
+    validator but fail at evaluation with 'function not defined'."""
+    from firewall.builtins import STATELESS_BUILTINS
+    for fn_name in ("is_shell_tool", "is_web_fetch_tool",
+                    "is_db_write_tool", "is_filesystem_tool"):
+        assert fn_name in STATELESS_BUILTINS
+
+
+def test_tool_classifier_in_real_condition():
+    """End-to-end: a condition using is_shell_tool + list-membership
+    (Tier 1.2 + 1.1 together) evaluates correctly. This is the
+    canonical Slice 2 idiom, replacing Slice 1's verbose OR-chain."""
+    from firewall.builtins import STATELESS_BUILTINS
+    from simpleeval import EvalWithCompoundTypes
+    funcs = {"len": len, "str": str}
+    funcs.update(STATELESS_BUILTINS)
+    e = EvalWithCompoundTypes(
+        names={"tool_name": "exec"},
+        functions=funcs,
+    )
+    assert e.eval("is_shell_tool(tool_name)") is True
+    assert e.eval('is_shell_tool(tool_name) and tool_name in ["exec", "shell"]') is True
+    # Combined with regex on a hypothetical command
+    e2 = EvalWithCompoundTypes(
+        names={"tool_name": "exec", "cmd": "rm -rf /etc"},
+        functions=funcs,
+    )
+    assert e2.eval('is_shell_tool(tool_name) and regex_match(cmd, "(?i)rm\\s+-rf")') is True

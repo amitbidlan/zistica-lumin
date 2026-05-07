@@ -252,6 +252,17 @@ class PolicyOut(BaseModel):
     source: str = "yaml"  # "yaml" | "db" — surfaces where the engine loaded it from
     version: int = 1
 
+    # Agent Firewall fields (Slice 2 Tier 1.3 — exposed on the wire
+    # so dashboard can render mode/lifecycle in lists instead of
+    # placeholder dashes). Optional with safe defaults to remain
+    # back-compat with pre-firewall-migration installs.
+    lifecycle: str = "post_ingest"
+    mode: str = "enforce"
+    priority: int = 0
+    on_timeout: str = "allow"
+    on_internal_error: str = "allow"
+    circuit_breaker_state: str = "ok"
+
 
 class PolicyListResponse(BaseModel):
     policies: List[PolicyOut]

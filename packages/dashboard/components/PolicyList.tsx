@@ -115,7 +115,25 @@ function PolicyCard({ policy }: { policy: Policy }) {
                                      'badge badge-slate'
   );
   const triggerCls = policy.trigger === 'span_end' ? 'badge badge-blue' : 'badge badge-violet';
-  const actionCls  = policy.action  === 'alert'    ? 'badge badge-orange' : 'badge badge-slate';
+  const actionCls  = (
+    policy.action === 'block'             ? 'badge badge-rose' :
+    policy.action === 'require_approval'  ? 'badge badge-amber' :
+    policy.action === 'rewrite'           ? 'badge badge-cyan' :
+    policy.action === 'allow'             ? 'badge badge-emerald' :
+    policy.action === 'alert'             ? 'badge badge-orange' :
+                                            'badge badge-slate'
+  );
+  // Slice 2 Tier 1.3: surface firewall fields when present.
+  // Mode chip dims for shadow (rule records but never fires) so a
+  // glance shows which rules are *actually* enforcing today.
+  const modeCls = (
+    policy.mode === 'enforce'  ? 'badge badge-rose' :
+    policy.mode === 'flag'     ? 'badge badge-amber' :
+    policy.mode === 'shadow'   ? 'badge badge-slate opacity-70' :
+                                 'badge badge-slate'
+  );
+  const isFirewallLifecycle =
+    policy.lifecycle && policy.lifecycle !== 'post_ingest';
 
   return (
     <Link
@@ -125,8 +143,17 @@ function PolicyCard({ policy }: { policy: Policy }) {
       <div className="flex items-center gap-3 mb-2 flex-wrap">
         <span className={sevCls}>{policy.severity}</span>
         <h3 className="font-mono text-sm font-medium tracking-tight">{policy.name}</h3>
-        <span className={triggerCls}>{policy.trigger}</span>
+        {isFirewallLifecycle ? (
+          <span className="badge badge-violet">{policy.lifecycle}</span>
+        ) : (
+          <span className={triggerCls}>{policy.trigger}</span>
+        )}
         <span className={actionCls}>{policy.action}</span>
+        {policy.mode ? (
+          <span className={modeCls} title={modeHelp(policy.mode)}>
+            {policy.mode}
+          </span>
+        ) : null}
         {policy.scope_agents.length > 0 ? (
           <span className="badge badge-fuchsia">
             scoped to {policy.scope_agents.length} agent{policy.scope_agents.length === 1 ? '' : 's'}
@@ -150,4 +177,18 @@ function PolicyCard({ policy }: { policy: Policy }) {
       </code>
     </Link>
   );
+}
+
+
+function modeHelp(mode: string): string {
+  switch (mode) {
+    case 'shadow':
+      return 'Shadow — records decisions but never blocks live traffic.';
+    case 'flag':
+      return 'Flag — records and returns decision=flag (does not cancel the action).';
+    case 'enforce':
+      return 'Enforce — takes the configured action (block / require_approval / rewrite).';
+    default:
+      return mode;
+  }
 }

@@ -437,7 +437,14 @@ def policy_audit(
 
 
 def _policy_to_out(p, source: str = "yaml", version: int = 1) -> PolicyOut:
-    """Project an SDK ``Policy`` dataclass onto the wire shape."""
+    """Project an SDK ``Policy`` dataclass onto the wire shape.
+
+    Agent Firewall fields (lifecycle/mode/priority/on_timeout/...)
+    are read with getattr-with-default so this remains compatible
+    with old SDK Policy dataclasses missing those attrs (e.g. when
+    a deployment hasn't redeployed the SDK yet but the dashboard
+    is asking for the new fields).
+    """
     return PolicyOut(
         name=p.name,
         description=p.description,
@@ -450,6 +457,12 @@ def _policy_to_out(p, source: str = "yaml", version: int = 1) -> PolicyOut:
         enabled=True,
         source=source,
         version=version,
+        lifecycle=getattr(p, "lifecycle", "post_ingest") or "post_ingest",
+        mode=getattr(p, "mode", "enforce") or "enforce",
+        priority=int(getattr(p, "priority", 0) or 0),
+        on_timeout=getattr(p, "on_timeout", "allow") or "allow",
+        on_internal_error=getattr(p, "on_internal_error", "allow") or "allow",
+        circuit_breaker_state=getattr(p, "circuit_breaker_state", "ok") or "ok",
     )
 
 
@@ -532,6 +545,9 @@ _ALLOWED_FUNCTIONS = frozenset({
     "looks_like_secret", "has_pii",
     "has_image_markdown_exfil", "has_ascii_smuggling",
     "redact_pii",
+    # Cross-framework tool name canonicalization (Slice 2 Tier 1.1).
+    "is_shell_tool", "is_web_fetch_tool", "is_db_write_tool",
+    "is_filesystem_tool",
     # History-backed (registered per-request via build_history_builtins)
     "session_total_tokens", "session_total_cost",
     "trace_total_cost", "tool_calls_in_trace",
@@ -559,11 +575,11 @@ def _validate_condition_parses(condition: str) -> None:
         Same UX rationale.
     """
     try:
-        from simpleeval import SimpleEval
+        from simpleeval import EvalWithCompoundTypes
     except ImportError:
         return
     try:
-        SimpleEval().parse(condition)
+        EvalWithCompoundTypes().parse(condition)
     except Exception as e:
         raise HTTPException(
             status_code=400, detail=f"condition is not a valid expression: {e}"

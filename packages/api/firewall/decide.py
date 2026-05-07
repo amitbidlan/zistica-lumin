@@ -519,8 +519,15 @@ def _evaluate(policy: Policy, names: Dict[str, Any], funcs: Dict[str, Any]) -> b
     cond = (policy.condition or "").strip()
     if not cond:
         return True
-    from simpleeval import SimpleEval
-    e = SimpleEval(names=names, functions=funcs)
+    # EvalWithCompoundTypes (vs plain SimpleEval) supports list / dict /
+    # set literals + the `in` operator across them. Operators write
+    # natural conditions like ``tool_name in ["shell", "exec",
+    # "bash"]`` instead of OR-chains. Same security posture — only
+    # the whitelisted ``functions`` set can be invoked, and the
+    # validator's AST walker still rejects method calls except on
+    # `_NS.get(...)` per PR #49.
+    from simpleeval import EvalWithCompoundTypes
+    e = EvalWithCompoundTypes(names=names, functions=funcs)
     result = e.eval(cond)
     return bool(result)
 
