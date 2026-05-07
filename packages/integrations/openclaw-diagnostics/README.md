@@ -115,6 +115,22 @@ Two reasons:
 - **Trace ID stitching.** OpenClaw's typed hooks and its OTel exporter sometimes run under different `runWithDiagnosticTraceContext` envelopes, so the trace IDs Lumin sees from the two rails *may* not match. The plugin always emits a deterministic trace ID derived from the OpenClaw `runId`, so two ingests of the same run idempotently land on the same trace.
 - **History is summarized, not embedded.** Each turn captures only the current user prompt — the full conversation history (which OpenClaw replays to the model on every turn) is referenced by count, not embedded, so trace size doesn't grow linearly with conversation length. If you need the full conversation, use Lumin's `/sessions` view, which already groups turns by `session_id`.
 
+## Changelog
+
+### 0.2.0 — Agent Firewall enforcement
+
+Adds a synchronous policy enforcement layer on top of the v0.1.x observation flow. Every `before_tool_call` hook now POSTs to Lumin's `/v1/policy/decide` endpoint and translates the decision into OpenClaw's typed-hook return contract.
+
+- **Mapping:** Lumin `block` → `{ block: true, blockReason }`; `rewrite` → `{ params: rewritten.params }`; `require_approval` → `{ requireApproval: { ..., onResolution } }` that POSTs the operator's decision back to `/v1/approvals/{id}/resolve`; `flag` and `allow` → tool proceeds.
+- **New config:** `enforce` (default `true` — set to `false` to revert to v0.1.x observation-only), `decideTimeoutMs` (default `75` — tighter than the 5000ms span timeout because every tool call pays this latency), `onFirewallError` (default `"allow"` — Rule 7 fail-mode; flip to `"deny"` for fail-closed deployments).
+- **OpenClaw plugin lifecycle hooks:** `before_tool_call` and `after_tool_call` (in addition to `llm_input` / `llm_output` from v0.1.x).
+- **Approval round-trip:** OpenClaw's native approval UI now correlates with Lumin's `/v1/approvals` table — operators get a full audit trail across both systems. `allow-once` / `allow-always` map to `allow`; `deny` / `cancelled` / `timeout` map to `deny`.
+- **Tests:** 22 (12 existing + 10 new firewall cases).
+
+### 0.1.x
+
+Observation-only: prompts, replies, tool I/O, reasoning traces captured to Lumin via `/v1/spans`. See git history for sub-version details.
+
 ## Source + issues
 
 - Repo: <https://github.com/amitbidlan/zistica-lumin/tree/main/packages/integrations/openclaw-diagnostics>
