@@ -511,8 +511,33 @@ def _build_policy_from_create(body: PolicyCreate) -> Policy:
     )
 
 
-_ALLOWED_NAMES = frozenset({"span", "trace"})
-_ALLOWED_FUNCTIONS = frozenset({"len", "str", "int", "float", "abs"})
+_ALLOWED_NAMES = frozenset({
+    "span", "trace",
+    # Agent Firewall lifecycle namespaces — exposed by firewall.decide
+    # to condition expressions for synchronous lifecycles. Validating
+    # here keeps the editor's "save" path strict but accepts the
+    # firewall vocab.
+    "Input", "Output",
+    "tool_name", "params", "text",
+})
+_ALLOWED_FUNCTIONS = frozenset({
+    "len", "str", "int", "float", "abs",
+    # Agent Firewall builtins — see firewall/builtins.py. These are
+    # available to firewall-lifecycle conditions; allowing them in
+    # the validator means operators can author rules through the
+    # dashboard editor without hitting "function not defined" 400s.
+    "regex_match", "regex_extract", "contains_any",
+    "url_host", "url_in_allowlist", "is_internal_url", "is_destructive_path",
+    "entropy", "len_chars",
+    "looks_like_secret", "has_pii",
+    "has_image_markdown_exfil", "has_ascii_smuggling",
+    "redact_pii",
+    # History-backed (registered per-request via build_history_builtins)
+    "session_total_tokens", "session_total_cost",
+    "trace_total_cost", "tool_calls_in_trace",
+    "agent_calls_per_minute", "agent_calls_today",
+    "pii_violations_in_project_last_24h",
+})
 
 
 def _validate_condition_parses(condition: str) -> None:
@@ -566,8 +591,26 @@ def _validate_condition_parses(condition: str) -> None:
                 if node.func.id not in _ALLOWED_FUNCTIONS:
                     bad_func_names.append(node.func.id)
             elif isinstance(node.func, _ast.Attribute):
-                # Method calls (x.startswith(...), __import__(...).system(...))
-                # are not exposed by the engine — reject at write time.
+                # Method calls are mostly disallowed (x.startswith(...),
+                # __import__(...).system(...)) — reject at write time.
+                # Exception: `.get(key, default)` on the Agent Firewall
+                # namespaces (Input/Output/params). The decide engine
+                # exposes these via _NS wrappers that translate the
+                # attribute access into a real dict.get; validating
+                # this AST shape here lets operators author firewall
+                # rules with `Input.params.get("command", "")` without
+                # tripping the method-call guard.
+                if (
+                    node.func.attr == "get"
+                    and len(node.args) <= 2
+                ):
+                    # Walk leftmost name to confirm it's an allowed
+                    # base. `Input.params.get(...)` → base is `Input`.
+                    base = node.func.value
+                    while isinstance(base, _ast.Attribute):
+                        base = base.value
+                    if isinstance(base, _ast.Name) and base.id in _ALLOWED_NAMES:
+                        continue
                 method_call_nodes.append(node)
 
     if bad_func_names:
