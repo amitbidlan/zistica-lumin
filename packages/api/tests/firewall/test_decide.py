@@ -359,3 +359,158 @@ def test_decision_row_records_all_context(db: Database) -> None:
     assert row["span_id"] == "span-y"
     assert row["tool_name"] == "shell"
     assert row["lifecycle"] == "before_tool_call"
+
+
+# ---- agent_feedback (Slice 2 Tier 1.5(a)) -------------------------------
+
+
+def test_block_response_includes_agent_feedback(db: Database) -> None:
+    """The decide response on block must include an agent_feedback
+    string designed for the LLM to consume — anti-hallucination,
+    anti-retry, platform-attribution. Plugin v0.4.x surfaces this
+    as the tool error string."""
+    _mk_policy(db, name="block_all", action="block", condition="True")
+    out = fw_decide.decide(db, lifecycle="before_tool_call", tool_name="shell")
+    assert out["decision"] == "block"
+    assert "agent_feedback" in out
+    fb = out["agent_feedback"]
+    # Must mention the platform (so the LLM doesn't think the user denied)
+    assert "Lumin" in fb
+    # Must mention the policy (so the LLM has authoritative context)
+    assert "block_all" in fb
+    # Must explicitly forbid /approve hallucination (the live failure mode)
+    assert "/approve" in fb or "approval syntax" in fb
+    # Must explicitly forbid retrying
+    assert "retry" in fb.lower() or "do not retry" in fb.lower() or "stop" in fb.lower()
+
+
+def test_require_approval_includes_agent_feedback(db: Database) -> None:
+    _mk_policy(
+        db, name="needs_apv", action="require_approval", condition="True",
+    )
+    out = fw_decide.decide(db, lifecycle="before_tool_call", tool_name="shell")
+    assert out["decision"] == "require_approval"
+    fb = out["agent_feedback"]
+    # For require_approval the LLM should know it's been routed to
+    # an operator channel — DON'T tell the user to approve.
+    assert "operator" in fb.lower()
+    assert "/approve" in fb or "approval syntax" in fb
+
+
+def test_flag_response_includes_agent_feedback(db: Database) -> None:
+    _mk_policy(db, name="flag_all", action="flag", condition="True")
+    out = fw_decide.decide(db, lifecycle="before_tool_call", tool_name="shell")
+    assert out["decision"] == "flag"
+    fb = out["agent_feedback"]
+    assert "Lumin" in fb
+    assert "flag_all" in fb
+
+
+def test_allow_response_has_no_agent_feedback(db: Database) -> None:
+    """Allow path is the happy path — no need for LLM-targeted
+    feedback since nothing's wrong. Keeps the response payload
+    minimal on the hot path."""
+    out = fw_decide.decide(db, lifecycle="before_tool_call", tool_name="shell")
+    assert out["decision"] == "allow"
+    assert "agent_feedback" not in out
+
+
+# ---- session-level deny cache (Slice 2 Tier 1.5(b)) ---------------------
+
+
+def test_deny_cache_short_circuits_repeat(db: Database) -> None:
+    """After a (session, tool, params) tuple is recorded as denied
+    in the cache, the next decide() for the same tuple returns
+    block immediately without consulting any policy."""
+    fw_decide.reset_deny_cache_for_tests()
+    # Fake a previous deny by writing directly to the cache
+    cache_key = fw_decide._deny_cache_key(
+        "sess-cache", "exec", {"command": "rm -rf /"},
+    )
+    fw_decide._record_deny_in_cache(cache_key, "owasp_llm06_destructive_shell")
+
+    # NO policies created — so without the cache, decide() would allow
+    out = fw_decide.decide(
+        db, lifecycle="before_tool_call",
+        tool_name="exec",
+        params={"command": "rm -rf /"},
+        session_id="sess-cache",
+    )
+    assert out["decision"] == "block"
+    assert out.get("cached_deny") is True
+    assert out["policy_name"] == "owasp_llm06_destructive_shell"
+    # Cache hit feedback must still tell the LLM not to retry
+    assert "Lumin" in out["agent_feedback"]
+
+
+def test_deny_cache_does_not_affect_other_sessions(db: Database) -> None:
+    fw_decide.reset_deny_cache_for_tests()
+    key_a = fw_decide._deny_cache_key("sess-A", "exec", {"command": "rm -rf"})
+    fw_decide._record_deny_in_cache(key_a, "policy_x")
+
+    # Same tool, same params, DIFFERENT session — should not be cached
+    out = fw_decide.decide(
+        db, lifecycle="before_tool_call",
+        tool_name="exec",
+        params={"command": "rm -rf"},
+        session_id="sess-B",
+    )
+    assert out["decision"] == "allow"
+
+
+def test_deny_cache_does_not_affect_different_params(db: Database) -> None:
+    fw_decide.reset_deny_cache_for_tests()
+    key = fw_decide._deny_cache_key("sess-1", "exec", {"command": "rm -rf"})
+    fw_decide._record_deny_in_cache(key, "policy_x")
+
+    # Different command — should NOT be cached. Operators have to
+    # approve each variation explicitly; can't "approve all shell
+    # commands forever for this session" by approving one.
+    out = fw_decide.decide(
+        db, lifecycle="before_tool_call",
+        tool_name="exec",
+        params={"command": "ls -la"},
+        session_id="sess-1",
+    )
+    assert out["decision"] == "allow"
+
+
+def test_deny_cache_records_on_decide_block(db: Database) -> None:
+    """Even without operator-resolution flow, when a policy fires
+    a block in enforce mode, the cache should be populated so a
+    quick LLM retry is auto-denied. (Validates the integration
+    path; the actual cache-population on resolve() lives in the
+    HTTP layer test.)"""
+    # Note: today, decide() block does not auto-populate the cache —
+    # only operator deny does. This test validates the documented
+    # behavior: cache hits only after a deliberate deny. A pure
+    # block in enforce mode does not auto-cache since the same
+    # decision will fire again on retry anyway.
+    fw_decide.reset_deny_cache_for_tests()
+    _mk_policy(db, name="auto_block", action="block", condition="True")
+
+    out1 = fw_decide.decide(
+        db, lifecycle="before_tool_call",
+        tool_name="exec", params={"command": "ls"}, session_id="s1",
+    )
+    assert out1["decision"] == "block"
+    assert out1.get("cached_deny") is None  # not from cache, from policy
+
+    # Second call still goes through the policy engine — no cache
+    out2 = fw_decide.decide(
+        db, lifecycle="before_tool_call",
+        tool_name="exec", params={"command": "ls"}, session_id="s1",
+    )
+    assert out2["decision"] == "block"
+    assert out2.get("cached_deny") is None  # still policy, not cache
+
+
+def test_deny_cache_no_session_id_no_cache(db: Database) -> None:
+    """Without a session_id, we can't correlate retries; cache is
+    skipped entirely. Verified by attempting to manually populate
+    a key with None session — cache key returns None."""
+    fw_decide.reset_deny_cache_for_tests()
+    key = fw_decide._deny_cache_key(None, "exec", {"command": "rm -rf"})
+    assert key is None  # no key built, no cache used
+    fw_decide._record_deny_in_cache(key, "policy_x")  # no-op
+    assert len(fw_decide._DENY_CACHE) == 0

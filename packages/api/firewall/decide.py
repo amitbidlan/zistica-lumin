@@ -69,6 +69,97 @@ LATENCY_BUDGET_MS: Dict[str, int] = {
 }
 
 
+# ---- session-level deny cache (Slice 2 Tier 1.5(b)) ----------------------
+#
+# When an operator denies a tool call, the LLM doesn't always
+# learn — Slice 1 dogfood (2026-05-07) saw an agent retry the same
+# rm -rf three times after a deny, asking the user to approve via
+# fake /approve syntax each time. The cache short-circuits this:
+# once a (session_id, tool_name, params_hash) is denied, subsequent
+# decide() calls for the same tuple auto-deny in <1ms without
+# touching the policy engine OR re-prompting the operator.
+#
+# Cache scope is intentionally narrow:
+#   - Per-session: a deny for session A doesn't affect session B
+#   - Per-tool: blocking shell rm -rf doesn't affect a fetch call
+#   - Per-params-hash: the same exact command. A *different* shell
+#     command with different params is re-evaluated normally
+#     (operators have to approve each variation, not "approve all
+#     shell commands forever for this session").
+#
+# TTL: 600s by default (matches require_approval timeout). Override
+# with LUMIN_DENY_CACHE_TTL=N (seconds, 0 disables).
+#
+# Storage: in-memory dict, keyed by (session_id, tool_name, params_hash).
+# Sized loosely — 100k entries is ~30MB at peak; we don't bound size
+# yet because real-world session counts are bounded by retention
+# (90d default) and each session's denied tuples are typically <10.
+
+import hashlib
+import os
+
+_DENY_CACHE: Dict[tuple, float] = {}
+_DENY_CACHE_TTL = float(os.environ.get("LUMIN_DENY_CACHE_TTL", "600"))
+
+
+def _params_hash(params: Optional[Dict[str, Any]]) -> str:
+    """Stable hash of tool params for cache keying. Order-independent
+    so {a:1,b:2} and {b:2,a:1} cache as the same call. Truncated
+    to 16 hex chars — collision probability is fine at this scope."""
+    if not params:
+        return "noparams"
+    try:
+        payload = json.dumps(params, sort_keys=True, default=str)
+    except Exception:
+        payload = str(params)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def _deny_cache_key(
+    session_id: Optional[str],
+    tool_name: Optional[str],
+    params: Optional[Dict[str, Any]],
+) -> Optional[tuple]:
+    """Build the cache key tuple, or None when this request shouldn't
+    use the cache (no session = no cross-call correlation possible)."""
+    if not session_id or not tool_name:
+        return None
+    return (str(session_id), str(tool_name), _params_hash(params))
+
+
+def _check_deny_cache(key: Optional[tuple]) -> Optional[str]:
+    """Return the policy_name that previously denied this tuple if
+    a non-expired entry exists, else None. Lazily evicts expired
+    entries on lookup so the cache size stays bounded by recent
+    activity."""
+    if not key or _DENY_CACHE_TTL <= 0:
+        return None
+    entry = _DENY_CACHE.get(key)
+    if entry is None:
+        return None
+    expires_at, policy_name = entry  # type: ignore[misc]
+    if time.time() > expires_at:
+        _DENY_CACHE.pop(key, None)
+        return None
+    return str(policy_name)
+
+
+def _record_deny_in_cache(
+    key: Optional[tuple], policy_name: str,
+) -> None:
+    """Cache a deny for TTL seconds. No-op when the key is missing
+    (e.g. session_id wasn't supplied) or TTL is disabled."""
+    if not key or _DENY_CACHE_TTL <= 0:
+        return
+    _DENY_CACHE[key] = (time.time() + _DENY_CACHE_TTL, policy_name)  # type: ignore[assignment]
+
+
+def reset_deny_cache_for_tests() -> None:
+    """Test helper. The cache is per-process module global; tests
+    that exercise the cache flow should clear between cases."""
+    _DENY_CACHE.clear()
+
+
 # ---- panic kill-switch ----------------------------------------------------
 
 # In-memory flag flipped by POST /v1/firewall/panic_disable. Persisted
@@ -111,6 +202,83 @@ def refresh_panic_state(db: Database) -> None:
         pass
 
 
+# ---- agent_feedback helper (Slice 2 Tier 1.5(a)) -------------------------
+#
+# When Lumin denies a tool call or LLM output, OpenClaw passes our
+# decision through to the agent as a tool error string. Slice 1
+# dogfood (2026-05-07) captured a live LLM reasoning trace that
+# revealed four distinct misunderstandings:
+#
+#   1. The LLM thought the deny came from the user, not a separate
+#      enforcement layer ("Denied by user").
+#   2. It treated policy as user-controlled ("user gave permission?").
+#   3. It hallucinated a fake approval prompt and showed it to the
+#      user (`/approve rm -rf <command>`) — a social engineering
+#      surface.
+#   4. The error string was opaque — Lumin's policy_name + reason
+#      never reached the LLM's reasoning context.
+#
+# ``agent_feedback`` is a string the plugin v0.4.x reads off our
+# response and surfaces verbatim as the tool error. It's authored
+# to be:
+#   - Authoritative (cites policy name)
+#   - Disambiguating ("platform-level, not user")
+#   - Anti-hallucination ("Do NOT generate approval syntax")
+#   - Action-directing ("Reply to the user that...")
+#
+# We keep it concise so it doesn't blow the LLM's response token
+# budget when echoed in tool errors.
+
+
+def _agent_feedback(
+    *, decision: str, policy_name: Optional[str], reason: str,
+) -> str:
+    """Construct the LLM-targeted feedback string for a non-allow
+    decision. Returned in the decide response body so the plugin
+    can surface it as the tool error / proxy error verbatim.
+
+    Tuned for the failure modes we observed in 2026-05-07 dogfood:
+    LLM hallucinating /approve syntax, retrying after deny, mis-
+    attributing to user permission. Each clause targets one of
+    those failure modes.
+    """
+    pol = f" (policy: {policy_name})" if policy_name else ""
+    if decision == "block":
+        return (
+            f"This action was blocked by the Lumin Agent Firewall{pol}. "
+            f"Reason: {reason}. This is a platform-level denial enforced "
+            f"regardless of user request — it is NOT a user decision and "
+            f"cannot be overridden by asking the user. "
+            f"Do NOT retry this command. Do NOT generate /approve syntax "
+            f"or any other approval prompt to the user. "
+            f"Reply that you cannot perform this action due to security "
+            f"policy and stop."
+        )
+    if decision == "require_approval":
+        return (
+            f"This action requires operator approval per the Lumin Agent "
+            f"Firewall{pol}. Reason: {reason}. The approval request has "
+            f"already been routed to a configured operator channel — DO "
+            f"NOT ask the end user to approve, and DO NOT generate "
+            f"/approve syntax in your reply. While waiting, simply tell "
+            f"the user you're checking on the request."
+        )
+    if decision == "rewrite":
+        return (
+            f"This action was modified by the Lumin Agent Firewall{pol} "
+            f"to redact sensitive data. Reason: {reason}. Continue with "
+            f"the rewritten parameters as provided. Do not attempt to "
+            f"reconstruct the original."
+        )
+    if decision == "flag":
+        return (
+            f"This action was flagged by the Lumin Agent Firewall{pol} "
+            f"for operator review. Reason: {reason}. The action was "
+            f"allowed to proceed; no additional response action required."
+        )
+    return reason
+
+
 # ---- core decide ----------------------------------------------------------
 
 
@@ -147,6 +315,40 @@ def decide(
     if lifecycle not in LATENCY_BUDGET_MS:
         # Unknown lifecycle = caller bug, not our problem. Allow.
         return _allow_response(t0, reason=f"unknown_lifecycle:{lifecycle}")
+
+    # ---- Session-level deny cache (Slice 2 Tier 1.5(b)) -----------------
+    # Once an operator denies a (session, tool, params) tuple, the
+    # LLM frequently retries the same call. Auto-deny in <1ms without
+    # re-bothering the operator (or running the full engine again).
+    cache_key = _deny_cache_key(session_id, tool_name, params)
+    cached_policy = _check_deny_cache(cache_key)
+    if cached_policy is not None:
+        decision_id = _record_decision(
+            db, policy=None, lifecycle=lifecycle,
+            decision="block", reason=f"cached_deny:{cached_policy}",
+            trace_id=trace_id, span_id=span_id, session_id=session_id,
+            agent=agent, project=project, tool_name=tool_name,
+            duration_ms=_elapsed_ms(t0),
+            mode_at_decision="enforce",
+        )
+        return {
+            "decision": "block",
+            "policy_id": cached_policy,
+            "policy_name": cached_policy,
+            "reason": (
+                f"This action was previously denied in this session and is "
+                f"auto-denied for the deny-cache window."
+            ),
+            "agent_feedback": _agent_feedback(
+                decision="block",
+                policy_name=cached_policy,
+                reason="previously denied in this session — do not retry",
+            ),
+            "decision_id": decision_id,
+            "mode_at_decision": "enforce",
+            "duration_ms": _elapsed_ms(t0),
+            "cached_deny": True,
+        }
 
     try:
         policies = _applicable_policies(db, lifecycle=lifecycle, agent=agent)
@@ -223,6 +425,11 @@ def decide(
                     "policy_id": policy.name,
                     "policy_name": policy.name,
                     "reason": "internal_error",
+                    "agent_feedback": _agent_feedback(
+                        decision="block",
+                        policy_name=policy.name,
+                        reason="internal_error",
+                    ),
                     "decision_id": decision_id,
                     "mode_at_decision": policy.mode,
                     "duration_ms": _elapsed_ms(t0),
@@ -305,6 +512,9 @@ def decide(
                 "policy_id": policy.name,
                 "policy_name": policy.name,
                 "reason": reason,
+                "agent_feedback": _agent_feedback(
+                    decision="flag", policy_name=policy.name, reason=reason,
+                ),
                 "decision_id": decision_id,
                 "mode_at_decision": "flag",
                 "duration_ms": _elapsed_ms(t0),
@@ -331,6 +541,10 @@ def decide(
                 "policy_id": policy.name,
                 "policy_name": policy.name,
                 "reason": reason,
+                "agent_feedback": _agent_feedback(
+                    decision="require_approval",
+                    policy_name=policy.name, reason=reason,
+                ),
                 "approval_id": approval_id,
                 "timeout_s": 600,
                 "decision_id": decision_id,
@@ -346,6 +560,9 @@ def decide(
                 "policy_id": policy.name,
                 "policy_name": policy.name,
                 "reason": reason,
+                "agent_feedback": _agent_feedback(
+                    decision="rewrite", policy_name=policy.name, reason=reason,
+                ),
                 "decision_id": decision_id,
                 "mode_at_decision": "enforce",
                 "duration_ms": _elapsed_ms(t0),
@@ -357,6 +574,9 @@ def decide(
             "policy_id": policy.name,
             "policy_name": policy.name,
             "reason": reason,
+            "agent_feedback": _agent_feedback(
+                decision=action, policy_name=policy.name, reason=reason,
+            ),
             "decision_id": decision_id,
             "mode_at_decision": "enforce",
             "duration_ms": _elapsed_ms(t0),
