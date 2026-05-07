@@ -2,6 +2,7 @@ import './globals.css';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import Logo from '@/components/Logo';
+import ApprovalsNavLink from '@/components/ApprovalsNavLink';
 import ViolationsNavLink from '@/components/ViolationsNavLink';
 import NavLink from '@/components/NavLink';
 import PanicBanner from '@/components/PanicBanner';
@@ -74,6 +75,7 @@ export default function RootLayout({
               <NavLink href="/sessions">Sessions</NavLink>
               <NavLink href="/policies">Policies</NavLink>
               <NavLink href="/decisions">Decisions</NavLink>
+              <ApprovalsNavLink />
               <ViolationsNavLink />
               <span className="opacity-30 mx-1">·</span>
               <a
