@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -334,3 +334,21 @@ class PolicyAuditEntry(BaseModel):
 class PolicyAuditResponse(BaseModel):
     entries: List[PolicyAuditEntry]
     total: int
+
+
+# ---- Templates (Slice 2 Tier 1.05) -------------------------------------
+
+
+class TemplateInstantiateRequest(BaseModel):
+    """Body for POST /v1/firewall/templates/{id}/instantiate.
+
+    The dashboard renders the template's ``fields`` schema as a form,
+    collects the operator's choices, and POSTs them here. The server
+    compiles the condition + creates the policy in mode=shadow per
+    §10.1 (operator promotes via ModeToggle after reviewing forecast).
+    """
+
+    name: str
+    field_values: Dict[str, Any] = Field(default_factory=dict)
+    # Optional override — defaults to 'shadow' inside compile_rule.
+    mode: Optional[str] = None

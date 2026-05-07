@@ -1,0 +1,49 @@
+id: destructive_shell
+name: Block destructive shell commands
+icon: "🛡️"
+summary: rm -rf, mkfs, dd, drop database — irreversible operations
+category: filesystem
+
+fields:
+  - id: tools
+    label: Tools to apply this rule to
+    hint: |
+      Most agent frameworks expose a shell tool under one of these names.
+      Pick all the ones your agents might use; the rule fires on whichever
+      one the agent invokes.
+    type: multi-select
+    default: [exec, shell, bash, sh, terminal]
+    choices:
+      - { id: exec, label: "exec (OpenClaw)" }
+      - { id: shell, label: "shell (generic)" }
+      - { id: bash, label: "bash" }
+      - { id: sh, label: "sh" }
+      - { id: terminal, label: "terminal" }
+      - { id: run_command, label: "run_command (Mastra/LangChain)" }
+      - { id: code_interpreter, label: "code_interpreter" }
+
+  - id: action
+    label: What should happen?
+    type: select
+    default: block
+    choices:
+      - { id: block, label: "Block — refuse the call (recommended for irreversible ops)" }
+      - { id: require_approval, label: "Require operator approval" }
+      - { id: flag, label: "Flag only — record but allow" }
+
+defaults:
+  lifecycle: before_tool_call
+  mode: shadow
+  severity: critical
+  priority: 100
+
+condition: |
+  tool_name in {tools} and (
+    regex_match(str(Input.params.get("command", "")), "(?i)rm\\s+-rf\\s")
+    or regex_match(str(Input.params.get("command", "")), "(?i)mkfs|fdisk|dd\\s+if=")
+    or regex_match(str(Input.params.get("command", "")), "(?i)\\bdrop\\s+(database|table)\\b")
+    or is_destructive_path(str(Input.params.get("command", "")))
+  )
+description: |
+  Blocks destructive shell commands across {tools}. Catches rm -rf,
+  mkfs, dd if=, drop database/table, and well-known dangerous paths.

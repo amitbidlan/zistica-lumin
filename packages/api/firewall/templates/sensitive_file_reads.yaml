@@ -1,0 +1,61 @@
+id: sensitive_file_reads
+name: Block sensitive file reads
+icon: "🔐"
+summary: SSH keys, AWS / GCP / kube credentials, /etc/passwd, .env files
+category: filesystem
+
+fields:
+  - id: tools
+    label: Tools to apply this rule to
+    type: multi-select
+    default: [exec, shell, bash, sh]
+    choices:
+      - { id: exec, label: "exec (OpenClaw)" }
+      - { id: shell, label: "shell (generic)" }
+      - { id: bash, label: "bash" }
+      - { id: sh, label: "sh" }
+      - { id: terminal, label: "terminal" }
+      - { id: run_command, label: "run_command (Mastra/LangChain)" }
+
+  - id: paths_pattern
+    label: Sensitive path patterns
+    hint: |
+      Regex alternation matched against tool params after the file-read
+      operation (cat, head, tail, etc.). Pick categories or build a
+      custom pattern.
+    type: select
+    default: all
+    choices:
+      - id: all
+        label: "All — SSH + AWS + GCP + /etc + .env + secrets"
+        value: "/etc/(passwd|shadow|sudoers|hosts)|~/.ssh/|/Users/[^/]+/.ssh/|~/.aws/credentials|/Users/[^/]+/.aws/credentials|~/.kube/config|/var/log/auth|\\\\.env\\\\b|/secrets?/|/private[/-]key|gcloud/.*credentials"
+      - id: ssh_only
+        label: "SSH keys only"
+        value: "~/.ssh/|/Users/[^/]+/.ssh/|/etc/ssh/"
+      - id: cloud_creds
+        label: "Cloud credentials only (AWS, GCP)"
+        value: "~/.aws/credentials|/Users/[^/]+/.aws/credentials|gcloud/.*credentials"
+      - id: env_files
+        label: ".env files"
+        value: "\\\\.env\\\\b|\\\\.env\\\\."
+
+  - id: action
+    label: What should happen?
+    type: select
+    default: block
+    choices:
+      - { id: block, label: "Block — refuse the read (recommended)" }
+      - { id: flag, label: "Flag only — record but allow" }
+
+defaults:
+  lifecycle: before_tool_call
+  mode: shadow
+  severity: critical
+  priority: 95
+
+condition: |
+  tool_name in {tools} and regex_match(str(Input.params.get("command", "")), "(?i)(cat|head|tail|less|more|od|xxd|base64|cp|mv|grep|strings)\\s.*?({paths_pattern})")
+description: |
+  Blocks reads of sensitive files via {tools}. Defense-in-depth
+  against cred exfiltration even when the agent's skill or system
+  prompt allows reading the path.
