@@ -41,6 +41,7 @@ from firewall.detectors import regex_pack as rp
 from firewall.detectors import presidio as presidio_det
 from firewall.detectors import prompt_guard as pg_det
 from firewall.detectors import llama_guard as lg_det
+from firewall.detectors import embedding as emb_det
 
 logger = logging.getLogger("lumin.api.firewall.builtins")
 
@@ -498,6 +499,29 @@ def build_history_builtins(db) -> Dict[str, Callable]:
             project,
         )
 
+    def similar_to_corpus(
+        text: Optional[str],
+        corpus_name: Optional[str],
+        threshold: float = 0.85,
+    ) -> bool:
+        """Embedding similarity (Slice 3 Tier 2.4) — True iff ``text``
+        is at least ``threshold`` cosine-similar to any entry in the
+        operator-built corpus. Returns False when the corpus is
+        missing / empty / dep not installed (Rule 7).
+
+        Note: not cached at this layer because the corpus cache lives
+        inside the embedding detector module — already process-local
+        and invalidated by CRUD."""
+        return emb_det.similar_to_corpus(db, text, corpus_name, threshold)
+
+    def max_corpus_similarity(
+        text: Optional[str], corpus_name: Optional[str]
+    ) -> float:
+        """Embedding similarity score (0.0-1.0) — useful when an
+        operator wants to log the score even when below threshold,
+        or stack multiple thresholds for tiered actions."""
+        return emb_det.max_similarity(db, text, corpus_name)
+
     return {
         "session_total_tokens": session_total_tokens,
         "session_total_cost": session_total_cost,
@@ -506,6 +530,10 @@ def build_history_builtins(db) -> Dict[str, Callable]:
         "agent_calls_today": agent_calls_today,
         "tool_calls_in_trace": tool_calls_in_trace,
         "pii_violations_in_project_last_24h": pii_violations_in_project_last_24h,
+        # Embedding similarity (Slice 3 Tier 2.4 — DB-bound because
+        # the corpus lives in DuckDB; see firewall.detectors.embedding)
+        "similar_to_corpus": similar_to_corpus,
+        "max_corpus_similarity": max_corpus_similarity,
     }
 
 

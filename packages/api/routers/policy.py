@@ -562,6 +562,9 @@ _ALLOWED_FUNCTIONS = frozenset({
     "trace_total_cost", "tool_calls_in_trace",
     "agent_calls_per_minute", "agent_calls_today",
     "pii_violations_in_project_last_24h",
+    # Embedding similarity (Slice 3 Tier 2.4; DB-bound — operator
+    # builds the corpus via /v1/firewall/corpora/* CRUD)
+    "similar_to_corpus", "max_corpus_similarity",
 })
 
 

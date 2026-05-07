@@ -50,3 +50,15 @@ opentelemetry-proto>=1.30
 #     pip install 'transformers>=4.40' 'torch>=2.1' 'accelerate>=0.30'
 # Model is HF-gated; accept the license once via `huggingface-cli login`.
 # accelerate>=0.30
+# OPTIONAL — Sentence-transformers for embedding-similarity detection
+# (Slice 3 Tier 2.4). Default model ``all-MiniLM-L6-v2`` is 22MB,
+# 384-dim, CPU inference <10ms — light enough to leave on by default
+# once installed. Operators build org-specific corpora (jailbreak
+# prompts, internal codenames) via /v1/firewall/corpora and reference
+# them from rules with ``similar_to_corpus(text, name, threshold)``.
+# Detector degrades gracefully (returns False / 0.0) when uninstalled.
+# Activate by:
+#     pip install 'sentence-transformers>=2.6'
+# (pulls torch as a transitive; if you've already opted into Prompt
+# Guard 2 above, that's already installed.)
+# sentence-transformers>=2.6
