@@ -41,3 +41,12 @@ opentelemetry-proto>=1.30
 # accept the license once via `huggingface-cli login`.
 # transformers>=4.40
 # torch>=2.1
+# OPTIONAL — Meta Llama Guard 4 for response-side content safety
+# (Slice 3 Tier 2.3). The 12B model is ~24GB on disk, ~14GB
+# resident in fp16, and CPU inference is too slow for synchronous
+# evaluation (~500-1500ms/call). Most operators run it as a hosted
+# endpoint instead — the local-inference path is here for air-
+# gapped deployments with a GPU available. Activate by:
+#     pip install 'transformers>=4.40' 'torch>=2.1' 'accelerate>=0.30'
+# Model is HF-gated; accept the license once via `huggingface-cli login`.
+# accelerate>=0.30

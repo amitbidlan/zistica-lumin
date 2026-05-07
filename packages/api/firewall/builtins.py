@@ -40,6 +40,7 @@ from urllib.parse import urlparse
 from firewall.detectors import regex_pack as rp
 from firewall.detectors import presidio as presidio_det
 from firewall.detectors import prompt_guard as pg_det
+from firewall.detectors import llama_guard as lg_det
 
 logger = logging.getLogger("lumin.api.firewall.builtins")
 
@@ -174,6 +175,31 @@ def prompt_guard_label(s: Optional[str]) -> str:
     """Predicted label (BENIGN / INJECTION / JAILBREAK) for ``s``.
     Empty string when the detector isn't available."""
     return pg_det.prompt_guard_label(s)
+
+
+def llama_guard_classify(s: Optional[str]) -> dict:
+    """Classify ``s`` against the MLCommons hazard taxonomy via
+    Llama Guard 4. Returns ``{"safe": bool, "categories": [..],
+    "names": [..]}``.
+
+    Returns the safe-by-default result when transformers/torch
+    aren't installed — the expected state for operators staying
+    on the regex / heuristic detection path.
+    """
+    return lg_det.llama_guard_classify(s)
+
+
+def llama_guard_unsafe(s: Optional[str]) -> bool:
+    """True iff Llama Guard 4 flagged ``s`` as unsafe in any
+    hazard category. Convenience wrapper for ``action: block`` rules.
+    Always False when the detector isn't available."""
+    return lg_det.llama_guard_unsafe(s)
+
+
+def llama_guard_categories(s: Optional[str]) -> list:
+    """List of hazard category codes (``["S1", "S10"]``) Llama Guard
+    flagged for ``s``. Empty list when safe / detector unavailable."""
+    return lg_det.llama_guard_categories(s)
 
 
 def has_image_markdown_exfil(s: Optional[str]) -> bool:
@@ -609,6 +635,10 @@ STATELESS_BUILTINS: Dict[str, Callable] = {
     # Detectors (Prompt Guard 2 — optional, returns 0.0 / "" when not installed)
     "prompt_guard_score": prompt_guard_score,
     "prompt_guard_label": prompt_guard_label,
+    # Detectors (Llama Guard 4 — optional, safe-by-default when not installed)
+    "llama_guard_classify": llama_guard_classify,
+    "llama_guard_unsafe": llama_guard_unsafe,
+    "llama_guard_categories": llama_guard_categories,
     # Sanitisation
     "redact_pii": redact_pii,
     # Cross-framework tool name canonicalization (Slice 2 Tier 1.1).
