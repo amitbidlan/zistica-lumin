@@ -353,10 +353,18 @@ def update_policy(
             webhook_url=body.webhook_url,
             scope_agents=body.scope_agents,
             enabled=body.enabled,
+            lifecycle=body.lifecycle,
+            mode=body.mode,
+            priority=body.priority,
+            on_timeout=body.on_timeout,
+            on_internal_error=body.on_internal_error,
             actor=actor,
         )
     except KeyError:
         raise HTTPException(status_code=404, detail=f"policy '{name}' not found")
+    except ValueError as e:
+        # Validation error from policy_store (bad lifecycle/mode/etc.)
+        raise HTTPException(status_code=400, detail=str(e))
 
     reload_result = policy_runtime.reload_engine(db=db)
     if not reload_result.get("ok"):
@@ -462,6 +470,18 @@ def _build_policy_from_create(body: PolicyCreate) -> Policy:
 
     _validate_condition_parses(body.condition)
 
+    # Apply spec §10.1 default: new policies enter shadow mode unless
+    # the caller explicitly overrides. The migration leaves existing
+    # rows at mode='enforce' for back-compat; this branch only affects
+    # the freshly-authored ones.
+    mode = body.mode if body.mode is not None else "shadow"
+    lifecycle = body.lifecycle if body.lifecycle is not None else "post_ingest"
+    priority = int(body.priority) if body.priority is not None else 0
+    on_timeout = body.on_timeout if body.on_timeout is not None else "allow"
+    on_internal_error = (
+        body.on_internal_error if body.on_internal_error is not None else "allow"
+    )
+
     return Policy(
         name=body.name.strip(),
         description=body.description,
@@ -471,6 +491,11 @@ def _build_policy_from_create(body: PolicyCreate) -> Policy:
         severity=body.severity,
         webhook_url=body.webhook_url,
         scope_agents=list(body.scope_agents or []),
+        lifecycle=lifecycle,
+        mode=mode,
+        priority=priority,
+        on_timeout=on_timeout,
+        on_internal_error=on_internal_error,
     )
 
 
