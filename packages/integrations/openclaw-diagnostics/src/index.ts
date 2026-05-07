@@ -72,7 +72,40 @@ interface LuminDiagnosticsConfig {
    * fail-closed should flip this to "deny" + accept the latency
    * tail. */
   onFirewallError?: "allow" | "deny";
+
+  // ----- Admin separation (v0.4.0 — Slice 2 Tier 1.0 / 1.0b) ---
+  /** Sender IDs that are treated as administrators. Format matches
+   * OpenClaw's canonical channel-scoped senderId (e.g.
+   * "telegram:5706212396", "slack:U02ABCD123"). When a non-admin
+   * sender's tool call gets blocked by the firewall, the plugin
+   * suppresses the LLM's reply and substitutes ``userBlockedMessage``
+   * — closes the social-engineering surface where the LLM
+   * hallucinates a fake /approve prompt the user can click.
+   *
+   * Empty list = every sender is treated as non-admin (most
+   * conservative). Default: empty. For dev/personal-bot use cases
+   * where the user IS the operator, leave empty AND set
+   * ``allowApprovalSurfaceForAdmins: false`` to bypass the
+   * suppression entirely. */
+  adminSenders?: string[];
+
+  /** The canned message shown to non-admin senders after a Lumin
+   * block. Operators can override per-deployment. Default:
+   * intentionally generic — no policy names, no technical detail,
+   * no /approve hints. */
+  userBlockedMessage?: string;
+
+  /** When true (default), admin senders see the agent's full reply
+   * including any technical detail the LLM included about the
+   * block. When false, even admins get the canned message. Useful
+   * for ultra-locked-down deployments where ALL surfaces should
+   * route admin context through the dashboard rather than chat. */
+  adminSeesFullResponse?: boolean;
 }
+
+const DEFAULT_USER_BLOCKED_MESSAGE =
+  "I'm unable to perform that action due to security policy. " +
+  "Please contact your administrator if you need assistance.";
 
 const DEFAULT_HOST = "http://localhost:8000";
 const DEFAULT_PROJECT = "openclaw";
@@ -839,6 +872,9 @@ export default definePluginEntry({
       enforce: { type: "boolean" },
       decideTimeoutMs: { type: "number" },
       onFirewallError: { type: "string", enum: ["allow", "deny"] },
+      adminSenders: { type: "array", items: { type: "string" } },
+      userBlockedMessage: { type: "string" },
+      adminSeesFullResponse: { type: "boolean" },
     },
   } as never,
   register: (api): void => {
@@ -863,6 +899,49 @@ export default definePluginEntry({
     const pending = new PendingLlmRegistry();
     const toolPending = new PendingToolCallRegistry();
     const log = apiAny.logger;
+
+    // ----- Admin separation tracking (v0.4.0 — Slice 2 Tier 1.0/1.0b) ---
+    // Maps sessionKey → senderId (recorded from inbound_claim) and
+    // sessionKey → recent block timestamp (set when before_tool_call's
+    // Lumin response is block / require_approval). The
+    // before_message_write hook reads both maps to decide whether to
+    // suppress the LLM's reply.
+    const sessionToSender = new Map<string, string>();
+    const sessionRecentBlock = new Map<string, number>();
+    // Window during which a recent block triggers reply suppression.
+    // Keep tight so a stale block from N minutes ago doesn't suppress
+    // an unrelated subsequent reply. 60s covers the LLM's typical
+    // post-block reply turnaround.
+    const RECENT_BLOCK_WINDOW_MS = 60_000;
+
+    const adminSenders = new Set(
+      (cfg.adminSenders ?? []).map((s) => s.toLowerCase().trim()).filter(Boolean),
+    );
+    const userBlockedMessage = cfg.userBlockedMessage ?? DEFAULT_USER_BLOCKED_MESSAGE;
+    const adminSeesFullResponse = cfg.adminSeesFullResponse !== false;
+
+    function isAdminSender(senderId: string | undefined): boolean {
+      if (!senderId) return false;
+      return adminSenders.has(senderId.toLowerCase().trim());
+    }
+
+    function recordRecentBlock(sessionKey: string | undefined): void {
+      if (!sessionKey) return;
+      sessionRecentBlock.set(sessionKey, Date.now());
+    }
+
+    function hasRecentBlock(sessionKey: string | undefined): boolean {
+      if (!sessionKey) return false;
+      const t = sessionRecentBlock.get(sessionKey);
+      if (!t) return false;
+      const fresh = Date.now() - t < RECENT_BLOCK_WINDOW_MS;
+      if (!fresh) {
+        // Lazy eviction
+        sessionRecentBlock.delete(sessionKey);
+        return false;
+      }
+      return true;
+    }
 
     if (typeof apiAny.on !== "function") {
       // Older OpenClaw runtimes without typed-hook support won't
@@ -978,6 +1057,18 @@ export default definePluginEntry({
           agent: ctx?.agentId,
           project: cfg.project || DEFAULT_PROJECT,
         });
+        // Slice 2 Tier 1.0/1.0b — record per-session "recent block"
+        // marker when Lumin returned a non-allow decision. The
+        // before_message_write hook reads this to suppress the
+        // LLM's follow-up reply for non-admin senders. Includes
+        // require_approval — operator hasn't yet decided, but the
+        // user shouldn't see the LLM's interim reasoning.
+        if (
+          decision &&
+          ["block", "require_approval", "rewrite", "flag"].includes(decision.decision)
+        ) {
+          recordRecentBlock(ctx?.sessionKey);
+        }
         return translateDecision(decision, fw, cfg, log);
       } catch (err) {
         log?.warn?.(`lumin-diagnostics: before_tool_call handler failed: ${(err as Error).message}`);
@@ -1017,8 +1108,77 @@ export default definePluginEntry({
       }
     });
 
+    // ---- inbound_claim (v0.4.0 — Slice 2 Tier 1.0) ---------------------
+    // Records the senderId for a session as soon as a message arrives
+    // from a channel. Lets the before_message_write hook later
+    // determine whether the recipient of the agent's reply is an
+    // admin (who sees the LLM's full response, including any policy
+    // detail) or a regular user (who gets a canned message after a
+    // recent block).
+    apiAny.on("inbound_claim", (rawEvent: unknown, _rawCtx: unknown) => {
+      try {
+        const event = rawEvent as {
+          sessionKey?: string;
+          senderId?: string;
+          channelId?: string;
+        };
+        if (event.sessionKey && event.senderId) {
+          // Canonical form matches what operators put in
+          // adminSenders config. We stash the raw value; matching is
+          // case-insensitive at lookup time.
+          sessionToSender.set(event.sessionKey, event.senderId);
+        }
+      } catch (err) {
+        log?.warn?.(`lumin-diagnostics: inbound_claim handler failed: ${(err as Error).message}`);
+      }
+    });
+
+    // ---- before_message_write (v0.4.0 — Slice 2 Tier 1.0b) -------------
+    // Final guardrail: when the agent is about to send a reply, check
+    // whether the recipient is non-admin AND there's been a recent
+    // Lumin block. If yes → suppress the LLM's reply and substitute
+    // ``userBlockedMessage``. Closes the social-engineering surface
+    // where the LLM hallucinates fake /approve syntax for the user
+    // to click.
+    //
+    // Admin senders pass through with the full LLM response intact
+    // (unless ``adminSeesFullResponse: false``) so they retain
+    // visibility into what the firewall blocked and why.
+    apiAny.on("before_message_write", (rawEvent: unknown, rawCtx: unknown) => {
+      try {
+        const ctx = rawCtx as { sessionKey?: string } | undefined;
+        const sessionKey = ctx?.sessionKey;
+        if (!sessionKey) return undefined;
+        if (!hasRecentBlock(sessionKey)) return undefined;
+
+        const senderId = sessionToSender.get(sessionKey);
+        const isAdmin = isAdminSender(senderId);
+        if (isAdmin && adminSeesFullResponse) {
+          // Admin sees the full LLM reply. They can drill into
+          // /decisions for the policy-side context.
+          return undefined;
+        }
+
+        // Replace the LLM's message with a canned, neutral
+        // refusal. We use the AgentMessage shape OpenClaw expects
+        // — content array with a single text block. No mention
+        // of policy names, no /approve syntax, no technical
+        // detail.
+        const cannedMessage = {
+          role: "assistant" as const,
+          content: [{ type: "text" as const, text: userBlockedMessage }],
+        };
+        return { message: cannedMessage as never };
+      } catch (err) {
+        log?.warn?.(
+          `lumin-diagnostics: before_message_write handler failed: ${(err as Error).message}`,
+        );
+        return undefined;
+      }
+    });
+
     log?.info?.(
-      `lumin-diagnostics: subscribed to llm_input + llm_output + before_tool_call + after_tool_call → ${cfg.host || DEFAULT_HOST}/v1/spans (project=${cfg.project || DEFAULT_PROJECT}, firewall=${enforceEnabled ? "enforce" : "observe-only"}, fail=${cfg.onFirewallError ?? "allow"})`,
+      `lumin-diagnostics: subscribed to llm_input + llm_output + before_tool_call + after_tool_call + inbound_claim + before_message_write → ${cfg.host || DEFAULT_HOST}/v1/spans (project=${cfg.project || DEFAULT_PROJECT}, firewall=${enforceEnabled ? "enforce" : "observe-only"}, fail=${cfg.onFirewallError ?? "allow"}, admins=${adminSenders.size})`,
     );
   },
 });
