@@ -45,6 +45,22 @@ policies:
     action: block
     severity: high
 
+  # Harmful content output (ML detector)
+  # Llama Guard 4 classifies model output against 14 MLCommons hazard
+  # categories (violent crimes, hate, self-harm, weapons, child
+  # exploitation, etc.). Heavy detector — recommended only when a
+  # GPU is available or via a hosted endpoint. No-op when the
+  # optional dep isn't installed.
+  - name: owasp_harmful_content_ml
+    description: Block model output flagged unsafe by Llama Guard 4 (any MLCommons hazard category). No-op when the optional dep isn't installed.
+    lifecycle: after_proxy_call
+    mode: shadow
+    priority: 88
+    trigger: span_end
+    condition: llama_guard_unsafe(Output.text)
+    action: block
+    severity: high
+
   # LLM02 — Sensitive Information Disclosure
   # Catches secret-shaped strings + canonical PII in model output.
   - name: owasp_llm02_secret_disclosure
