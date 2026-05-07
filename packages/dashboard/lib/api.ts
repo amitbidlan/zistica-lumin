@@ -226,6 +226,36 @@ export const fetcher = async (path: string) => {
 };
 
 
+// ---- Agent Firewall — labels (Slice 3 PR C) -----------------------------
+
+export type LabelRequest = {
+  trace_id?: string;
+  span_id?: string;
+  decision_id?: string;
+  field: 'input' | 'output' | 'tool_params' | 'tool_result';
+  label: 'bad' | 'good' | 'neutral';
+  category?: string;
+  notes?: string;
+};
+
+export async function postLabel(body: LabelRequest): Promise<{
+  id: string;
+  label: string;
+  labeled_at: string;
+}> {
+  const res = await fetch(`${API_BASE}/v1/labels`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`HTTP ${res.status}: ${text}`);
+  }
+  return res.json();
+}
+
+
 // ---- Agent Firewall — decisions + approvals + panic ---------------------
 
 export type DecisionRow = {
