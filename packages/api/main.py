@@ -222,7 +222,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     title="Lumin API",
     description="Local-first AI agent observability — ingest and query API",
-    version="0.3.0",
+    version="0.4.0",
     lifespan=lifespan,
 )
 
