@@ -1,0 +1,671 @@
+"""Synchronous decision engine — heart of the Agent Firewall.
+
+Implements §5.1 (`POST /v1/policy/decide`) and §10.1–10.3 (mode,
+panic disable, circuit breaker). Stateless and import-safe; the HTTP
+layer in ``routers/firewall.py`` owns request/response shapes and
+DB connection plumbing.
+
+Decision flow for a single request:
+
+  1. Honor the global panic kill-switch — if set, return allow with
+     reason="panic_disabled" and skip the engine entirely. (§10.2)
+  2. Filter policies by ``lifecycle == request.lifecycle``, by
+     ``circuit_breaker_state == 'ok'``, and (when ``request.agent``
+     is set) by scope_agents membership.
+  3. Sort by ``priority DESC`` so high-priority policies see the
+     request first. Ties broken by name for determinism.
+  4. Evaluate each policy's condition with a fresh simpleeval. The
+     namespace is built from the request payload + the firewall
+     builtins from ``firewall.builtins`` (stateless + history-backed).
+  5. First non-allow decision wins; an explicit ``allow`` short-
+     circuits remaining lower-priority policies.
+  6. Apply mode: ``shadow`` records the decision but returns allow;
+     ``flag`` records and returns flag; ``enforce`` records and
+     returns the policy's action verbatim.
+  7. Hard timeout per lifecycle (§2.4). If the wall clock exceeds
+     the budget mid-loop, abort and return allow (Rule 7 — agent
+     never blocks on Lumin).
+
+Every error path returns allow. Internal exceptions are logged but
+swallowed; the agent that called us never fails because of us.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import time
+import uuid
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Tuple
+
+from lumin.policy import Policy
+
+import policy_store
+from db import Database
+
+from firewall import builtins as fw_builtins
+
+logger = logging.getLogger("lumin.api.firewall.decide")
+
+
+# ---- valid decision values ------------------------------------------------
+
+VALID_DECISIONS = frozenset({
+    "allow", "block", "flag", "require_approval", "rewrite",
+})
+
+
+# Per-lifecycle wall-clock budget in milliseconds. From §2.4 of the
+# spec: B/C 50ms, D 100ms, E 300ms. post_ingest has no real-time
+# budget but we cap it at 500ms so a runaway condition can't pin a
+# request thread.
+LATENCY_BUDGET_MS: Dict[str, int] = {
+    "before_proxy_call": 50,
+    "after_proxy_call": 300,
+    "before_tool_call": 50,
+    "after_tool_call": 100,
+    "post_ingest": 500,
+}
+
+
+# ---- panic kill-switch ----------------------------------------------------
+
+# In-memory flag flipped by POST /v1/firewall/panic_disable. Persisted
+# to the DB on flip so the state survives restart; the value here is a
+# best-effort cache, refreshed when the panic endpoint runs and on
+# explicit ``refresh_panic_state(db)`` calls.
+_PANIC_DISABLED: bool = False
+_PANIC_REASON: Optional[str] = None
+
+
+def is_panic_disabled() -> bool:
+    return _PANIC_DISABLED
+
+
+def set_panic_disabled(disabled: bool, reason: Optional[str] = None) -> None:
+    """Local toggle. The HTTP endpoint also writes to the DB so a
+    restart picks the state back up via ``refresh_panic_state``."""
+    global _PANIC_DISABLED, _PANIC_REASON
+    _PANIC_DISABLED = bool(disabled)
+    _PANIC_REASON = reason if disabled else None
+
+
+def refresh_panic_state(db: Database) -> None:
+    """Reload the panic flag from DB. Called on startup + after the
+    HTTP handler writes a new state. Errors fall back to disabled=False
+    rather than raising — Rule 7 applies even to our own bookkeeping.
+    """
+    try:
+        row = db.fetchone(
+            "SELECT v FROM firewall_kv WHERE k = ?", ["panic_disabled"]
+        )
+        if row and row[0]:
+            payload = json.loads(row[0]) if isinstance(row[0], str) else row[0]
+            set_panic_disabled(bool(payload.get("disabled")), payload.get("reason"))
+        else:
+            set_panic_disabled(False, None)
+    except Exception:
+        # Table may not exist yet (pre-migration), or row missing.
+        # Either way: leave the flag as-is.
+        pass
+
+
+# ---- core decide ----------------------------------------------------------
+
+
+def decide(
+    db: Database,
+    *,
+    lifecycle: str,
+    tool_name: Optional[str] = None,
+    params: Optional[Dict[str, Any]] = None,
+    trace_id: Optional[str] = None,
+    span_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    agent: Optional[str] = None,
+    project: Optional[str] = None,
+    model: Optional[str] = None,
+    messages: Optional[List[Dict[str, Any]]] = None,
+    output: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """Run the firewall against a single decision request.
+
+    Returns the response dict per spec §5.1. Never raises.
+    """
+    t0 = time.perf_counter()
+    budget_ms = LATENCY_BUDGET_MS.get(lifecycle, 500)
+    deadline = t0 + (budget_ms / 1000.0)
+
+    # ---- Rule 7 fast paths ------------------------------------------------
+    # Panic kill-switch — short-circuit before touching any policy state.
+    if is_panic_disabled():
+        return _allow_response(
+            t0, reason="panic_disabled", panic_reason=_PANIC_REASON
+        )
+
+    if lifecycle not in LATENCY_BUDGET_MS:
+        # Unknown lifecycle = caller bug, not our problem. Allow.
+        return _allow_response(t0, reason=f"unknown_lifecycle:{lifecycle}")
+
+    try:
+        policies = _applicable_policies(db, lifecycle=lifecycle, agent=agent)
+    except Exception:
+        logger.exception("firewall.decide: policy load failed")
+        return _allow_response(t0, reason="internal_error")
+
+    # No applicable rules — fast allow. Skips the simpleeval / history
+    # builtin setup entirely so the cold path stays under 1ms.
+    if not policies:
+        return _allow_response(t0)
+
+    namespace = _build_namespace(
+        tool_name=tool_name,
+        params=params,
+        trace_id=trace_id,
+        span_id=span_id,
+        session_id=session_id,
+        agent=agent,
+        project=project,
+        model=model,
+        messages=messages,
+        output=output,
+    )
+
+    try:
+        funcs = _build_functions(db)
+    except Exception:
+        logger.exception("firewall.decide: function table build failed")
+        return _allow_response(t0, reason="internal_error")
+
+    # Track whether any rule fired in shadow/flag mode so we can
+    # surface a hint in the allow response (the dashboard uses this
+    # to show "would have blocked" badges on traces).
+    shadow_hits: List[Dict[str, Any]] = []
+
+    for policy in policies:
+        # Hard timeout — Rule 7. Better an unblocked agent than a
+        # stuck one.
+        if time.perf_counter() > deadline:
+            logger.warning(
+                "firewall.decide: timeout (%dms budget) at policy %s",
+                budget_ms, policy.name,
+            )
+            _record_decision(
+                db, policy=None, lifecycle=lifecycle,
+                decision="allow", reason=f"timeout_{budget_ms}ms",
+                trace_id=trace_id, span_id=span_id, session_id=session_id,
+                agent=agent, project=project, tool_name=tool_name,
+                duration_ms=_elapsed_ms(t0), mode_at_decision="n/a",
+            )
+            return _allow_response(t0, reason=f"timeout_{budget_ms}ms")
+
+        try:
+            triggered = _evaluate(policy, namespace, funcs)
+        except Exception:
+            logger.exception(
+                "firewall.decide: policy %r evaluation crashed", policy.name
+            )
+            on_err = getattr(policy, "on_internal_error", "allow")
+            if on_err == "deny":
+                # Operator chose deny-on-error for this policy
+                # explicitly — log and treat as a block.
+                decision_id = _record_decision(
+                    db, policy=policy, lifecycle=lifecycle,
+                    decision="block", reason="internal_error",
+                    trace_id=trace_id, span_id=span_id, session_id=session_id,
+                    agent=agent, project=project, tool_name=tool_name,
+                    duration_ms=_elapsed_ms(t0),
+                    mode_at_decision=policy.mode,
+                )
+                return {
+                    "decision": "block",
+                    "policy_id": policy.name,
+                    "policy_name": policy.name,
+                    "reason": "internal_error",
+                    "decision_id": decision_id,
+                    "mode_at_decision": policy.mode,
+                    "duration_ms": _elapsed_ms(t0),
+                }
+            # Default Rule 7: skip and continue.
+            continue
+
+        if not triggered:
+            continue
+
+        # Map policy.action → response decision. Unknown actions =
+        # noop. Cancel/alert (legacy post_ingest actions) get mapped
+        # to flag for synchronous lifecycles so they don't 500.
+        action = (policy.action or "").lower()
+        if action in ("alert", "cancel"):
+            action = "flag"
+        if action == "allow":
+            # Explicit allow short-circuits — record + return.
+            decision_id = _record_decision(
+                db, policy=policy, lifecycle=lifecycle,
+                decision="allow", reason="policy_allow",
+                trace_id=trace_id, span_id=span_id, session_id=session_id,
+                agent=agent, project=project, tool_name=tool_name,
+                duration_ms=_elapsed_ms(t0),
+                mode_at_decision=policy.mode,
+            )
+            return {
+                "decision": "allow",
+                "policy_id": policy.name,
+                "policy_name": policy.name,
+                "reason": policy.description or "policy_allow",
+                "decision_id": decision_id,
+                "mode_at_decision": policy.mode,
+                "duration_ms": _elapsed_ms(t0),
+            }
+
+        if action not in ("block", "flag", "require_approval", "rewrite"):
+            # Unrecognized action — log once and skip.
+            logger.warning(
+                "firewall.decide: policy %r has unknown action %r — skipping",
+                policy.name, policy.action,
+            )
+            continue
+
+        # ---- mode resolution --------------------------------------------
+        # shadow → record and continue (don't return, lower-priority
+        # rules might still want to flag/block in real mode); flag →
+        # always return decision='flag' regardless of action; enforce
+        # → return the policy's action.
+        mode = (policy.mode or "enforce").lower()
+        reason = policy.description or f"policy:{policy.name}"
+
+        if mode == "shadow":
+            decision_id = _record_decision(
+                db, policy=policy, lifecycle=lifecycle,
+                decision=action, reason=reason,
+                trace_id=trace_id, span_id=span_id, session_id=session_id,
+                agent=agent, project=project, tool_name=tool_name,
+                duration_ms=_elapsed_ms(t0),
+                mode_at_decision="shadow",
+            )
+            shadow_hits.append({
+                "policy_id": policy.name,
+                "would_have_been": action,
+                "decision_id": decision_id,
+            })
+            continue
+
+        if mode == "flag":
+            decision_id = _record_decision(
+                db, policy=policy, lifecycle=lifecycle,
+                decision="flag", reason=reason,
+                trace_id=trace_id, span_id=span_id, session_id=session_id,
+                agent=agent, project=project, tool_name=tool_name,
+                duration_ms=_elapsed_ms(t0),
+                mode_at_decision="flag",
+            )
+            return {
+                "decision": "flag",
+                "policy_id": policy.name,
+                "policy_name": policy.name,
+                "reason": reason,
+                "decision_id": decision_id,
+                "mode_at_decision": "flag",
+                "duration_ms": _elapsed_ms(t0),
+            }
+
+        # mode == enforce — first non-allow rule wins.
+        decision_id = _record_decision(
+            db, policy=policy, lifecycle=lifecycle,
+            decision=action, reason=reason,
+            trace_id=trace_id, span_id=span_id, session_id=session_id,
+            agent=agent, project=project, tool_name=tool_name,
+            duration_ms=_elapsed_ms(t0),
+            mode_at_decision="enforce",
+        )
+
+        if action == "require_approval":
+            approval_id = _create_approval(
+                db, decision_id=decision_id, policy=policy,
+                trace_id=trace_id, agent=agent, tool_name=tool_name,
+                params=params,
+            )
+            return {
+                "decision": "require_approval",
+                "policy_id": policy.name,
+                "policy_name": policy.name,
+                "reason": reason,
+                "approval_id": approval_id,
+                "timeout_s": 600,
+                "decision_id": decision_id,
+                "mode_at_decision": "enforce",
+                "duration_ms": _elapsed_ms(t0),
+            }
+
+        if action == "rewrite":
+            rewritten = _redact_for_rewrite(params, output)
+            return {
+                "decision": "rewrite",
+                "rewritten": rewritten,
+                "policy_id": policy.name,
+                "policy_name": policy.name,
+                "reason": reason,
+                "decision_id": decision_id,
+                "mode_at_decision": "enforce",
+                "duration_ms": _elapsed_ms(t0),
+            }
+
+        # action == block | flag
+        return {
+            "decision": action,
+            "policy_id": policy.name,
+            "policy_name": policy.name,
+            "reason": reason,
+            "decision_id": decision_id,
+            "mode_at_decision": "enforce",
+            "duration_ms": _elapsed_ms(t0),
+        }
+
+    # Loop exhausted with no enforce/flag hit. Return allow with any
+    # shadow_hits so the caller (and the dashboard) can show "would
+    # have blocked" telemetry.
+    return _allow_response(t0, shadow_hits=shadow_hits or None)
+
+
+# ---- helpers --------------------------------------------------------------
+
+
+def _applicable_policies(
+    db: Database, *, lifecycle: str, agent: Optional[str]
+) -> List[Policy]:
+    """Read enabled policies matching this lifecycle, agent scope, and
+    not currently tripped. Sort by priority DESC, name ASC.
+
+    The cheap path: a single ``SELECT * FROM policies WHERE enabled
+    AND lifecycle = ? AND circuit_breaker_state = 'ok'``. We can't push
+    the agent-scope check into SQL because scope_agents is JSON-encoded;
+    do it in Python.
+    """
+    rows = db.fetchall_dict(
+        """
+        SELECT * FROM policies
+        WHERE enabled = true
+          AND lifecycle = ?
+          AND circuit_breaker_state = 'ok'
+        """,
+        [lifecycle],
+    )
+    out: List[Policy] = []
+    for r in rows:
+        try:
+            p = policy_store._row_to_policy(r)
+        except Exception:
+            logger.exception(
+                "firewall.decide: skipping malformed policy row %r", r.get("name")
+            )
+            continue
+        if not p.applies_to_agent(agent):
+            continue
+        out.append(p)
+    out.sort(key=lambda p: (-int(getattr(p, "priority", 0) or 0), p.name))
+    return out
+
+
+def _build_namespace(**req: Any) -> Dict[str, Any]:
+    """The simpleeval ``names`` table — what condition expressions can
+    reference. Mirrors what an Input/Output/Tool span sees, so policies
+    written for post_ingest read identically when promoted to a
+    synchronous lifecycle.
+    """
+    params = req.get("params") or {}
+    messages = req.get("messages") or []
+    # Compose a flattened "input text" — convenient for regex builtins
+    # that don't want to walk a nested dict. Joins all string values
+    # in params + last user message.
+    parts: List[str] = []
+    for v in (params or {}).values():
+        if isinstance(v, str):
+            parts.append(v)
+        elif isinstance(v, (list, tuple)):
+            parts.extend(str(x) for x in v if isinstance(x, (str, int, float)))
+    last_user_msg = ""
+    for m in messages:
+        if isinstance(m, dict) and m.get("role") == "user":
+            content = m.get("content")
+            if isinstance(content, str):
+                last_user_msg = content
+            elif isinstance(content, list):
+                for blk in content:
+                    if isinstance(blk, dict) and blk.get("type") == "text":
+                        last_user_msg = blk.get("text", "")
+    output_text = req.get("output") if isinstance(req.get("output"), str) else ""
+
+    return {
+        "Input": _NS({
+            "tool_name": req.get("tool_name"),
+            "params": params,
+            "text": " ".join(parts),
+            "messages": messages,
+            "last_user_msg": last_user_msg,
+            "model": req.get("model"),
+            "agent": req.get("agent"),
+            "project": req.get("project"),
+            "session_id": req.get("session_id"),
+            "trace_id": req.get("trace_id"),
+            "span_id": req.get("span_id"),
+        }),
+        "Output": _NS({
+            "text": output_text,
+            "raw": req.get("output"),
+        }),
+        # Bare names for shorthand expressions like
+        # ``looks_like_secret(text)`` — these resolve to whichever side
+        # of the pipe is the most likely target.
+        "text": " ".join(parts) if parts else (output_text or last_user_msg),
+        "tool_name": req.get("tool_name"),
+        "params": params,
+    }
+
+
+class _NS:
+    """Attribute-access wrapper around a dict — gives policy
+    expressions ``Input.params.command`` semantics without having to
+    teach simpleeval about chained dict lookups.
+
+    Also exposes ``.get(key, default)`` so existing dict-shaped
+    conditions like ``Input.params.get("command", "")`` keep working
+    without rewrites — that pattern is used across the OWASP starter
+    pack and saves operators from having to learn two access styles.
+    """
+
+    def __init__(self, data: Dict[str, Any]) -> None:
+        self._data = data
+
+    def __getattr__(self, name: str) -> Any:
+        if name == "_data":
+            raise AttributeError(name)
+        # ``.get`` is intercepted here rather than defined as a method
+        # so it doesn't shadow a real param/field literally named
+        # ``get`` — vanishingly unlikely, but Rule 7 prefers strict
+        # over clever.
+        if name == "get":
+            return self._data.get
+        v = self._data.get(name)
+        if isinstance(v, dict):
+            return _NS(v)
+        return v
+
+    def __contains__(self, key: object) -> bool:
+        return key in self._data
+
+
+def _build_functions(db: Database) -> Dict[str, Any]:
+    """Whitelisted callables exposed to policy expressions."""
+    funcs: Dict[str, Any] = {
+        "len": len,
+        "str": str,
+        "int": int,
+        "float": float,
+        "abs": abs,
+    }
+    funcs.update(fw_builtins.STATELESS_BUILTINS)
+    funcs.update(fw_builtins.build_history_builtins(db))
+    return funcs
+
+
+def _evaluate(policy: Policy, names: Dict[str, Any], funcs: Dict[str, Any]) -> bool:
+    """Run the policy's condition. Returns True iff the rule fires.
+
+    Empty / missing condition = always fires (lifecycle filtering already
+    narrowed scope, so a policy without a condition is "block all
+    matching this lifecycle/agent/tool").
+    """
+    cond = (policy.condition or "").strip()
+    if not cond:
+        return True
+    from simpleeval import SimpleEval
+    e = SimpleEval(names=names, functions=funcs)
+    result = e.eval(cond)
+    return bool(result)
+
+
+def _record_decision(
+    db: Database,
+    *,
+    policy: Optional[Policy],
+    lifecycle: str,
+    decision: str,
+    reason: str,
+    trace_id: Optional[str],
+    span_id: Optional[str],
+    session_id: Optional[str],
+    agent: Optional[str],
+    project: Optional[str],
+    tool_name: Optional[str],
+    duration_ms: int,
+    mode_at_decision: str,
+) -> str:
+    """Insert a row in `decisions`. Returns the decision_id even when
+    insert fails — caller still wants something to put in the response.
+    """
+    decision_id = "dec_" + uuid.uuid4().hex[:24]
+    try:
+        db.execute(
+            """
+            INSERT INTO decisions (
+                id, policy_id, policy_name, lifecycle, decision,
+                mode_at_decision, reason, trace_id, span_id,
+                session_id, agent, project, tool_name,
+                matched_field, matched_value_truncated,
+                decision_at, duration_ms, metadata
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                decision_id,
+                policy.name if policy else "_engine_",
+                policy.name if policy else "_engine_",
+                lifecycle,
+                decision,
+                mode_at_decision,
+                reason[:500] if reason else None,
+                trace_id, span_id, session_id, agent, project, tool_name,
+                None, None,
+                datetime.now(timezone.utc).replace(tzinfo=None),
+                int(duration_ms),
+                None,
+            ],
+        )
+    except Exception:
+        logger.exception("firewall.decide: failed to insert decision row")
+    return decision_id
+
+
+def _create_approval(
+    db: Database,
+    *,
+    decision_id: str,
+    policy: Policy,
+    trace_id: Optional[str],
+    agent: Optional[str],
+    tool_name: Optional[str],
+    params: Optional[Dict[str, Any]],
+) -> str:
+    """Insert an approvals row in pending state. Caller surfaces the
+    id back to the agent, which long-polls until state flips."""
+    approval_id = "apv_" + uuid.uuid4().hex[:24]
+    on_timeout = getattr(policy, "on_timeout", "allow") or "allow"
+    timeout_s = 600
+    from datetime import timedelta
+    requested_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    timeout_at = requested_at + timedelta(seconds=timeout_s)
+    try:
+        # Truncate params payload — we don't want a massive blob in
+        # the operator inbox view, and DuckDB JSON columns are happier
+        # under 64KB.
+        params_blob = _truncate_params(params)
+        db.execute(
+            """
+            INSERT INTO approvals (
+                id, decision_id, policy_id, trace_id, agent, tool_name,
+                params_truncated, state, requested_at, resolved_at,
+                resolved_by, resolution_reason, timeout_at, on_timeout
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, NULL, NULL,
+                      ?, ?)
+            """,
+            [
+                approval_id, decision_id, policy.name, trace_id, agent,
+                tool_name, params_blob, requested_at, timeout_at, on_timeout,
+            ],
+        )
+    except Exception:
+        logger.exception("firewall.decide: failed to insert approval row")
+    return approval_id
+
+
+def _truncate_params(params: Optional[Dict[str, Any]]) -> Optional[str]:
+    if params is None:
+        return None
+    try:
+        s = json.dumps(params)
+    except Exception:
+        s = str(params)
+    return s[:8192]
+
+
+def _redact_for_rewrite(
+    params: Optional[Dict[str, Any]], output: Any
+) -> Dict[str, Any]:
+    """Default rewrite: redact PII/secrets from string fields. Cheap
+    and conservative — operators who want richer rewrite logic can
+    register custom builtins later."""
+    out: Dict[str, Any] = {}
+    if isinstance(params, dict):
+        out["params"] = {
+            k: fw_builtins.redact_pii(v) if isinstance(v, str) else v
+            for k, v in params.items()
+        } if params else {}
+    if isinstance(output, str):
+        out["result"] = fw_builtins.redact_pii(output)
+    elif output is not None:
+        out["result"] = output
+    return out
+
+
+def _allow_response(
+    t0: float,
+    *,
+    reason: Optional[str] = None,
+    shadow_hits: Optional[List[Dict[str, Any]]] = None,
+    panic_reason: Optional[str] = None,
+) -> Dict[str, Any]:
+    body: Dict[str, Any] = {
+        "decision": "allow",
+        "duration_ms": _elapsed_ms(t0),
+    }
+    if reason:
+        body["reason"] = reason
+    if shadow_hits:
+        body["shadow_hits"] = shadow_hits
+    if panic_reason:
+        body["panic_reason"] = panic_reason
+    return body
+
+
+def _elapsed_ms(t0: float) -> int:
+    return int((time.perf_counter() - t0) * 1000)

@@ -35,7 +35,20 @@ logger = logging.getLogger("lumin.policy")
 
 
 VALID_TRIGGERS = {"span_end", "trace_end"}
-VALID_ACTIONS = {"flag", "alert"}
+# Action vocabulary spans both layers:
+#   - post_ingest (legacy): flag, alert — advisory, recorded as
+#     PolicyViolation rows after the span lands.
+#   - Agent Firewall (per AGENT_FIREWALL_SPEC.md §3.3): allow, block,
+#     flag, require_approval, rewrite — synchronous decisions returned
+#     by /v1/policy/decide for proxy/tool lifecycles.
+# Both vocabularies coexist on the same Policy.action field. The
+# decide engine and the post-ingest engine each interpret only the
+# subset relevant to their lifecycle; cross-vocab misuse is caught
+# at validation time in the firewall path.
+VALID_ACTIONS = {
+    "flag", "alert",
+    "allow", "block", "require_approval", "rewrite",
+}
 VALID_SEVERITIES = {"low", "medium", "high", "critical"}
 
 
@@ -213,6 +226,19 @@ def _validate_policy_dict(d: dict, idx: int) -> Policy:
 
     scope_agents = _parse_scope_agents(d, idx)
 
+    # Agent Firewall fields (per AGENT_FIREWALL_SPEC.md §3) — all
+    # optional with safe defaults. Validation is intentionally permissive
+    # here: bad values fall back to defaults rather than rejecting the
+    # whole policy file, since legacy YAML pre-dates these fields.
+    lifecycle = d.get("lifecycle") or "post_ingest"
+    mode = d.get("mode") or "enforce"
+    try:
+        priority = int(d.get("priority") or 0)
+    except (TypeError, ValueError):
+        priority = 0
+    on_timeout = d.get("on_timeout") or "allow"
+    on_internal_error = d.get("on_internal_error") or "allow"
+
     return Policy(
         name=str(d["name"]),
         description=d.get("description"),
@@ -222,6 +248,11 @@ def _validate_policy_dict(d: dict, idx: int) -> Policy:
         severity=severity,
         webhook_url=d.get("webhook_url"),
         scope_agents=scope_agents,
+        lifecycle=lifecycle,
+        mode=mode,
+        priority=priority,
+        on_timeout=on_timeout,
+        on_internal_error=on_internal_error,
     )
 
 

@@ -8,7 +8,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 import policy_runtime
 from db import Database, get_db
-from routers import agents, evals, otlp, policy, proxy, sessions, spans, traces
+from routers import agents, evals, firewall, otlp, policy, proxy, sessions, spans, traces
 from ws import manager as ws_manager
 
 logger = logging.getLogger("lumin.api")
@@ -131,6 +131,21 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     except Exception:
         logger.exception("policy bootstrap failed (continuing — engine falls back to YAML)")
 
+    # Agent Firewall — auto-install the OWASP LLM Top 10 starter pack
+    # the first time the API comes up against an empty policies table.
+    # All rules ship in mode=shadow per §10.1 of AGENT_FIREWALL_SPEC.md
+    # so a fresh install never blocks live traffic on day one.
+    try:
+        from firewall.starter_packs import bootstrap as _starter
+        installed = _starter.install_owasp_pack_if_fresh(get_db())
+        if installed:
+            logger.info(
+                "firewall: starter pack imported %d OWASP rules (shadow mode)",
+                installed,
+            )
+    except Exception:
+        logger.exception("firewall starter pack install failed (continuing)")
+
     # Eagerly load the policy engine at startup so metrics/snapshot
     # reflect "loaded N policies" without waiting for the first ingest.
     # Errors fall through to the in-process logger; we don't fail
@@ -139,6 +154,16 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         policy_runtime.get_engine()
     except Exception:
         logger.exception("policy engine eager-load failed (continuing)")
+
+    # Pull the firewall panic-disable bit forward across restarts so
+    # an operator who flipped the kill-switch yesterday isn't surprised
+    # by a hot engine after a deploy. Best-effort: a missing table or
+    # row leaves the cached flag at False, which is the right default.
+    try:
+        from firewall import decide as _fw_decide
+        _fw_decide.refresh_panic_state(get_db())
+    except Exception:
+        logger.exception("firewall panic state refresh failed (continuing)")
 
     policy_watch_task: asyncio.Task[None] | None = None
     if _policy_watch_enabled():
@@ -209,6 +234,7 @@ app.include_router(policy.router)
 app.include_router(agents.router)
 app.include_router(otlp.router)
 app.include_router(proxy.router)
+app.include_router(firewall.router)
 
 
 @app.get("/health")
