@@ -20,3 +20,12 @@ pyyaml>=6.0
 # OpenLLMetry, etc.) without requiring the Lumin SDK. Stable since
 # 1.30; pinned to a recent minor to keep proto bindings consistent.
 opentelemetry-proto>=1.30
+# OPTIONAL — Microsoft Presidio for semantic PII detection (Tier 2.1
+# of the firewall slice plan). Brings spaCy + a language model
+# (~500MB resident on first use). Operators who don't need semantic
+# PII (or are happy with the regex_pack shape detection) can leave
+# this uninstalled — the firewall.detectors.presidio module degrades
+# gracefully (``available = False``, score → 0.0). Activate by:
+#     pip install 'presidio-analyzer>=2.2.0'
+#     python -m spacy download en_core_web_lg
+# presidio-analyzer>=2.2.0

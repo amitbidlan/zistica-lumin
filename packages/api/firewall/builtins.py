@@ -38,6 +38,7 @@ from typing import Any, Callable, Dict, Optional
 from urllib.parse import urlparse
 
 from firewall.detectors import regex_pack as rp
+from firewall.detectors import presidio as presidio_det
 
 logger = logging.getLogger("lumin.api.firewall.builtins")
 
@@ -137,6 +138,23 @@ def looks_like_secret(s: Optional[str]) -> bool:
 
 def has_pii(s: Optional[str]) -> bool:
     return rp.has_pii(s)
+
+
+def presidio_pii_score(s: Optional[str]) -> float:
+    """Semantic PII confidence score (0.0–1.0) via Microsoft Presidio.
+
+    Returns 0.0 when presidio isn't installed — that's the expected
+    state for operators who don't opt into the heavier ML deps.
+    See ``firewall.detectors.presidio`` for the entity allow-list.
+    """
+    return presidio_det.presidio_pii_score(s)
+
+
+def presidio_pii_entities(s: Optional[str]) -> list:
+    """List of ``{entity_type, score, start, end}`` dicts for every
+    PII entity Presidio detected. Empty list when presidio isn't
+    installed or no entity matched."""
+    return presidio_det.presidio_pii_entities(s)
 
 
 def has_image_markdown_exfil(s: Optional[str]) -> bool:
@@ -566,6 +584,9 @@ STATELESS_BUILTINS: Dict[str, Callable] = {
     "has_pii": has_pii,
     "has_image_markdown_exfil": has_image_markdown_exfil,
     "has_ascii_smuggling": has_ascii_smuggling,
+    # Detectors (presidio — optional, returns 0.0 / [] when not installed)
+    "presidio_pii_score": presidio_pii_score,
+    "presidio_pii_entities": presidio_pii_entities,
     # Sanitisation
     "redact_pii": redact_pii,
     # Cross-framework tool name canonicalization (Slice 2 Tier 1.1).

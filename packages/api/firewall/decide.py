@@ -34,10 +34,12 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 import uuid
+from collections import deque
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Deque, Dict, List, Optional, Tuple
 
 from lumin.policy import Policy
 
@@ -200,6 +202,119 @@ def refresh_panic_state(db: Database) -> None:
         # Table may not exist yet (pre-migration), or row missing.
         # Either way: leave the flag as-is.
         pass
+
+
+# ---- auto circuit breaker (Tier 4.1) -------------------------------------
+#
+# Track per-policy fire counts in a rolling 60-second window. When a
+# single policy fires more than ``_AUTO_TRIP_FIRES_PER_MINUTE`` times
+# in 60s, flip its ``circuit_breaker_state`` to 'tripped' so subsequent
+# evaluations skip it. The trip is sticky until an operator un-trips
+# the policy via the dashboard / API — we don't auto-reset, because a
+# rule that fires 100+/min is by definition broken or under attack
+# and a human needs to look.
+#
+# Set ``LUMIN_AUTO_TRIP_FIRES_PER_MINUTE=0`` to disable the auto-trip
+# entirely (operators may want this when running a known-noisy rule
+# in shadow mode while gathering tuning data).
+
+_AUTO_TRIP_FIRES_PER_MINUTE = int(
+    os.environ.get("LUMIN_AUTO_TRIP_FIRES_PER_MINUTE", "100")
+)
+
+# In-memory tracker. Keyed by policy.name → deque of monotonic
+# timestamps (seconds). Each fire appends ``time.time()``; entries
+# older than 60s are trimmed lazily on each track / check call.
+_RULE_FIRE_RATES: Dict[str, Deque[float]] = {}
+
+
+def _now_seconds() -> float:
+    """Wall-clock time, monkeypatchable in tests."""
+    return time.time()
+
+
+def _track_fire(policy_name: str) -> None:
+    """Record that ``policy_name`` just fired. Trims the window to the
+    most recent 60 seconds.
+    """
+    if not policy_name:
+        return
+    now = _now_seconds()
+    cutoff = now - 60.0
+    dq = _RULE_FIRE_RATES.get(policy_name)
+    if dq is None:
+        dq = deque()
+        _RULE_FIRE_RATES[policy_name] = dq
+    dq.append(now)
+    # Trim old entries — pop from the left while the oldest is stale.
+    while dq and dq[0] < cutoff:
+        dq.popleft()
+
+
+def _check_circuit_breaker(policy_name: str) -> bool:
+    """Return True iff ``policy_name`` has fired more than
+    ``_AUTO_TRIP_FIRES_PER_MINUTE`` times in the last 60 seconds and
+    should be auto-tripped.
+
+    Returns False when the threshold env var is 0 (auto-trip disabled).
+    """
+    if _AUTO_TRIP_FIRES_PER_MINUTE <= 0:
+        return False
+    if not policy_name:
+        return False
+    dq = _RULE_FIRE_RATES.get(policy_name)
+    if not dq:
+        return False
+    # Trim before counting so a stale window doesn't trigger a false
+    # trip after a long quiet period.
+    cutoff = _now_seconds() - 60.0
+    while dq and dq[0] < cutoff:
+        dq.popleft()
+    return len(dq) > _AUTO_TRIP_FIRES_PER_MINUTE
+
+
+def _maybe_auto_trip(db: Database, policy_name: str) -> None:
+    """Track + check + (if breached) flip the policy's circuit_breaker_state
+    to 'tripped' in the DB. Errors are logged and swallowed — Rule 7."""
+    try:
+        _track_fire(policy_name)
+        if not _check_circuit_breaker(policy_name):
+            return
+        # Threshold breached: trip.
+        try:
+            policy_store.update_policy(
+                db, policy_name, circuit_breaker_state="tripped"
+            )
+        except Exception:
+            # Don't crash the engine if the DB write fails — log and
+            # continue. The next call will re-attempt because the
+            # rolling window still has the over-threshold count.
+            logger.exception(
+                "firewall.decide: failed to persist auto-trip for policy %r",
+                policy_name,
+            )
+            return
+        n = len(_RULE_FIRE_RATES.get(policy_name, ()))
+        logger.warning(
+            "auto-tripped policy %s — fired %d times in the last minute",
+            policy_name, n,
+        )
+        # Clear the deque so we don't re-trip on every call after the
+        # threshold (the policy is already tripped; the next decide()
+        # will skip it via _applicable_policies).
+        _RULE_FIRE_RATES.pop(policy_name, None)
+    except Exception:
+        logger.exception(
+            "firewall.decide: auto-trip bookkeeping crashed for policy %r",
+            policy_name,
+        )
+
+
+def reset_fire_rate_tracker_for_tests() -> None:
+    """Clear the per-policy fire-rate tracker. Tests must call this
+    between cases so fires from a previous test don't leak into the
+    next one's window."""
+    _RULE_FIRE_RATES.clear()
 
 
 # ---- agent_feedback helper (Slice 2 Tier 1.5(a)) -------------------------
@@ -473,6 +588,13 @@ def decide(
                 policy.name, policy.action,
             )
             continue
+
+        # Auto circuit breaker — Tier 4.1. Track this fire and, if the
+        # policy has fired too often in the last 60s, flip it to
+        # 'tripped' in the DB. The trip applies to *subsequent* calls
+        # (this call's decision is honored). _applicable_policies
+        # already filters out tripped policies on the next request.
+        _maybe_auto_trip(db, policy.name)
 
         # ---- mode resolution --------------------------------------------
         # shadow → record and continue (don't return, lower-priority

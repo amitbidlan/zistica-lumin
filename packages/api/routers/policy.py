@@ -548,6 +548,9 @@ _ALLOWED_FUNCTIONS = frozenset({
     # Cross-framework tool name canonicalization (Slice 2 Tier 1.1).
     "is_shell_tool", "is_web_fetch_tool", "is_db_write_tool",
     "is_filesystem_tool",
+    # Presidio (Slice 2 Tier 2.1; optional dep — gracefully returns
+    # 0.0 / [] when presidio-analyzer isn't installed)
+    "presidio_pii_score", "presidio_pii_entities",
     # History-backed (registered per-request via build_history_builtins)
     "session_total_tokens", "session_total_cost",
     "trace_total_cost", "tool_calls_in_trace",
