@@ -38,12 +38,18 @@ export function isChatShapedTrace(trace: Trace, spans: Span[]): boolean {
   }
   // Trace-level metadata fallback (the trace row's own metadata).
   if (looksChatShapedFromMetadata(trace.metadata)) return true;
-  // Heuristic: a spans list with an openclaw-prefixed span name and
-  // a session_id is chat-shaped even if the metadata didn't survive.
+  // Heuristic: openclaw-prefixed span + session_id, AND the trace has
+  // at least one LLM span. Without that last constraint, tool-only
+  // traces (a tool call without a model turn) get routed to ChatView,
+  // which then has no user-prompt source to render and falls back to
+  // showing tool JSON as a chat message — rubbish UX. Tool-only
+  // traces fall through to the task-shape default panels which render
+  // the tool params/result correctly.
   const hasOpenClawSpan = spans.some(
     (s) => (s.name ?? '').startsWith('openclaw'),
   );
-  if (hasOpenClawSpan && trace.session_id) return true;
+  const hasLlmSpan = spans.some((s) => s.type === 'llm');
+  if (hasOpenClawSpan && trace.session_id && hasLlmSpan) return true;
   return false;
 }
 

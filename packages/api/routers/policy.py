@@ -225,19 +225,30 @@ def list_policies(
     """
     source = policy_runtime.engine_source()
 
-    if source == "db":
-        rows = db.fetchall_dict(
+    # DB is authoritative for storage of every policy regardless of
+    # which engine evaluates it. The SDK PolicyEngine handles
+    # post_ingest rules; firewall.decide handles synchronous
+    # lifecycles (before_proxy_call, before_tool_call, …). Both
+    # read from the same `policies` table. If the table has any
+    # rows (enabled OR disabled — soft-deleted ones still mean
+    # the DB is the source of truth), it's authoritative; the
+    # YAML-engine fallback only kicks in for the very-fresh case
+    # where bootstrap hasn't written anything yet.
+    has_any = bool(policy_store.has_any_policies(db))
+    if has_any:
+        db_rows = db.fetchall_dict(
             "SELECT * FROM policies WHERE enabled = true ORDER BY name"
         )
         out: list[PolicyOut] = []
-        for r in rows:
+        for r in db_rows:
             p = policy_store._row_to_policy(r)
             if agent and not p.applies_to_agent(agent):
                 continue
             out.append(_policy_to_out(p, source="db", version=int(r.get("version") or 1)))
         return PolicyListResponse(policies=out, source="db", engine_loaded=True)
 
-    # YAML source (or fallback)
+    # Empty `policies` table — fall through to the YAML-loaded
+    # engine snapshot.
     eng = policy_runtime.get_engine()
     if eng is None:
         return PolicyListResponse(policies=[], source="none", engine_loaded=False)
@@ -253,13 +264,14 @@ def list_policies(
 def get_policy(name: str, db: Database = Depends(get_db)) -> PolicyOut:
     """Single policy by name. DB row when DB-backed, else from the
     in-memory YAML engine state."""
+    # Same DB-first logic as the list endpoint: a firewall-only
+    # policy is still a real, persisted, viewable rule even though
+    # the SDK PolicyEngine source is "none".
     source = policy_runtime.engine_source()
-    if source == "db":
-        row = db.fetchone_dict(
-            "SELECT * FROM policies WHERE name = ? AND enabled = true", [name]
-        )
-        if row is None:
-            raise HTTPException(status_code=404, detail=f"policy '{name}' not found")
+    row = db.fetchone_dict(
+        "SELECT * FROM policies WHERE name = ? AND enabled = true", [name]
+    )
+    if row is not None:
         return _policy_to_out(
             policy_store._row_to_policy(row),
             source="db",
@@ -267,7 +279,7 @@ def get_policy(name: str, db: Database = Depends(get_db)) -> PolicyOut:
         )
     eng = policy_runtime.get_engine()
     if eng is None:
-        raise HTTPException(status_code=404, detail="engine not loaded")
+        raise HTTPException(status_code=404, detail=f"policy '{name}' not found")
     for p in eng.policies:
         if p.name == name:
             return _policy_to_out(p, source=source)
