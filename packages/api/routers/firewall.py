@@ -938,3 +938,38 @@ def replay_endpoint(
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ---- Rule unit-test harness (Slice 3 PR N — §14.3) -----------------------
+#
+# Operators write per-rule test cases as YAML / JSON. The dashboard's
+# "Run tests" button on the policy editor POSTs the parsed structure
+# here; CI integrations call it via curl with the file contents.
+
+
+class TestSuiteRequest(BaseModel):
+    """Body for POST /v1/firewall/test/cases. The shape mirrors the
+    on-disk YAML format documented in firewall.test_runner."""
+    policy: str
+    tests: List[Dict[str, Any]]
+
+
+@router.post("/v1/firewall/test/cases")
+def run_test_cases_endpoint(
+    payload: TestSuiteRequest, db: Database = Depends(get_db)
+) -> Dict[str, Any]:
+    """Run a rule unit-test suite against the current engine.
+
+    Returns ``{policy, total, passed, failed, results: [...]}``. Each
+    result has ``name``, ``passed``, and (on failure) ``expected``,
+    ``actual``, ``actual_policy``, ``actual_reason``. Caller compares
+    ``failed > 0`` against zero for a pass/fail signal.
+
+    400 on malformed suite (missing policy / tests / expect)."""
+    from firewall import test_runner as fw_runner
+    try:
+        return fw_runner.run_test_suite(
+            db, {"policy": payload.policy, "tests": payload.tests}
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
