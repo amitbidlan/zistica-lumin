@@ -61,6 +61,25 @@ policies:
     action: block
     severity: high
 
+  # LLM01 — Indirect prompt injection (tool output)
+  # IPI is the canonical attack on RAG / agentic systems: malicious
+  # text planted in fetched pages, search results, ticket bodies,
+  # or other tool output that the model treats as instructions on
+  # the next turn. The sniffer wraps Prompt Guard 2 with HTML
+  # stripping + ASCII smuggling + multi-passage scoring — runs at
+  # after_tool_call (the only place we can intercept before the
+  # model sees the data). action=rewrite redacts the matched
+  # passages but keeps the rest of the tool result intact.
+  - name: owasp_llm01_indirect_prompt_injection
+    description: Rewrite tool results that contain indirect prompt injection markers or trigger Prompt Guard 2 above 0.7. Always-on heuristic floor; promotes to ML when Prompt Guard 2 is installed.
+    lifecycle: after_tool_call
+    mode: shadow
+    priority: 90
+    trigger: span_end
+    condition: ipi_unsafe(Output.text)
+    action: rewrite
+    severity: high
+
   # LLM02 — Sensitive Information Disclosure
   # Catches secret-shaped strings + canonical PII in model output.
   - name: owasp_llm02_secret_disclosure
