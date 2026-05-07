@@ -777,3 +777,30 @@ def list_suggestions(
             "source_violation_id": r.get("source_violation_id"),
         })
     return {"suggestions": out, "total": len(out)}
+
+
+# ---- drift detection (§15.3 — Slice 3 PR F) -----------------------------
+
+
+@router.post("/v1/firewall/drift/run")
+def run_drift(db: Database = Depends(get_db)) -> Dict[str, Any]:
+    """Manual trigger — detect drift now. Returns alerts created."""
+    from firewall import drift as fw_drift
+    return fw_drift.detect_drift(db)
+
+
+@router.get("/v1/firewall/drift/alerts")
+def list_drift_alerts(
+    limit: int = Query(50, ge=1, le=200),
+    db: Database = Depends(get_db),
+) -> Dict[str, Any]:
+    """Recent drift alerts. Used by the dashboard banner."""
+    from firewall import drift as fw_drift
+    return {"alerts": fw_drift.list_recent_alerts(db, limit=limit)}
+
+
+@router.post("/v1/firewall/drift/alerts/{alert_id}/acknowledge")
+def ack_drift_alert(alert_id: str, db: Database = Depends(get_db)) -> Dict[str, Any]:
+    from firewall import drift as fw_drift
+    fw_drift.acknowledge_alert(db, alert_id)
+    return {"id": alert_id, "acknowledged": True}
