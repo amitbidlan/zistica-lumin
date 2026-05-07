@@ -351,6 +351,49 @@ export async function fetchPanicState(): Promise<PanicState> {
   return fetcher(`/v1/firewall/panic_disable`);
 }
 
+
+// ---- Approvals (§5.6 / §5.7) ---------------------------------------------
+
+export async function fetchApprovals(params: {
+  state?: string;
+  project?: string;
+  agent?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<ApprovalsListResponse> {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== '') q.set(k, String(v));
+  }
+  const path = `/v1/approvals${q.toString() ? `?${q}` : ''}`;
+  return fetcher(path);
+}
+
+export async function fetchApproval(id: string): Promise<ApprovalRow> {
+  return fetcher(`/v1/approvals/${encodeURIComponent(id)}`);
+}
+
+export async function resolveApproval(
+  id: string,
+  resolution: 'allow' | 'deny',
+  reason?: string,
+  resolver?: string,
+): Promise<{ id: string; state: string; resolved_at: string }> {
+  const res = await fetch(
+    `${API_BASE}/v1/approvals/${encodeURIComponent(id)}/resolve`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resolution, reason, resolver }),
+    },
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Resolve failed: HTTP ${res.status} ${text}`);
+  }
+  return res.json();
+}
+
 export async function setPanicDisabled(
   disabled: boolean, reason?: string, actor?: string,
 ): Promise<{ disabled: boolean; reason: string | null; updated_at: string; updated_by: string | null }> {

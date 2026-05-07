@@ -487,8 +487,13 @@ class PolicyEngine:
         # 18k spans/sec that's 50% headroom for free, and the per-call
         # work becomes proportional to operator count not condition
         # length. Catches syntax errors at load time too.
-        from simpleeval import SimpleEval
-        _parser = SimpleEval(functions=dict(_SAFE_FUNCTIONS))
+        # EvalWithCompoundTypes supports list/dict/set literals + the
+        # `in` operator. Lets operators author conditions like
+        # ``span.model in ["gpt-4o", "claude-sonnet-4"]`` instead of
+        # OR-chains. Same security model — function whitelist still
+        # gates what's callable.
+        from simpleeval import EvalWithCompoundTypes
+        _parser = EvalWithCompoundTypes(functions=dict(_SAFE_FUNCTIONS))
         self._compiled: List[tuple] = []
         for p in self._policies:
             try:
@@ -536,13 +541,15 @@ class PolicyEngine:
     def _make_evaluator():
         """Build a fresh simpleeval evaluator per call.
 
-        SimpleEval is stateful (caches names) so we don't reuse one
-        evaluator across spans — but we DO reuse one per evaluation
-        within a single call.
+        EvalWithCompoundTypes (vs plain SimpleEval) is stateful
+        (caches names) so we don't reuse one evaluator across
+        spans — but we DO reuse one per evaluation within a single
+        call. The compound-types variant unlocks list/set/dict
+        literals + `in` operator, used widely in firewall rules.
         """
-        from simpleeval import SimpleEval
+        from simpleeval import EvalWithCompoundTypes
 
-        ev = SimpleEval(functions=dict(_SAFE_FUNCTIONS))
+        ev = EvalWithCompoundTypes(functions=dict(_SAFE_FUNCTIONS))
         return ev
 
     def evaluate_span(

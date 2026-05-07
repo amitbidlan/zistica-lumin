@@ -465,12 +465,106 @@ def build_history_builtins(db) -> Dict[str, Callable]:
 
 
 # ---------------------------------------------------------------------------
+# Cross-framework tool name detection (Slice 2 Tier 1.1)
+# ---------------------------------------------------------------------------
+#
+# Different agent frameworks use different names for the same
+# capability. Slice 1 dogfood caught this concretely: an OWASP rule
+# matched ``tool_name == "shell"`` but OpenClaw's actual tool is
+# named ``exec`` — the rule silently never fired. These builtins
+# canonicalize across the common framework vocabularies so operators
+# can write ``is_shell_tool()`` once and not maintain a manually-
+# updated list of every tool name across every integration.
+#
+# When adding a new framework: extend the relevant set below. Names
+# are lowercased on lookup so casing differences don't matter.
+
+_SHELL_TOOL_NAMES = frozenset({
+    # OpenClaw
+    "exec",
+    # Generic / many frameworks
+    "shell", "bash", "sh", "terminal", "system",
+    # Mastra / VoltAgent / LangChain conventions
+    "run_command", "execute_command", "run_shell", "shell_exec",
+    # Code-interpreter style (executes shell-like code)
+    "code_exec", "code_interpreter", "python_repl", "python_exec",
+})
+
+_WEB_FETCH_TOOL_NAMES = frozenset({
+    # OpenClaw / common
+    "fetch", "http_fetch", "web_fetch", "http_get", "http_request",
+    # LangChain / LlamaIndex
+    "requests_get", "requests_post", "url_fetch",
+    # cURL-named wrappers
+    "curl",
+    # Search-engine wrappers (often hit external URLs)
+    "brave_search", "google_search", "duckduckgo_search", "web_search",
+})
+
+_DB_WRITE_TOOL_NAMES = frozenset({
+    # SQL execution wrappers
+    "sql_exec", "sql_query", "execute_sql", "db_execute",
+    "postgres_query", "mysql_query", "sqlite_exec",
+    # NoSQL
+    "mongo_write", "redis_set", "redis_del",
+    # ORM-style
+    "db_write", "model_create", "model_update", "model_delete",
+})
+
+_FILESYSTEM_TOOL_NAMES = frozenset({
+    "fs_write", "fs_read", "file_write", "file_read",
+    "write_file", "read_file", "edit_file", "create_file", "delete_file",
+    # OpenClaw uses "edit" for the canvas/editor tool — included
+    # here because it can write to disk
+    "edit",
+})
+
+
+def is_shell_tool(name: Optional[str]) -> bool:
+    """True when the tool name is a known shell / command-execution
+    tool across any supported framework. Used by firewall rules
+    that want to gate on "anything that runs an arbitrary command"
+    without enumerating every framework's flavor."""
+    if not isinstance(name, str):
+        return False
+    return name.strip().lower() in _SHELL_TOOL_NAMES
+
+
+def is_web_fetch_tool(name: Optional[str]) -> bool:
+    """True for HTTP/URL-fetching tools across frameworks. Used in
+    SSRF / data-exfil rules that want to gate on the "agent is
+    reaching outside the host" capability."""
+    if not isinstance(name, str):
+        return False
+    return name.strip().lower() in _WEB_FETCH_TOOL_NAMES
+
+
+def is_db_write_tool(name: Optional[str]) -> bool:
+    """True for tools that mutate a database. Used by rules guarding
+    against destructive SQL (DROP, DELETE without WHERE, TRUNCATE)
+    or unauthorized model-CRUD."""
+    if not isinstance(name, str):
+        return False
+    return name.strip().lower() in _DB_WRITE_TOOL_NAMES
+
+
+def is_filesystem_tool(name: Optional[str]) -> bool:
+    """True for tools that read or write files outside the shell
+    capability. Useful when a rule wants to catch ``write_file
+    /etc/passwd`` patterns without enumerating shell commands."""
+    if not isinstance(name, str):
+        return False
+    return name.strip().lower() in _FILESYSTEM_TOOL_NAMES
+
+
+# ---------------------------------------------------------------------------
 # Stateless builtins map
 # ---------------------------------------------------------------------------
 #
 # Merged with ``build_history_builtins(db)`` to produce the full
-# ``functions=`` argument for ``simpleeval.SimpleEval``. The decision
-# engine (Slice 1 task §37) does this merge per evaluation.
+# ``functions=`` argument for ``simpleeval.EvalWithCompoundTypes``.
+# The decision engine (Slice 1 task §37) does this merge per
+# evaluation.
 
 STATELESS_BUILTINS: Dict[str, Callable] = {
     # Core string / regex
@@ -495,6 +589,13 @@ STATELESS_BUILTINS: Dict[str, Callable] = {
     "presidio_pii_entities": presidio_pii_entities,
     # Sanitisation
     "redact_pii": redact_pii,
+    # Cross-framework tool name canonicalization (Slice 2 Tier 1.1).
+    # Operators write ``is_shell_tool()`` once instead of
+    # ``tool_name in ["exec","shell","bash","sh","terminal",...]``.
+    "is_shell_tool": is_shell_tool,
+    "is_web_fetch_tool": is_web_fetch_tool,
+    "is_db_write_tool": is_db_write_tool,
+    "is_filesystem_tool": is_filesystem_tool,
 }
 
 
