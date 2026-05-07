@@ -34,6 +34,7 @@ import policy_store
 from db import Database, get_db
 
 from firewall import decide as fw_decide
+from firewall import suggester as fw_suggester
 from firewall.templates import loader as fw_templates
 from models import TemplateInstantiateRequest
 
@@ -593,6 +594,133 @@ def instantiate_template(
         "description": saved.description,
         "template_id": template_id,
     }
+
+
+# ---- labels  (§5.8 — Slice 3 PR C foundation) ---------------------------
+
+
+class LabelRequest(BaseModel):
+    """Body for POST /v1/labels — operator marks a trace/span as bad/good
+    for downstream classifier training and false-positive review."""
+    trace_id: Optional[str] = None
+    span_id: Optional[str] = None
+    decision_id: Optional[str] = None
+    field: str = Field(..., description="One of: input, output, tool_params, tool_result")
+    label: str = Field(..., description="One of: bad, good, neutral")
+    category: Optional[str] = None
+    notes: Optional[str] = None
+    labeled_by: Optional[str] = "dashboard"
+
+
+@router.post("/v1/labels")
+def post_label(payload: LabelRequest, db: Database = Depends(get_db)) -> Dict[str, Any]:
+    """Insert a label row. Used by the dashboard's 'Mark as false
+    positive' button on /decisions/{id}, and as the substrate for
+    the local classifier trainer (Slice 4)."""
+    if payload.label not in ("bad", "good", "neutral"):
+        raise HTTPException(status_code=400, detail="label must be bad/good/neutral")
+    if payload.field not in ("input", "output", "tool_params", "tool_result"):
+        raise HTTPException(
+            status_code=400,
+            detail="field must be one of: input, output, tool_params, tool_result",
+        )
+    import uuid as _uuid
+    label_id = "lbl_" + _uuid.uuid4().hex[:24]
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    try:
+        db.execute(
+            """
+            INSERT INTO labels (
+                id, trace_id, span_id, field, label, category, notes,
+                labeled_by, labeled_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                label_id, payload.trace_id, payload.span_id,
+                payload.field, payload.label, payload.category,
+                payload.notes, payload.labeled_by or "dashboard", now,
+            ],
+        )
+    except Exception:
+        logger.exception("firewall: failed to insert label row")
+        raise HTTPException(status_code=500, detail="label insert failed")
+    return {
+        "id": label_id,
+        "label": payload.label,
+        "labeled_at": now.isoformat(),
+    }
+
+
+# ---- pattern suggester (§5.5 — Slice 3 PR D) ----------------------------
+
+
+class SuggestRequest(BaseModel):
+    """Body for POST /v1/policies/suggest. Operator clicks "Block this
+    pattern" on a fired decision; we synthesize a draft policy."""
+    decision_id: str
+
+
+class PromoteSuggestionRequest(BaseModel):
+    """Body for POST /v1/policies/suggest/{id}/promote. The operator
+    can rename the policy at promotion time — the auto-generated name
+    is fine but operators usually want something descriptive."""
+    name: str
+
+
+@router.post("/v1/policies/suggest")
+def suggest_policy(payload: SuggestRequest, db: Database = Depends(get_db)) -> Dict[str, Any]:
+    """Generate a draft policy from a fired decision. Persists the
+    suggestion in the pattern_suggestions table so operators can
+    revisit / dismiss / promote later."""
+    try:
+        return fw_suggester.suggest_from_decision(db, payload.decision_id)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/v1/policies/suggest/{suggestion_id}")
+def get_suggestion(suggestion_id: str, db: Database = Depends(get_db)) -> Dict[str, Any]:
+    out = fw_suggester.get_suggestion(db, suggestion_id)
+    if out is None:
+        raise HTTPException(status_code=404, detail=f"suggestion {suggestion_id!r} not found")
+    return out
+
+
+@router.post("/v1/policies/suggest/{suggestion_id}/promote")
+def promote_suggestion(
+    suggestion_id: str,
+    payload: PromoteSuggestionRequest,
+    db: Database = Depends(get_db),
+) -> Dict[str, Any]:
+    """Promote a suggestion into a real policy. Lands in mode=shadow."""
+    try:
+        saved = fw_suggester.promote_suggestion(db, suggestion_id, payload.name.strip())
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+    # Reload engine so the new rule is live.
+    try:
+        policy_runtime.reload_engine(db=db)
+    except Exception:
+        logger.exception("suggester: post-promote reload failed")
+
+    return {
+        "name": saved.name,
+        "lifecycle": getattr(saved, "lifecycle", "post_ingest"),
+        "mode": getattr(saved, "mode", "shadow"),
+        "action": saved.action,
+        "severity": saved.severity,
+        "condition": saved.condition,
+        "suggestion_id": suggestion_id,
+    }
+
+
+@router.post("/v1/policies/suggest/{suggestion_id}/dismiss")
+def dismiss_suggestion(suggestion_id: str, db: Database = Depends(get_db)) -> Dict[str, Any]:
+    fw_suggester.dismiss_suggestion(db, suggestion_id)
+    return {"id": suggestion_id, "dismissed": True}
 
 
 # ---- frequent-pattern miner (§11.3 — Slice 3 PR E) ----------------------

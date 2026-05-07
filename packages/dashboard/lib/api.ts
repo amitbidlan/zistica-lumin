@@ -226,6 +226,113 @@ export const fetcher = async (path: string) => {
 };
 
 
+// ---- Agent Firewall — rule templates (Slice 3 Tier 1.05 dashboard) -----
+
+export type TemplateField = {
+  id: string;
+  label: string;
+  hint?: string;
+  type: 'multi-select' | 'select' | 'text' | 'number';
+  default?: unknown;
+  required?: boolean;
+  // multi-select / select
+  choices?: Array<{ id: string; label: string; value?: string }>;
+};
+
+export type TemplateSummary = {
+  id: string;
+  name: string;
+  icon?: string;
+  summary?: string;
+  category?: string;
+  field_count: number;
+};
+
+export type TemplateDetail = {
+  id: string;
+  name: string;
+  icon?: string;
+  summary?: string;
+  category?: string;
+  fields: TemplateField[];
+  defaults?: Record<string, unknown>;
+  condition?: string;
+  description?: string;
+};
+
+export type TemplateInstantiateResponse = {
+  name: string;
+  lifecycle: string;
+  mode: string;
+  action: string;
+  severity: string;
+  condition: string;
+  description: string;
+  template_id: string;
+};
+
+export async function fetchTemplates(): Promise<{ templates: TemplateSummary[] }> {
+  return fetcher('/v1/firewall/templates');
+}
+
+export async function fetchTemplateDetail(id: string): Promise<TemplateDetail> {
+  return fetcher(`/v1/firewall/templates/${encodeURIComponent(id)}`);
+}
+
+export async function instantiateTemplate(
+  templateId: string,
+  body: { name: string; field_values: Record<string, unknown>; mode?: string },
+): Promise<TemplateInstantiateResponse> {
+  const res = await fetch(
+    `${API_BASE}/v1/firewall/templates/${encodeURIComponent(templateId)}/instantiate`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    let detail = text;
+    try {
+      detail = JSON.parse(text).detail ?? text;
+    } catch {}
+    throw new Error(`HTTP ${res.status}: ${detail}`);
+  }
+  return res.json();
+}
+
+
+// ---- Agent Firewall — labels (Slice 3 PR C) -----------------------------
+
+export type LabelRequest = {
+  trace_id?: string;
+  span_id?: string;
+  decision_id?: string;
+  field: 'input' | 'output' | 'tool_params' | 'tool_result';
+  label: 'bad' | 'good' | 'neutral';
+  category?: string;
+  notes?: string;
+};
+
+export async function postLabel(body: LabelRequest): Promise<{
+  id: string;
+  label: string;
+  labeled_at: string;
+}> {
+  const res = await fetch(`${API_BASE}/v1/labels`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`HTTP ${res.status}: ${text}`);
+  }
+  return res.json();
+}
+
+
 // ---- Agent Firewall — decisions + approvals + panic ---------------------
 
 export type DecisionRow = {
@@ -435,4 +542,69 @@ export function formatStartedAt(ts: string | null | undefined): string {
 
 export function deriveStatus(t: Trace): 'ok' | 'running' {
   return t.ended_at ? 'ok' : 'running';
+}
+
+
+// ---- Agent Firewall — pattern suggester (Slice 3 PR D) ------------------
+
+export type SuggestedPolicy = {
+  name: string;
+  description: string | null;
+  trigger: string;
+  condition: string;
+  action: string;
+  severity: string;
+  lifecycle: string;
+  mode: string;
+  priority: number;
+};
+
+export type SuggestionResponse = {
+  id: string;
+  decision_id: string;
+  template: string;
+  draft: SuggestedPolicy;
+  draft_yaml: string;
+  rationale: string;
+  forecast: { count: number; examples: string[] };
+};
+
+export async function createSuggestion(decisionId: string): Promise<SuggestionResponse> {
+  const res = await fetch(`${API_BASE}/v1/policies/suggest`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ decision_id: decisionId }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`HTTP ${res.status}: ${text}`);
+  }
+  return res.json();
+}
+
+export async function promoteSuggestion(
+  suggestionId: string, name: string,
+): Promise<{ name: string; lifecycle: string; mode: string; condition: string }> {
+  const res = await fetch(
+    `${API_BASE}/v1/policies/suggest/${encodeURIComponent(suggestionId)}/promote`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    },
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    let detail = text;
+    try { detail = JSON.parse(text).detail ?? text; } catch {}
+    throw new Error(`HTTP ${res.status}: ${detail}`);
+  }
+  return res.json();
+}
+
+export async function dismissSuggestion(suggestionId: string): Promise<void> {
+  await fetch(
+    `${API_BASE}/v1/policies/suggest/${encodeURIComponent(suggestionId)}/dismiss`,
+    { method: 'POST' },
+  );
 }
