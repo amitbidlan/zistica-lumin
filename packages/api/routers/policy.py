@@ -565,6 +565,8 @@ _ALLOWED_FUNCTIONS = frozenset({
     # Embedding similarity (Slice 3 Tier 2.4; DB-bound — operator
     # builds the corpus via /v1/firewall/corpora/* CRUD)
     "similar_to_corpus", "max_corpus_similarity",
+    # Behavioral anomaly detector (Slice 3 PR Q — §11.4)
+    "behavioral_anomaly_score",
 })
 
 
