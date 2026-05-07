@@ -1,11 +1,14 @@
 'use client';
 
 import Link from 'next/link';
+import { useState } from 'react';
 import useSWR from 'swr';
 
 import {
   DecisionDetailResponse,
+  DecisionRow,
   fetchDecisionDetail,
+  postLabel,
 } from '@/lib/api';
 
 import { DecisionBadge } from './EnforcementTimeline';
@@ -79,6 +82,12 @@ export default function DecisionDetailPanel({ decisionId }: { decisionId: string
             </pre>
           </div>
         )}
+
+        {/* Slice 3 PR C — operator actions on the decision. False
+            positive marking feeds the local-classifier trainer
+            (Slice 4); "Use a template" is the recommended path for
+            authoring a new rule from observed bad behavior. */}
+        <DecisionActions decision={d} />
       </div>
 
       {data.policy && (
@@ -178,5 +187,72 @@ function TraceLink({ id }: { id: string }) {
     >
       {id.slice(0, 8)}…{id.slice(-4)}
     </Link>
+  );
+}
+
+
+function DecisionActions({ decision }: { decision: DecisionRow }) {
+  const [labeling, setLabeling] = useState(false);
+  const [labeled, setLabeled] = useState(false);
+  const [labelError, setLabelError] = useState<string | null>(null);
+
+  async function markFalsePositive() {
+    if (!decision.trace_id) {
+      setLabelError('No trace_id on this decision — cannot label');
+      return;
+    }
+    setLabeling(true);
+    setLabelError(null);
+    try {
+      await postLabel({
+        trace_id: decision.trace_id,
+        span_id: decision.span_id ?? undefined,
+        decision_id: decision.id,
+        field:
+          decision.lifecycle === 'before_tool_call' ||
+          decision.lifecycle === 'after_tool_call'
+            ? 'tool_params'
+            : 'output',
+        label: 'good',
+        category: 'false_positive',
+        notes: `Marked false-positive for policy ${decision.policy_name} from /decisions/${decision.id}`,
+      });
+      setLabeled(true);
+    } catch (e) {
+      setLabelError((e as Error).message);
+    } finally {
+      setLabeling(false);
+    }
+  }
+
+  return (
+    <div className="border-t border-[var(--border)] pt-4 flex items-center gap-2 flex-wrap">
+      <Link
+        href="/templates"
+        className="px-3 py-1.5 rounded text-xs border border-[var(--border)] hover:bg-[var(--surface-hover)] transition-colors"
+        title="Author a new rule from a pre-built template"
+      >
+        + New rule from template
+      </Link>
+
+      {labeled ? (
+        <span className="text-xs text-emerald-400 px-3 py-1.5">
+          ✓ Marked as false positive
+        </span>
+      ) : (
+        <button
+          onClick={markFalsePositive}
+          disabled={labeling}
+          className="px-3 py-1.5 rounded text-xs border border-[var(--border)] hover:bg-[var(--surface-hover)] transition-colors disabled:opacity-50"
+          title="Records a 'good' label so this trace doesn't trip the rule next time the local classifier retrains"
+        >
+          {labeling ? 'Marking…' : 'Mark as false positive'}
+        </button>
+      )}
+
+      {labelError ? (
+        <span className="text-xs text-rose-400">{labelError}</span>
+      ) : null}
+    </div>
   );
 }

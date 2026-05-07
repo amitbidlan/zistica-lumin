@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useState } from 'react';
 import useSWR from 'swr';
 
 import {
@@ -11,6 +12,8 @@ import {
   fetchDecisions,
 } from '@/lib/api';
 import { useUrlString } from '@/lib/url-state';
+
+import BlockThisPatternModal from './BlockThisPatternModal';
 
 /**
  * Live timeline of every decision the firewall produced — the
@@ -31,6 +34,7 @@ export default function EnforcementTimeline() {
   const [decision, setDecision] = useUrlString('decision', '');
   const [lifecycle, setLifecycle] = useUrlString('lifecycle', '');
   const [agent, setAgent] = useUrlString('agent', '');
+  const [blockPatternFor, setBlockPatternFor] = useState<string | null>(null);
 
   const params: Parameters<typeof fetchDecisions>[0] = {
     limit: 100,
@@ -111,22 +115,40 @@ export default function EnforcementTimeline() {
                 <th className="px-3 py-2">Agent / Tool</th>
                 <th className="px-3 py-2">Trace</th>
                 <th className="px-3 py-2 text-right">Latency</th>
+                <th className="px-3 py-2 text-right">Action</th>
               </tr>
             </thead>
             <tbody>
               {data.decisions.map((d) => (
-                <DecisionRowView key={d.id} d={d} />
+                <DecisionRowView
+                  key={d.id}
+                  d={d}
+                  onBlockPattern={() => setBlockPatternFor(d.id)}
+                />
               ))}
             </tbody>
           </table>
         </div>
       )}
+
+      {blockPatternFor ? (
+        <BlockThisPatternModal
+          decisionId={blockPatternFor}
+          onClose={() => setBlockPatternFor(null)}
+        />
+      ) : null}
     </div>
   );
 }
 
 
-function DecisionRowView({ d }: { d: DecisionRow }) {
+function DecisionRowView({
+  d,
+  onBlockPattern,
+}: {
+  d: DecisionRow;
+  onBlockPattern: () => void;
+}) {
   return (
     <tr className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface-hover)]">
       <td className="px-3 py-2 whitespace-nowrap text-[var(--muted)]">
@@ -161,6 +183,15 @@ function DecisionRowView({ d }: { d: DecisionRow }) {
         )}
       </td>
       <td className="px-3 py-2 text-right text-[var(--muted)]">{d.duration_ms}ms</td>
+      <td className="px-3 py-2 text-right">
+        <button
+          onClick={onBlockPattern}
+          className="text-xs text-[var(--accent)] hover:underline"
+          title="Auto-draft a new rule from this pattern"
+        >
+          + Block pattern
+        </button>
+      </td>
     </tr>
   );
 }
