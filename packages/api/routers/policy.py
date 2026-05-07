@@ -532,6 +532,8 @@ _ALLOWED_FUNCTIONS = frozenset({
     "looks_like_secret", "has_pii",
     "has_image_markdown_exfil", "has_ascii_smuggling",
     "redact_pii",
+    # Presidio (optional dep; gracefully returns 0.0 / [] when missing)
+    "presidio_pii_score", "presidio_pii_entities",
     # History-backed (registered per-request via build_history_builtins)
     "session_total_tokens", "session_total_cost",
     "trace_total_cost", "tool_calls_in_trace",
