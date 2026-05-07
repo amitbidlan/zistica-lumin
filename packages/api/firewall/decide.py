@@ -411,12 +411,28 @@ def decide(
     model: Optional[str] = None,
     messages: Optional[List[Dict[str, Any]]] = None,
     output: Optional[Any] = None,
+    persist: bool = True,
 ) -> Dict[str, Any]:
     """Run the firewall against a single decision request.
 
     Returns the response dict per spec §5.1. Never raises.
+
+    When ``persist=False``, the decision is NOT written to the
+    ``decisions`` / ``approvals`` tables — used by the replay
+    endpoint (§5.10) and the rule unit-test harness (§14.3). All
+    side effects that touch persistent state are skipped:
+      - decisions row insert
+      - approvals row insert (require_approval -> dummy id)
+      - deny-cache writes
+      - auto-circuit-breaker fire tracking
     """
     t0 = time.perf_counter()
+    # Local recorder honours `persist` — replay/test paths see
+    # decision_id=None and no DB writes happen for the decision row.
+    def _record(*args, **kwargs) -> Optional[str]:
+        if not persist:
+            return None
+        return _record_decision(*args, **kwargs)
     budget_ms = LATENCY_BUDGET_MS.get(lifecycle, 500)
     deadline = t0 + (budget_ms / 1000.0)
 
@@ -438,7 +454,7 @@ def decide(
     cache_key = _deny_cache_key(session_id, tool_name, params)
     cached_policy = _check_deny_cache(cache_key)
     if cached_policy is not None:
-        decision_id = _record_decision(
+        decision_id = _record(
             db, policy=None, lifecycle=lifecycle,
             decision="block", reason=f"cached_deny:{cached_policy}",
             trace_id=trace_id, span_id=span_id, session_id=session_id,
@@ -508,7 +524,7 @@ def decide(
                 "firewall.decide: timeout (%dms budget) at policy %s",
                 budget_ms, policy.name,
             )
-            _record_decision(
+            _record(
                 db, policy=None, lifecycle=lifecycle,
                 decision="allow", reason=f"timeout_{budget_ms}ms",
                 trace_id=trace_id, span_id=span_id, session_id=session_id,
@@ -527,7 +543,7 @@ def decide(
             if on_err == "deny":
                 # Operator chose deny-on-error for this policy
                 # explicitly — log and treat as a block.
-                decision_id = _record_decision(
+                decision_id = _record(
                     db, policy=policy, lifecycle=lifecycle,
                     decision="block", reason="internal_error",
                     trace_id=trace_id, span_id=span_id, session_id=session_id,
@@ -563,7 +579,7 @@ def decide(
             action = "flag"
         if action == "allow":
             # Explicit allow short-circuits — record + return.
-            decision_id = _record_decision(
+            decision_id = _record(
                 db, policy=policy, lifecycle=lifecycle,
                 decision="allow", reason="policy_allow",
                 trace_id=trace_id, span_id=span_id, session_id=session_id,
@@ -594,7 +610,10 @@ def decide(
         # 'tripped' in the DB. The trip applies to *subsequent* calls
         # (this call's decision is honored). _applicable_policies
         # already filters out tripped policies on the next request.
-        _maybe_auto_trip(db, policy.name)
+        # Skipped on replay (persist=False) — replay shouldn't trip
+        # real production circuits.
+        if persist:
+            _maybe_auto_trip(db, policy.name)
 
         # ---- mode resolution --------------------------------------------
         # shadow → record and continue (don't return, lower-priority
@@ -605,7 +624,7 @@ def decide(
         reason = policy.description or f"policy:{policy.name}"
 
         if mode == "shadow":
-            decision_id = _record_decision(
+            decision_id = _record(
                 db, policy=policy, lifecycle=lifecycle,
                 decision=action, reason=reason,
                 trace_id=trace_id, span_id=span_id, session_id=session_id,
@@ -621,7 +640,7 @@ def decide(
             continue
 
         if mode == "flag":
-            decision_id = _record_decision(
+            decision_id = _record(
                 db, policy=policy, lifecycle=lifecycle,
                 decision="flag", reason=reason,
                 trace_id=trace_id, span_id=span_id, session_id=session_id,
@@ -643,7 +662,7 @@ def decide(
             }
 
         # mode == enforce — first non-allow rule wins.
-        decision_id = _record_decision(
+        decision_id = _record(
             db, policy=policy, lifecycle=lifecycle,
             decision=action, reason=reason,
             trace_id=trace_id, span_id=span_id, session_id=session_id,
@@ -653,10 +672,18 @@ def decide(
         )
 
         if action == "require_approval":
-            approval_id = _create_approval(
-                db, decision_id=decision_id, policy=policy,
-                trace_id=trace_id, agent=agent, tool_name=tool_name,
-                params=params,
+            # Replay (persist=False) doesn't create real approvals —
+            # the dashboard would surface a phantom row. The replay
+            # response still says decision="require_approval"; the
+            # caller sees the policy fired without a side effect.
+            approval_id = (
+                _create_approval(
+                    db, decision_id=decision_id, policy=policy,
+                    trace_id=trace_id, agent=agent, tool_name=tool_name,
+                    params=params,
+                )
+                if persist
+                else None
             )
             return {
                 "decision": "require_approval",
