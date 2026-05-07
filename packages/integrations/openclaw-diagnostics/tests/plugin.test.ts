@@ -378,7 +378,11 @@ describe("error swallowing (Rule 7)", () => {
 
 describe("tool I/O capture", () => {
   test("before/after tool pair produces a single span with input + output", async () => {
-    const { api, hooks } = buildFakeApi({ host: "http://lumin.test" });
+    // enforce:false isolates this test from the v0.2.0 firewall path
+    // so the only network call counted is the span POST. Firewall
+    // behavior is exercised in the dedicated `firewall enforcement`
+    // describe block below.
+    const { api, hooks } = buildFakeApi({ host: "http://lumin.test", enforce: false });
     // @ts-expect-error
     luminPlugin.register(api);
 
@@ -427,7 +431,7 @@ describe("tool I/O capture", () => {
   });
 
   test("tool error propagates as error-status span with error_message", async () => {
-    const { api, hooks } = buildFakeApi();
+    const { api, hooks } = buildFakeApi({ enforce: false });
     // @ts-expect-error
     luminPlugin.register(api);
 
@@ -477,5 +481,231 @@ describe("tool I/O capture", () => {
     expect(span.tool_name).toBe("fs.read");
     expect(span.input).toContain("/etc/hosts");
     expect(span.output).toContain("127.0.0.1");
+  });
+});
+
+
+// ----- firewall enforcement (v0.2.0) -------------------------------------
+//
+// The plugin's before_tool_call now POSTs to /v1/policy/decide and
+// translates the response into OpenClaw's typed-hook return contract.
+// These tests stub the decide endpoint and assert on the returned
+// hook result, not on subsequent span payloads.
+
+function mockDecideOnce(response: Record<string, unknown>): void {
+  fetchMock.mockImplementationOnce(async () => ({
+    ok: true,
+    status: 200,
+    statusText: "OK",
+    json: async () => response,
+  } as unknown as Response));
+}
+
+describe("firewall enforcement", () => {
+  test("decision=allow returns undefined (tool proceeds)", async () => {
+    const { api, hooks } = buildFakeApi({ host: "http://lumin.test" });
+    // @ts-expect-error
+    luminPlugin.register(api);
+
+    mockDecideOnce({ decision: "allow", duration_ms: 1 });
+
+    const result = await hooks.before_tool_call!(
+      { runId: "run-fw-1", toolCallId: "tc-1", toolName: "shell",
+        params: { command: "ls" } },
+      { runId: "run-fw-1" },
+    );
+    expect(result).toBeUndefined();
+    // Decide endpoint was called.
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://lumin.test/v1/policy/decide",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  test("decision=block returns { block: true, blockReason }", async () => {
+    const { api, hooks } = buildFakeApi();
+    // @ts-expect-error
+    luminPlugin.register(api);
+
+    mockDecideOnce({
+      decision: "block",
+      reason: "Destructive shell commands require approval.",
+      policy_name: "block_rm_rf",
+      decision_id: "dec-aaa",
+    });
+
+    const result = await hooks.before_tool_call!(
+      { runId: "r", toolCallId: "tc", toolName: "shell",
+        params: { command: "rm -rf /" } },
+      { runId: "r" },
+    );
+    expect(result).toEqual({
+      block: true,
+      blockReason: "Destructive shell commands require approval.",
+    });
+  });
+
+  test("decision=rewrite returns { params } from rewritten payload", async () => {
+    const { api, hooks } = buildFakeApi();
+    // @ts-expect-error
+    luminPlugin.register(api);
+
+    mockDecideOnce({
+      decision: "rewrite",
+      reason: "redact secrets",
+      rewritten: { params: { command: "[redacted]" } },
+    });
+
+    const result = (await hooks.before_tool_call!(
+      { toolName: "shell", params: { command: "echo $API_KEY" } },
+      undefined,
+    )) as { params?: Record<string, unknown> };
+    expect(result.params).toEqual({ command: "[redacted]" });
+  });
+
+  test("decision=rewrite without params payload degrades to block", async () => {
+    const { api, hooks } = buildFakeApi();
+    // @ts-expect-error
+    luminPlugin.register(api);
+
+    mockDecideOnce({ decision: "rewrite", reason: "no payload" });
+    const result = (await hooks.before_tool_call!(
+      { toolName: "shell", params: {} },
+      undefined,
+    )) as { block?: boolean };
+    expect(result.block).toBe(true);
+  });
+
+  test("decision=require_approval returns requireApproval object", async () => {
+    const { api, hooks } = buildFakeApi();
+    // @ts-expect-error
+    luminPlugin.register(api);
+
+    mockDecideOnce({
+      decision: "require_approval",
+      policy_name: "db_write_requires_approval",
+      reason: "DB write to prod tables.",
+      approval_id: "apv-xyz",
+      timeout_s: 600,
+    });
+
+    const result = (await hooks.before_tool_call!(
+      { toolName: "db.write", params: { sql: "DELETE FROM users" } },
+      undefined,
+    )) as { requireApproval?: Record<string, unknown> };
+    expect(result.requireApproval).toBeDefined();
+    expect(result.requireApproval!.title).toBe("db_write_requires_approval");
+    expect(result.requireApproval!.timeoutMs).toBe(600_000);
+    expect(result.requireApproval!.timeoutBehavior).toBe("deny");
+    expect(typeof result.requireApproval!.onResolution).toBe("function");
+  });
+
+  test("require_approval onResolution POSTs to /v1/approvals/{id}/resolve", async () => {
+    const { api, hooks } = buildFakeApi({ host: "http://lumin.test" });
+    // @ts-expect-error
+    luminPlugin.register(api);
+
+    mockDecideOnce({
+      decision: "require_approval",
+      approval_id: "apv-1",
+      reason: "test",
+    });
+    const result = (await hooks.before_tool_call!(
+      { toolName: "shell", params: {} },
+      undefined,
+    )) as { requireApproval?: { onResolution?: (d: string) => Promise<void> } };
+
+    // Operator allows the tool call.
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 200 } as Response);
+    await result.requireApproval!.onResolution!("allow-once");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://lumin.test/v1/approvals/apv-1/resolve",
+      expect.objectContaining({ method: "POST" }),
+    );
+    const init = fetchMock.mock.calls[0][1] as { body: string };
+    const body = JSON.parse(init.body);
+    expect(body.resolution).toBe("allow");
+  });
+
+  test("enforce: false skips decide call entirely", async () => {
+    const { api, hooks } = buildFakeApi({ enforce: false });
+    // @ts-expect-error
+    luminPlugin.register(api);
+
+    const result = await hooks.before_tool_call!(
+      { runId: "r", toolName: "shell", params: { command: "ls" } },
+      { runId: "r" },
+    );
+    expect(result).toBeUndefined();
+    // No fetch call to /v1/policy/decide; only span fire-and-forget
+    // happens later via after_tool_call.
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("decide timeout falls back to allow by default (Rule 7)", async () => {
+    const { api, hooks } = buildFakeApi({
+      decideTimeoutMs: 5,
+    });
+    // @ts-expect-error
+    luminPlugin.register(api);
+
+    // Stub: never resolves within the timeout — AbortController fires.
+    fetchMock.mockImplementationOnce(
+      (_url: string, init?: { signal?: AbortSignal }) =>
+        new Promise((_, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+        }) as unknown as Promise<Response>,
+    );
+
+    const result = await hooks.before_tool_call!(
+      { toolName: "shell", params: {} },
+      undefined,
+    );
+    // Default fail-mode = allow; agent keeps moving.
+    expect(result).toBeUndefined();
+  });
+
+  test("onFirewallError=deny blocks the tool call when decide errors", async () => {
+    const { api, hooks } = buildFakeApi({
+      decideTimeoutMs: 5,
+      onFirewallError: "deny",
+    });
+    // @ts-expect-error
+    luminPlugin.register(api);
+
+    fetchMock.mockImplementationOnce(
+      (_url: string, init?: { signal?: AbortSignal }) =>
+        new Promise((_, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+        }) as unknown as Promise<Response>,
+    );
+
+    const result = (await hooks.before_tool_call!(
+      { toolName: "shell", params: {} },
+      undefined,
+    )) as { block?: boolean };
+    expect(result.block).toBe(true);
+  });
+
+  test("decide payload includes lifecycle, tool_name, params, agent, session", async () => {
+    const { api, hooks } = buildFakeApi();
+    // @ts-expect-error
+    luminPlugin.register(api);
+
+    mockDecideOnce({ decision: "allow" });
+    await hooks.before_tool_call!(
+      { runId: "r", toolName: "web.search", params: { q: "x" } },
+      { runId: "r", agentId: "bot.support", sessionId: "s-1" },
+    );
+
+    const init = fetchMock.mock.calls[0][1] as { body: string };
+    const body = JSON.parse(init.body);
+    expect(body.lifecycle).toBe("before_tool_call");
+    expect(body.tool_name).toBe("web.search");
+    expect(body.params).toEqual({ q: "x" });
+    expect(body.agent).toBe("bot.support");
+    expect(body.session_id).toBe("s-1");
   });
 });

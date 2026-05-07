@@ -1,7 +1,7 @@
 {
   "name": "@lumin-io/openclaw-diagnostics",
-  "version": "0.1.5",
-  "description": "Full-fidelity Lumin observability for OpenClaw \u2014 captures prompts, responses, tool I/O, and reasoning traces via OpenClaw's typed-hook API.",
+  "version": "0.2.0",
+  "description": "Lumin observability + Agent Firewall for OpenClaw \u2014 captures prompts, responses, tool I/O, and synchronously enforces firewall policies on every tool call.",
   "homepage": "https://github.com/amitbidlan/zistica-lumin/tree/main/packages/integrations/openclaw-diagnostics",
   "repository": {
     "type": "git",

@@ -52,12 +52,33 @@ interface LuminDiagnosticsConfig {
   captureSystemMessage?: boolean;
   maxContentChars?: number;
   timeoutMs?: number;
+
+  // ----- Agent Firewall (v0.2.0) -----------------------------------
+  /** Enable the synchronous decision check before every tool call.
+   * When true, the plugin POSTs each tool invocation to
+   * Lumin's /v1/policy/decide endpoint and translates the response
+   * into OpenClaw's typed-hook return contract — block / rewrite /
+   * requireApproval. Default: true. Set to false to keep observation-
+   * only behavior (the prior 0.1.x default). */
+  enforce?: boolean;
+  /** Hard timeout for the decide call. Tighter than the trace
+   * ingest timeout because every tool call pays this latency. Spec
+   * §2.4 caps before_tool_call at 50ms; we default to 75ms to
+   * include the network round-trip on a localhost API. */
+  decideTimeoutMs?: number;
+  /** When the decide endpoint is unreachable or slow, what should
+   * the agent do? "allow" (default, Rule 7) lets the tool run;
+   * "deny" cancels it. Production deployments that prefer
+   * fail-closed should flip this to "deny" + accept the latency
+   * tail. */
+  onFirewallError?: "allow" | "deny";
 }
 
 const DEFAULT_HOST = "http://localhost:8000";
 const DEFAULT_PROJECT = "openclaw";
 const DEFAULT_MAX_CONTENT_CHARS = 32_768;
 const DEFAULT_TIMEOUT_MS = 5_000;
+const DEFAULT_DECIDE_TIMEOUT_MS = 75;
 
 
 // ----- runtime hook event shapes -----------------------------------------
@@ -105,6 +126,27 @@ interface BeforeToolCallEvent {
   params: Record<string, unknown>;
   runId?: string;
   toolCallId?: string;
+}
+
+// Mirrors PluginHookBeforeToolCallResult from openclaw/plugin-sdk.
+// Re-declared here so this file doesn't depend on the upstream type
+// re-export surface (which is in flux per the comment at line 67).
+interface PluginApprovalCallback {
+  (decision: "allow-once" | "allow-always" | "deny" | "timeout" | "cancelled"): Promise<void> | void;
+}
+interface PluginHookBeforeToolCallResult {
+  params?: Record<string, unknown>;
+  block?: boolean;
+  blockReason?: string;
+  requireApproval?: {
+    title: string;
+    description: string;
+    severity?: "info" | "warning" | "critical";
+    timeoutMs?: number;
+    timeoutBehavior?: "allow" | "deny";
+    pluginId?: string;
+    onResolution?: PluginApprovalCallback;
+  };
 }
 
 interface AfterToolCallEvent {
@@ -282,6 +324,139 @@ class LuminClient {
       clearTimeout(timer);
     }
   }
+}
+
+
+// ----- firewall client (v0.2.0) ------------------------------------------
+//
+// Synchronous decision endpoint. Every before_tool_call gets a round-
+// trip to /v1/policy/decide; the result tells OpenClaw whether to
+// proceed, rewrite the params, or stop and ask the operator. The
+// trace POSTer above is fire-and-forget; this one is request/reply
+// because we need the answer before the tool actually runs.
+//
+// Per spec §5.1: the API guarantees never-5xx + sub-50ms p99. We
+// still defend with a tight timeout and a fail-mode config — the
+// agent must keep moving even when the firewall is down, which is
+// Rule 7 generalized.
+
+interface DecideRequestBody {
+  lifecycle: "before_proxy_call" | "after_proxy_call" | "before_tool_call" | "after_tool_call" | "post_ingest";
+  tool_name?: string;
+  params?: Record<string, unknown>;
+  trace_id?: string;
+  span_id?: string;
+  session_id?: string;
+  agent?: string;
+  project?: string;
+  model?: string;
+  output?: unknown;
+}
+
+interface DecideResponseBody {
+  decision: "allow" | "block" | "flag" | "require_approval" | "rewrite";
+  policy_id?: string;
+  policy_name?: string;
+  reason?: string;
+  decision_id?: string;
+  mode_at_decision?: string;
+  duration_ms?: number;
+  approval_id?: string;
+  timeout_s?: number;
+  rewritten?: { params?: Record<string, unknown>; result?: unknown };
+}
+
+class LuminFirewallClient {
+  private host: string;
+  private project: string;
+  private timeoutMs: number;
+  private onError: "allow" | "deny";
+  private failureLogged = false;
+
+  constructor(cfg: LuminDiagnosticsConfig) {
+    this.host = (cfg.host || DEFAULT_HOST).replace(/\/+$/, "");
+    this.project = cfg.project || DEFAULT_PROJECT;
+    this.timeoutMs = cfg.decideTimeoutMs ?? DEFAULT_DECIDE_TIMEOUT_MS;
+    this.onError = cfg.onFirewallError ?? "allow";
+  }
+
+  /** Resolve a decision. Never throws. On error/timeout returns the
+   * configured fail-mode response. */
+  async decide(body: DecideRequestBody): Promise<DecideResponseBody> {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), this.timeoutMs);
+    try {
+      const resp = await fetch(`${this.host}/v1/policy/decide`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Lumin-Project": this.project,
+        },
+        body: JSON.stringify(body),
+        signal: ctrl.signal,
+      });
+      if (!resp.ok) {
+        return this.failResponse(`http_${resp.status}`);
+      }
+      return (await resp.json()) as DecideResponseBody;
+    } catch (err) {
+      if (!this.failureLogged) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[lumin-diagnostics] firewall decide failed (${(err as Error).message}); applying onFirewallError=${this.onError}. Further failures suppressed.`,
+        );
+        this.failureLogged = true;
+      }
+      return this.failResponse(`error:${(err as Error).message}`);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /** Long-poll an approval until it resolves or times out. */
+  async waitForApproval(
+    approvalId: string,
+    timeoutMs: number,
+  ): Promise<"allowed" | "denied" | "timed_out" | "error"> {
+    const deadline = Date.now() + timeoutMs;
+    // Poll cadence: start at 200ms, back off to 1s. Most operator
+    // approvals come in within ~5s; back-off keeps the polling load
+    // under control on long approvals.
+    let interval = 200;
+    while (Date.now() < deadline) {
+      try {
+        const resp = await fetch(`${this.host}/v1/approvals/${encodeURIComponent(approvalId)}`, {
+          method: "GET",
+          headers: { "X-Lumin-Project": this.project },
+        });
+        if (!resp.ok) {
+          await sleep(interval);
+          interval = Math.min(interval * 2, 1000);
+          continue;
+        }
+        const body = (await resp.json()) as { state?: string };
+        if (body.state === "allowed" || body.state === "denied") return body.state;
+        if (body.state === "timed_out") return "timed_out";
+      } catch {
+        // ignore and retry
+      }
+      await sleep(interval);
+      interval = Math.min(interval * 2, 1000);
+    }
+    return "timed_out";
+  }
+
+  private failResponse(reason: string): DecideResponseBody {
+    return {
+      decision: this.onError === "deny" ? "block" : "allow",
+      reason: `firewall_${reason}`,
+      policy_name: this.onError === "deny" ? "_firewall_fail_closed" : undefined,
+    };
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 
@@ -542,6 +717,110 @@ function buildSpanFromToolCall(
 }
 
 
+// ----- firewall decision → OpenClaw hook return (v0.2.0) -----------------
+//
+// Maps the response shape from /v1/policy/decide onto OpenClaw's typed-
+// hook return contract. The mapping is:
+//
+//   block            → { block: true, blockReason }
+//   rewrite          → { params: rewritten.params }
+//   require_approval → { requireApproval: { title, description, onResolution } }
+//                      with an onResolution callback that POSTs the
+//                      operator's decision back to /v1/approvals/{id}/resolve
+//   flag, allow      → undefined (no return value, tool proceeds)
+//
+// Unknown decisions degrade to allow per Rule 7. The plugin never
+// throws here — the only side-effect is the return value, which the
+// host interprets.
+
+function translateDecision(
+  decision: DecideResponseBody,
+  fw: LuminFirewallClient,
+  cfg: LuminDiagnosticsConfig,
+  log: { info?: (s: string) => void; warn?: (s: string) => void } | undefined,
+): PluginHookBeforeToolCallResult | undefined {
+  if (!decision || decision.decision === "allow" || decision.decision === "flag") {
+    return undefined;
+  }
+
+  if (decision.decision === "block") {
+    return {
+      block: true,
+      blockReason: decision.reason || "blocked by Lumin firewall",
+    };
+  }
+
+  if (decision.decision === "rewrite") {
+    const params = decision.rewritten?.params;
+    if (params && typeof params === "object") {
+      return { params };
+    }
+    // Server returned rewrite without a params payload — degrade to
+    // block rather than silently letting the original through. This
+    // is conservative; the alternative (allow with a logged warning)
+    // would be a security regression in the rare case the redaction
+    // produced an empty dict.
+    return {
+      block: true,
+      blockReason: decision.reason || "rewrite without payload",
+    };
+  }
+
+  if (decision.decision === "require_approval") {
+    const apvId = decision.approval_id;
+    if (!apvId) {
+      log?.warn?.("lumin-diagnostics: require_approval response missing approval_id; degrading to block");
+      return { block: true, blockReason: decision.reason || "require_approval without id" };
+    }
+    const timeoutMs = (decision.timeout_s ?? 600) * 1000;
+    return {
+      requireApproval: {
+        title: decision.policy_name || "Approval required",
+        description: decision.reason || "Lumin firewall requires operator approval for this action.",
+        severity: "warning",
+        timeoutMs,
+        timeoutBehavior: "deny",
+        pluginId: "lumin-diagnostics",
+        onResolution: async (hostDecision) => {
+          // Mirror OpenClaw's vocab onto Lumin's. allow-once /
+          // allow-always both resolve as 'allow' on Lumin's side; the
+          // distinction is OpenClaw-side state and doesn't affect
+          // historical decision records.
+          const resolution =
+            hostDecision === "allow-once" || hostDecision === "allow-always"
+              ? "allow"
+              : "deny";
+          try {
+            await fetch(
+              `${(cfg.host || DEFAULT_HOST).replace(/\/+$/, "")}/v1/approvals/${encodeURIComponent(apvId)}/resolve`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "X-Lumin-Project": cfg.project || DEFAULT_PROJECT,
+                },
+                body: JSON.stringify({
+                  resolution,
+                  reason: `openclaw:${hostDecision}`,
+                }),
+              },
+            );
+          } catch (err) {
+            log?.warn?.(
+              `lumin-diagnostics: approval resolve POST failed: ${(err as Error).message}`,
+            );
+          }
+        },
+      },
+    };
+  }
+
+  // Unknown decision string — Rule 7. Allow the call.
+  log?.warn?.(`lumin-diagnostics: unknown decision ${decision.decision}; allowing`);
+  return undefined;
+}
+
+
 // ----- plugin entry -------------------------------------------------------
 
 export default definePluginEntry({
@@ -557,6 +836,9 @@ export default definePluginEntry({
       captureSystemMessage: { type: "boolean" },
       maxContentChars: { type: "number" },
       timeoutMs: { type: "number" },
+      enforce: { type: "boolean" },
+      decideTimeoutMs: { type: "number" },
+      onFirewallError: { type: "string", enum: ["allow", "deny"] },
     },
   } as never,
   register: (api): void => {
@@ -571,6 +853,13 @@ export default definePluginEntry({
     };
     const cfg: LuminDiagnosticsConfig = apiAny.pluginConfig || {};
     const client = new LuminClient(cfg);
+    const fw = new LuminFirewallClient(cfg);
+    // Default-on. Operators who want pure observation can set
+    // ``enforce: false`` in their openclaw.json config; useful during
+    // initial rollout when the policies table is empty so the
+    // round-trip overhead disappears entirely (decide returns allow
+    // in <1ms anyway, but the network hop still costs something).
+    const enforceEnabled = cfg.enforce !== false;
     const pending = new PendingLlmRegistry();
     const toolPending = new PendingToolCallRegistry();
     const log = apiAny.logger;
@@ -657,7 +946,10 @@ export default definePluginEntry({
     // ``after_tool_call`` aren't conversation-gated upstream, so they
     // register without any extra config beyond what llm_input already
     // required for this plugin.
-    apiAny.on("before_tool_call", (rawEvent: unknown, rawCtx: unknown) => {
+    apiAny.on("before_tool_call", async (rawEvent: unknown, rawCtx: unknown) => {
+      // Tracking ledger first — we want the start timestamp recorded
+      // even when the firewall blocks the call so the resulting "blocked"
+      // span has a sensible started_at.
       try {
         const event = rawEvent as BeforeToolCallEvent;
         const ctx = rawCtx as HookContext | undefined;
@@ -669,8 +961,36 @@ export default definePluginEntry({
           trace: ctx?.trace,
           runId: event.runId,
         });
+
+        // ----- firewall decision (v0.2.0) ---------------------------
+        if (!enforceEnabled) return;
+        const decision = await fw.decide({
+          lifecycle: "before_tool_call",
+          tool_name: event.toolName,
+          params: event.params,
+          trace_id: ctx?.trace?.traceId
+            ? asUuid(ctx.trace.traceId, event.runId ?? "_")
+            : undefined,
+          span_id: ctx?.trace?.spanId
+            ? asUuid(ctx.trace.spanId, `${event.runId ?? "_"}:tool`)
+            : undefined,
+          session_id: ctx?.sessionId,
+          agent: ctx?.agentId,
+          project: cfg.project || DEFAULT_PROJECT,
+        });
+        return translateDecision(decision, fw, cfg, log);
       } catch (err) {
         log?.warn?.(`lumin-diagnostics: before_tool_call handler failed: ${(err as Error).message}`);
+        // Fail-mode: fall back to ``onFirewallError`` setting. We
+        // re-route through the same translator that the happy path
+        // uses so the response shape is identical.
+        if (enforceEnabled && (cfg.onFirewallError ?? "allow") === "deny") {
+          return {
+            block: true,
+            blockReason: "firewall_handler_error",
+          } as PluginHookBeforeToolCallResult;
+        }
+        return undefined;
       }
     });
 
@@ -698,7 +1018,7 @@ export default definePluginEntry({
     });
 
     log?.info?.(
-      `lumin-diagnostics: subscribed to llm_input + llm_output + before_tool_call + after_tool_call → ${cfg.host || DEFAULT_HOST}/v1/spans (project=${cfg.project || DEFAULT_PROJECT})`,
+      `lumin-diagnostics: subscribed to llm_input + llm_output + before_tool_call + after_tool_call → ${cfg.host || DEFAULT_HOST}/v1/spans (project=${cfg.project || DEFAULT_PROJECT}, firewall=${enforceEnabled ? "enforce" : "observe-only"}, fail=${cfg.onFirewallError ?? "allow"})`,
     );
   },
 });
