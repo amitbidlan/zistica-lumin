@@ -101,6 +101,44 @@ def _policy_watch_interval() -> int:
         return 30
 
 
+async def _miner_loop(check_interval_seconds: int = 60) -> None:
+    """Background loop that calls the frequent-pattern miner on its
+    own configured cadence (defaults to hourly via
+    ``LUMIN_MINER_INTERVAL_SECONDS``).
+
+    The outer loop ticks every ``check_interval_seconds`` (default
+    60s) and asks the miner whether to actually run — the miner
+    itself enforces the longer cadence + skips when no new data has
+    landed. This keeps the wakeup cost cheap while letting operators
+    set tighter schedules in tests by overriding the interval.
+
+    Errors are logged + swallowed so a transient miner crash never
+    knocks the API over. Set ``LUMIN_MINER_ENABLED=false`` to skip
+    the loop entirely (useful in unit-test environments where the
+    miner would race with fixture setup).
+    """
+    while True:
+        try:
+            await asyncio.sleep(check_interval_seconds)
+            from firewall import miner as _miner
+            _miner.maybe_mine_on_interval(get_db())
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            logger.exception("frequent-pattern miner failed (will retry)")
+
+
+def _miner_enabled() -> bool:
+    return os.environ.get("LUMIN_MINER_ENABLED", "true").lower() in ("1", "true", "yes")
+
+
+def _miner_check_interval() -> int:
+    try:
+        return max(10, int(os.environ.get("LUMIN_MINER_CHECK_INTERVAL", "60")))
+    except ValueError:
+        return 60
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     # Register the running event loop so sync handlers (which run in the
@@ -174,6 +212,15 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         except Exception:
             logger.exception("could not start policy mtime watcher")
 
+    miner_task: asyncio.Task[None] | None = None
+    if _miner_enabled():
+        try:
+            miner_task = asyncio.create_task(
+                _miner_loop(_miner_check_interval())
+            )
+        except Exception:
+            logger.exception("could not start frequent-pattern miner")
+
     yield
 
     if cleanup_task is not None:
@@ -186,6 +233,12 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         policy_watch_task.cancel()
         try:
             await policy_watch_task
+        except (asyncio.CancelledError, Exception):
+            pass
+    if miner_task is not None:
+        miner_task.cancel()
+        try:
+            await miner_task
         except (asyncio.CancelledError, Exception):
             pass
 
