@@ -551,6 +551,9 @@ _ALLOWED_FUNCTIONS = frozenset({
     # Presidio (Slice 2 Tier 2.1; optional dep — gracefully returns
     # 0.0 / [] when presidio-analyzer isn't installed)
     "presidio_pii_score", "presidio_pii_entities",
+    # Prompt Guard 2 (Slice 3 Tier 2.2; optional dep — gracefully
+    # returns 0.0 / "" when transformers / torch aren't installed)
+    "prompt_guard_score", "prompt_guard_label",
     # History-backed (registered per-request via build_history_builtins)
     "session_total_tokens", "session_total_cost",
     "trace_total_cost", "tool_calls_in_trace",

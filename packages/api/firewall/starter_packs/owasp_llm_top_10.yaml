@@ -29,6 +29,22 @@ policies:
     action: block
     severity: high
 
+  # LLM01 — Prompt Injection (ML detector)
+  # Prompt Guard 2 is an opt-in 22M classifier that catches the
+  # bulk of injection / jailbreak attempts at the user-message
+  # boundary. When transformers / torch aren't installed the score
+  # is always 0.0 and this rule is a silent no-op (Rule 7).
+  # Threshold 0.7 is Meta's recommended high-precision cutoff.
+  - name: owasp_llm01_prompt_injection_ml
+    description: Block messages flagged as prompt injection / jailbreak by Prompt Guard 2 (>0.7 confidence). No-op when the optional dep isn't installed.
+    lifecycle: before_proxy_call
+    mode: shadow
+    priority: 92
+    trigger: span_end
+    condition: prompt_guard_score(Input.last_user_msg) > 0.7
+    action: block
+    severity: high
+
   # LLM02 — Sensitive Information Disclosure
   # Catches secret-shaped strings + canonical PII in model output.
   - name: owasp_llm02_secret_disclosure
