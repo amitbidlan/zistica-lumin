@@ -543,3 +543,68 @@ export function formatStartedAt(ts: string | null | undefined): string {
 export function deriveStatus(t: Trace): 'ok' | 'running' {
   return t.ended_at ? 'ok' : 'running';
 }
+
+
+// ---- Agent Firewall — pattern suggester (Slice 3 PR D) ------------------
+
+export type SuggestedPolicy = {
+  name: string;
+  description: string | null;
+  trigger: string;
+  condition: string;
+  action: string;
+  severity: string;
+  lifecycle: string;
+  mode: string;
+  priority: number;
+};
+
+export type SuggestionResponse = {
+  id: string;
+  decision_id: string;
+  template: string;
+  draft: SuggestedPolicy;
+  draft_yaml: string;
+  rationale: string;
+  forecast: { count: number; examples: string[] };
+};
+
+export async function createSuggestion(decisionId: string): Promise<SuggestionResponse> {
+  const res = await fetch(`${API_BASE}/v1/policies/suggest`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ decision_id: decisionId }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`HTTP ${res.status}: ${text}`);
+  }
+  return res.json();
+}
+
+export async function promoteSuggestion(
+  suggestionId: string, name: string,
+): Promise<{ name: string; lifecycle: string; mode: string; condition: string }> {
+  const res = await fetch(
+    `${API_BASE}/v1/policies/suggest/${encodeURIComponent(suggestionId)}/promote`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    },
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    let detail = text;
+    try { detail = JSON.parse(text).detail ?? text; } catch {}
+    throw new Error(`HTTP ${res.status}: ${detail}`);
+  }
+  return res.json();
+}
+
+export async function dismissSuggestion(suggestionId: string): Promise<void> {
+  await fetch(
+    `${API_BASE}/v1/policies/suggest/${encodeURIComponent(suggestionId)}/dismiss`,
+    { method: 'POST' },
+  );
+}
