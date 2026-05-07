@@ -394,8 +394,18 @@ def resolve_approval(
 ) -> Dict[str, Any]:
     if payload.resolution not in ("allow", "deny"):
         raise HTTPException(status_code=400, detail="resolution must be allow|deny")
+    # Pull richer context up-front — needed both for the state guard
+    # and (on deny) to populate the session deny cache so the LLM
+    # can't immediately retry the same tuple.
     row = db.fetchone_dict(
-        "SELECT id, state FROM approvals WHERE id = ?", [approval_id]
+        """
+        SELECT a.id, a.state, a.policy_id, a.tool_name, a.params_truncated,
+               a.decision_id, d.session_id
+        FROM approvals a
+        LEFT JOIN decisions d ON d.id = a.decision_id
+        WHERE a.id = ?
+        """,
+        [approval_id],
     )
     if not row:
         raise HTTPException(status_code=404, detail="approval not found")
@@ -417,6 +427,36 @@ def resolve_approval(
         """,
         [new_state, now, payload.resolver, payload.reason, approval_id],
     )
+
+    # Slice 2 Tier 1.5(b): record deny in session cache so the LLM's
+    # next retry of the same (session, tool, params) tuple gets an
+    # immediate auto-deny instead of pinging an admin again. Best
+    # effort — params_truncated is JSON-stringified, parse defensively.
+    if new_state == "denied" and row.get("session_id") and row.get("tool_name"):
+        try:
+            params_blob = row.get("params_truncated")
+            if isinstance(params_blob, str):
+                try:
+                    params = json.loads(params_blob)
+                except (json.JSONDecodeError, TypeError):
+                    params = None
+            elif isinstance(params_blob, dict):
+                params = params_blob
+            else:
+                params = None
+            cache_key = fw_decide._deny_cache_key(
+                row["session_id"], row["tool_name"], params,
+            )
+            fw_decide._record_deny_in_cache(
+                cache_key, row["policy_id"] or "_operator_deny",
+            )
+        except Exception:
+            logger.exception(
+                "firewall: failed to record deny in session cache "
+                "(approval=%s); operator deny still applied",
+                approval_id,
+            )
+
     return {
         "id": approval_id,
         "state": new_state,

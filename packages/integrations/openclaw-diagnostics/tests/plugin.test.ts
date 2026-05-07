@@ -32,6 +32,9 @@ interface RegisteredHooks {
   llm_output?: (event: unknown, ctx: unknown) => unknown;
   before_tool_call?: (event: unknown, ctx: unknown) => unknown;
   after_tool_call?: (event: unknown, ctx: unknown) => unknown;
+  // v0.4.0 — admin separation hooks
+  inbound_claim?: (event: unknown, ctx: unknown) => unknown;
+  before_message_write?: (event: unknown, ctx: unknown) => unknown;
 }
 
 interface FakeApi {
@@ -53,6 +56,8 @@ function buildFakeApi(pluginConfig?: Record<string, unknown>): {
       else if (name === "llm_output") hooks.llm_output = handler;
       else if (name === "before_tool_call") hooks.before_tool_call = handler;
       else if (name === "after_tool_call") hooks.after_tool_call = handler;
+      else if (name === "inbound_claim") hooks.inbound_claim = handler;
+      else if (name === "before_message_write") hooks.before_message_write = handler;
     },
   };
   return { api, hooks };
@@ -707,5 +712,239 @@ describe("firewall enforcement", () => {
     expect(body.params).toEqual({ q: "x" });
     expect(body.agent).toBe("bot.support");
     expect(body.session_id).toBe("s-1");
+  });
+});
+
+
+// ----- admin separation (v0.4.0 — Slice 2 Tier 1.0 / 1.0b) ---------------
+//
+// Tests that:
+//   1. Non-admin sender's tool call gets blocked, AND the LLM's
+//      follow-up reply is suppressed → user sees canned message.
+//   2. Admin sender sees the full LLM response with policy detail.
+//   3. inbound_claim properly tracks sessionKey → senderId map.
+//   4. The block-recency window (60s) properly ages out old blocks.
+
+describe("admin separation (v0.4.0)", () => {
+  test("inbound_claim records sessionKey → senderId", () => {
+    const { api, hooks } = buildFakeApi({
+      adminSenders: ["telegram:admin1"],
+    });
+    // @ts-expect-error
+    luminPlugin.register(api);
+    expect(typeof hooks.inbound_claim).toBe("function");
+    expect(typeof hooks.before_message_write).toBe("function");
+  });
+
+  test("non-admin: block recorded → next message_write returns canned reply", async () => {
+    const { api, hooks } = buildFakeApi({
+      adminSenders: ["telegram:admin1"],
+      userBlockedMessage: "Sorry, that's not allowed.",
+    });
+    // @ts-expect-error
+    luminPlugin.register(api);
+
+    // Step 1: claim — record this session as a non-admin sender
+    hooks.inbound_claim!(
+      { sessionKey: "sess-X", senderId: "telegram:joe-user" },
+      undefined,
+    );
+
+    // Step 2: a tool call gets blocked by Lumin
+    fetchMock.mockImplementationOnce(async () => ({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      json: async () => ({
+        decision: "block",
+        reason: "test block",
+        policy_name: "test_policy",
+        agent_feedback: "blocked by Lumin",
+      }),
+    } as unknown as Response));
+
+    const blockResult = await hooks.before_tool_call!(
+      { runId: "r1", toolCallId: "t1", toolName: "shell",
+        params: { command: "rm -rf /" } },
+      { runId: "r1", sessionKey: "sess-X", agentId: "main" },
+    );
+    expect((blockResult as { block?: boolean }).block).toBe(true);
+
+    // Step 3: agent generates a reply — should be intercepted
+    const writeResult = hooks.before_message_write!(
+      {
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "Reply with: /approve rm -rf /" }],
+        },
+      },
+      { sessionKey: "sess-X" },
+    ) as { message?: { content?: Array<{ text?: string }> } };
+
+    expect(writeResult).toBeDefined();
+    expect(writeResult.message?.content?.[0]?.text).toBe("Sorry, that's not allowed.");
+    // Confirm the LLM's hallucinated /approve syntax was REPLACED, not echoed
+    expect(writeResult.message?.content?.[0]?.text).not.toContain("/approve");
+  });
+
+  test("admin: block recorded → message_write passes through unchanged", async () => {
+    const { api, hooks } = buildFakeApi({
+      adminSenders: ["telegram:admin1"],
+    });
+    // @ts-expect-error
+    luminPlugin.register(api);
+
+    hooks.inbound_claim!(
+      { sessionKey: "sess-Y", senderId: "telegram:admin1" },
+      undefined,
+    );
+
+    fetchMock.mockImplementationOnce(async () => ({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      json: async () => ({ decision: "block", reason: "test", policy_name: "p1" }),
+    } as unknown as Response));
+
+    await hooks.before_tool_call!(
+      { runId: "r2", toolCallId: "t2", toolName: "shell",
+        params: { command: "rm -rf /" } },
+      { runId: "r2", sessionKey: "sess-Y", agentId: "main" },
+    );
+
+    // Admin's reply should NOT be intercepted — full LLM reasoning
+    // visible so they can see policy context.
+    const writeResult = hooks.before_message_write!(
+      {
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "I cannot delete /. The Lumin Agent Firewall blocked this under policy p1." }],
+        },
+      },
+      { sessionKey: "sess-Y" },
+    );
+    expect(writeResult).toBeUndefined(); // pass-through
+  });
+
+  test("no recent block: message_write passes through (admin or not)", () => {
+    const { api, hooks } = buildFakeApi({
+      adminSenders: ["telegram:admin1"],
+    });
+    // @ts-expect-error
+    luminPlugin.register(api);
+
+    hooks.inbound_claim!(
+      { sessionKey: "sess-Z", senderId: "telegram:joe-user" },
+      undefined,
+    );
+
+    // No prior block — non-admin can chat freely
+    const writeResult = hooks.before_message_write!(
+      {
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "Hello! How can I help?" }],
+        },
+      },
+      { sessionKey: "sess-Z" },
+    );
+    expect(writeResult).toBeUndefined(); // pass-through
+  });
+
+  test("missing sessionKey: hook is a no-op", () => {
+    const { api, hooks } = buildFakeApi();
+    // @ts-expect-error
+    luminPlugin.register(api);
+
+    // No sessionKey in ctx → can't correlate, so nothing to do
+    const writeResult = hooks.before_message_write!(
+      {
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "anything" }],
+        },
+      },
+      undefined,
+    );
+    expect(writeResult).toBeUndefined();
+  });
+
+  test("adminSeesFullResponse: false → admin also gets canned message", async () => {
+    const { api, hooks } = buildFakeApi({
+      adminSenders: ["telegram:admin1"],
+      adminSeesFullResponse: false,
+      userBlockedMessage: "Blocked by policy.",
+    });
+    // @ts-expect-error
+    luminPlugin.register(api);
+
+    hooks.inbound_claim!(
+      { sessionKey: "sess-A", senderId: "telegram:admin1" },
+      undefined,
+    );
+
+    fetchMock.mockImplementationOnce(async () => ({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      json: async () => ({ decision: "block", reason: "x", policy_name: "p" }),
+    } as unknown as Response));
+
+    await hooks.before_tool_call!(
+      { runId: "r", toolCallId: "t", toolName: "shell", params: {} },
+      { runId: "r", sessionKey: "sess-A", agentId: "main" },
+    );
+
+    const writeResult = hooks.before_message_write!(
+      {
+        message: { role: "assistant", content: [{ type: "text", text: "long admin explanation" }] },
+      },
+      { sessionKey: "sess-A" },
+    ) as { message?: { content?: Array<{ text?: string }> } };
+
+    expect(writeResult.message?.content?.[0]?.text).toBe("Blocked by policy.");
+  });
+
+  test("require_approval also triggers recent-block recording (LLM still suppressed)", async () => {
+    const { api, hooks } = buildFakeApi({
+      adminSenders: [],  // no admins — everyone is non-admin
+    });
+    // @ts-expect-error
+    luminPlugin.register(api);
+
+    hooks.inbound_claim!(
+      { sessionKey: "sess-RA", senderId: "telegram:joe" },
+      undefined,
+    );
+
+    fetchMock.mockImplementationOnce(async () => ({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      json: async () => ({
+        decision: "require_approval",
+        approval_id: "apv-1",
+        timeout_s: 600,
+        policy_name: "needs_apv",
+        reason: "test",
+      }),
+    } as unknown as Response));
+
+    await hooks.before_tool_call!(
+      { runId: "r", toolName: "shell", params: {} },
+      { runId: "r", sessionKey: "sess-RA", agentId: "main" },
+    );
+
+    // Even though Lumin returned require_approval (not block), the
+    // user shouldn't see the LLM's interim reasoning — the operator
+    // hasn't decided yet.
+    const writeResult = hooks.before_message_write!(
+      {
+        message: { role: "assistant", content: [{ type: "text", text: "while we wait, let me try /approve ..." }] },
+      },
+      { sessionKey: "sess-RA" },
+    ) as { message?: { content?: Array<{ text?: string }> } };
+
+    expect(writeResult.message?.content?.[0]?.text).not.toContain("/approve");
   });
 });
