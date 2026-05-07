@@ -77,6 +77,33 @@ import '@lumin-io/mastra/auto';
 
 This path is best-effort — if the runtime uses modern OTel (where processors must be set at provider construction), the install silently no-ops and you should fall back to `luminConfig()` above. Mastra v1+ is the modern-OTel case.
 
+## Usage — Agent Firewall
+
+Wrap any Mastra Tool with `wrapToolWithFirewall` to add synchronous policy enforcement. Every tool invocation hits Lumin's `/v1/policy/decide` endpoint before executing — the response can `allow`, `block`, `rewrite` (substitute params), or `require_approval` (long-poll until an operator decides).
+
+```typescript
+import { createTool } from '@mastra/core';
+import { wrapToolWithFirewall } from '@lumin-io/mastra';
+
+const shellTool = createTool({
+  id: 'shell',
+  description: 'Run a shell command',
+  execute: async ({ context }) => runCommand(context.command),
+});
+
+export const guardedShell = wrapToolWithFirewall(shellTool, {
+  host: 'http://localhost:8000',
+  project: 'my-bot',
+  // Admin separation — Slice 2 Tier 1.0
+  adminSenders: ['telegram:5706212396'],
+  onFirewallError: 'allow',  // Rule 7 — agent never blocks on Lumin
+});
+```
+
+When the firewall blocks, the wrapper throws `FirewallBlockedError` with a sender-aware message: admins see the full reasoning (policy name, reason, agent_feedback), non-admins get a generic "contact your administrator" line that closes the social-engineering surface.
+
+For lower-level integrations, `LuminFirewallClient` exposes `decide()` and `waitForApproval()` directly.
+
 ## What you get in the dashboard
 
 - **Timeline view** — every Mastra agent run, agent step, tool call, and LLM request as nested spans
@@ -84,6 +111,7 @@ This path is best-effort — if the runtime uses modern OTel (where processors m
 - **Errors** — exception messages captured from OTel events
 - **Sessions** — multi-turn agent conversations grouped automatically when `session.id` or `gen_ai.conversation.id` is set
 - **Claude extended thinking** — if you use Claude with thinking enabled, reasoning blocks render as first-class child spans
+- **Firewall decisions** — every wrapped-tool call appears in the EnforcementTimeline with its decision verb, mode, and policy name
 
 ## Configuration
 
