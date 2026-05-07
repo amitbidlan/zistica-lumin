@@ -557,6 +557,8 @@ _ALLOWED_FUNCTIONS = frozenset({
     # Llama Guard 4 (Slice 3 Tier 2.3; optional dep — safe-by-default
     # results when transformers / torch / accelerate aren't installed)
     "llama_guard_classify", "llama_guard_unsafe", "llama_guard_categories",
+    # IPI sniffer (Slice 3 PR L — §6.9; always-on, escalates with Prompt Guard 2)
+    "ipi_score", "ipi_unsafe", "ipi_passages",
     # History-backed (registered per-request via build_history_builtins)
     "session_total_tokens", "session_total_cost",
     "trace_total_cost", "tool_calls_in_trace",
