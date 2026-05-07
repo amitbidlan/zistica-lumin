@@ -8,6 +8,7 @@ import {
   PolicyAuditEntry,
   formatStartedAt,
 } from '@/lib/api';
+import ModeToggle from '@/components/ModeToggle';
 import PolicyEditor from '@/components/PolicyEditor';
 
 /**
@@ -78,6 +79,24 @@ export default function PolicyEditPage({ name }: { name: string }) {
           </p>
         ) : null}
       </div>
+
+      {/* Firewall mode toggle (§5.4 / §10.1). Only render when the
+          API surfaced a mode value — avoids showing it for legacy
+          installs whose backend hasn't run the firewall migration
+          yet. */}
+      {policy.mode ? (
+        <section className="mb-8 card p-4 space-y-3">
+          <div>
+            <h2 className="text-sm font-semibold">Enforcement mode</h2>
+            <p className="text-xs text-[var(--muted)] mt-1">
+              Shadow records decisions without blocking. Flag returns
+              decision=&apos;flag&apos; (does not cancel the action). Enforce
+              applies the configured action.
+            </p>
+          </div>
+          <ModeToggle policyName={policy.name} currentMode={policy.mode} />
+        </section>
+      ) : null}
 
       <PolicyEditor mode="edit" initial={policy} />
 
