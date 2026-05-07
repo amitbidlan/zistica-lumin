@@ -29,3 +29,15 @@ opentelemetry-proto>=1.30
 #     pip install 'presidio-analyzer>=2.2.0'
 #     python -m spacy download en_core_web_lg
 # presidio-analyzer>=2.2.0
+# OPTIONAL — Meta Prompt Guard 2 for ML-based prompt-injection /
+# jailbreak detection (Slice 3 Tier 2.2). The 22M classifier
+# downloads ~90MB on first use and runs on CPU in <5ms. torch is
+# the heavy transitive (~700MB), so this is opt-in. Operators happy
+# with the regex / heuristic LLM01 rule can leave it uninstalled —
+# firewall.detectors.prompt_guard degrades gracefully
+# (``available = False``, score → 0.0). Activate by:
+#     pip install 'transformers>=4.40' 'torch>=2.1'
+# Model weights pull on first use; the HF model page is gated, so
+# accept the license once via `huggingface-cli login`.
+# transformers>=4.40
+# torch>=2.1

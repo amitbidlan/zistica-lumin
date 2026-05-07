@@ -39,6 +39,7 @@ from urllib.parse import urlparse
 
 from firewall.detectors import regex_pack as rp
 from firewall.detectors import presidio as presidio_det
+from firewall.detectors import prompt_guard as pg_det
 
 logger = logging.getLogger("lumin.api.firewall.builtins")
 
@@ -155,6 +156,24 @@ def presidio_pii_entities(s: Optional[str]) -> list:
     PII entity Presidio detected. Empty list when presidio isn't
     installed or no entity matched."""
     return presidio_det.presidio_pii_entities(s)
+
+
+def prompt_guard_score(s: Optional[str]) -> float:
+    """Prompt-injection / jailbreak confidence score (0.0-1.0) via
+    Meta's Prompt-Guard-2-22M classifier.
+
+    Returns 0.0 when transformers/torch aren't installed — the
+    expected state for operators staying on the regex-only path.
+    See ``firewall.detectors.prompt_guard`` for label semantics
+    and configuration.
+    """
+    return pg_det.prompt_guard_score(s)
+
+
+def prompt_guard_label(s: Optional[str]) -> str:
+    """Predicted label (BENIGN / INJECTION / JAILBREAK) for ``s``.
+    Empty string when the detector isn't available."""
+    return pg_det.prompt_guard_label(s)
 
 
 def has_image_markdown_exfil(s: Optional[str]) -> bool:
@@ -587,6 +606,9 @@ STATELESS_BUILTINS: Dict[str, Callable] = {
     # Detectors (presidio — optional, returns 0.0 / [] when not installed)
     "presidio_pii_score": presidio_pii_score,
     "presidio_pii_entities": presidio_pii_entities,
+    # Detectors (Prompt Guard 2 — optional, returns 0.0 / "" when not installed)
+    "prompt_guard_score": prompt_guard_score,
+    "prompt_guard_label": prompt_guard_label,
     # Sanitisation
     "redact_pii": redact_pii,
     # Cross-framework tool name canonicalization (Slice 2 Tier 1.1).
