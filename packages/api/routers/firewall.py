@@ -593,3 +593,59 @@ def instantiate_template(
         "description": saved.description,
         "template_id": template_id,
     }
+
+
+# ---- frequent-pattern miner (§11.3 — Slice 3 PR E) ----------------------
+
+
+@router.post("/v1/firewall/miner/run")
+def run_miner(db: Database = Depends(get_db)) -> Dict[str, Any]:
+    """Manual trigger — kicks the frequent-pattern miner on demand.
+    Same scan + emit logic as the background loop. Returns a summary
+    of what it did. Useful for ad-hoc operator-driven scans
+    (\"refresh suggestions now\")."""
+    from firewall import miner as fw_miner
+    return fw_miner.mine_recent_patterns(db)
+
+
+@router.get("/v1/firewall/suggestions")
+def list_suggestions(
+    state: str = Query("pending"),
+    limit: int = Query(50, ge=1, le=200),
+    db: Database = Depends(get_db),
+) -> Dict[str, Any]:
+    """Pending pattern suggestions for the dashboard inbox.
+    state ∈ pending | promoted | dismissed | all."""
+    where = ""
+    if state == "pending":
+        where = "WHERE promoted_to_policy_id IS NULL AND dismissed_at IS NULL"
+    elif state == "promoted":
+        where = "WHERE promoted_to_policy_id IS NOT NULL"
+    elif state == "dismissed":
+        where = "WHERE dismissed_at IS NOT NULL"
+    rows = db.fetchall_dict(
+        f"""
+        SELECT * FROM pattern_suggestions {where}
+        ORDER BY suggested_at DESC LIMIT ?
+        """,
+        [limit],
+    )
+    out = []
+    for r in rows:
+        out.append({
+            "id": r.get("id"),
+            "template": r.get("template"),
+            "draft_yaml": r.get("draft_yaml"),
+            "suggested_at": (
+                r.get("suggested_at").isoformat()
+                if r.get("suggested_at") else None
+            ),
+            "promoted_to_policy_id": r.get("promoted_to_policy_id"),
+            "dismissed_at": (
+                r.get("dismissed_at").isoformat()
+                if r.get("dismissed_at") else None
+            ),
+            "forecast_fp_count": int(r.get("forecast_fp_count") or 0),
+            "source_violation_id": r.get("source_violation_id"),
+        })
+    return {"suggestions": out, "total": len(out)}
