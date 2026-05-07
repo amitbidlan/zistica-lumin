@@ -2,7 +2,7 @@
 
 > Full-fidelity Lumin observability **and synchronous policy enforcement** for [OpenClaw](https://github.com/openclaw/openclaw) — every prompt, response, tool I/O, and reasoning trace captured per turn, every tool call checked against your firewall before it runs.
 
-**v0.2.0 adds the Agent Firewall path.** Every `before_tool_call` hook now POSTs to Lumin's `/v1/policy/decide` endpoint and translates the response into OpenClaw's typed-hook return contract — `block`, rewrite `params`, or `requireApproval`. Default fail-mode is `allow` (Rule 7: agent never blocks on Lumin), with `onFirewallError: "deny"` available for fail-closed deployments. Set `enforce: false` to fall back to v0.1.x observation-only behavior.
+**v0.4.0 adds admin separation.** Configure `adminSenders` to keep approval prompts and LLM technical detail away from end users — non-admin senders get a clean canned message after a block, admins get the full context. The plugin enforces this via OpenClaw's `inbound_claim` and `before_message_write` hooks. v0.2.0 introduced the Agent Firewall: every `before_tool_call` POSTs to Lumin's `/v1/policy/decide` endpoint and translates the response into OpenClaw's typed-hook return contract — `block`, `rewrite`, or `requireApproval`. Set `enforce: false` to fall back to observation-only.
 
 [![npm](https://img.shields.io/npm/v/@lumin-io/openclaw-diagnostics.svg?style=flat-square)](https://www.npmjs.com/package/@lumin-io/openclaw-diagnostics)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=flat-square)](https://github.com/amitbidlan/zistica-lumin/blob/main/LICENSE)
@@ -78,6 +78,9 @@ All optional, set under `plugins.entries.lumin-diagnostics.config` in `openclaw.
 | `enforce` | `true` | **(v0.2.0)** Whether to call `/v1/policy/decide` synchronously on every `before_tool_call`. Set to `false` to fall back to observation-only behavior. |
 | `decideTimeoutMs` | `75` | **(v0.2.0)** Hard timeout for the synchronous decide call. Tighter than `timeoutMs` because every tool call pays this latency. |
 | `onFirewallError` | `"allow"` | **(v0.2.0)** Fail-mode when the firewall is unreachable: `"allow"` (Rule 7 default) lets the tool run, `"deny"` cancels it. |
+| `adminSenders` | `[]` | **(v0.4.0)** Sender IDs treated as administrators. Format: `telegram:5706212396`, `slack:U02ABCD123`, `whatsapp:+1234567890` — whatever OpenClaw produces as the canonical channel-scoped sender. Empty (default) means every sender is non-admin. |
+| `userBlockedMessage` | *(neutral default)* | **(v0.4.0)** What end users see when the LLM tries to reply after a Lumin block. Defaults to: *"I'm unable to perform that action due to security policy. Please contact your administrator if you need assistance."* |
+| `adminSeesFullResponse` | `true` | **(v0.4.0)** Whether admin senders see the agent's full reply (including any policy detail the LLM mentions) after a block. Set `false` to suppress for admins too — useful when ALL admin context should route through the Lumin dashboard. |
 
 Example:
 
@@ -116,6 +119,22 @@ Two reasons:
 - **History is summarized, not embedded.** Each turn captures only the current user prompt — the full conversation history (which OpenClaw replays to the model on every turn) is referenced by count, not embedded, so trace size doesn't grow linearly with conversation length. If you need the full conversation, use Lumin's `/sessions` view, which already groups turns by `session_id`.
 
 ## Changelog
+
+### 0.4.0 — Admin separation + LLM feedback
+
+Closes the social-engineering surface where the LLM hallucinates a fake `/approve <command>` syntax for the user to click — captured live during Slice 1 dogfood (2026-05-07).
+
+- **`adminSenders` config:** list of OpenClaw-canonical sender IDs (e.g. `telegram:5706212396`, `slack:U02ABCD123`) treated as administrators. Non-admin senders get a canned message after a Lumin block; the LLM's reply is intercepted via the new `before_message_write` hook.
+- **`userBlockedMessage` config:** override the default user-facing canned message.
+- **`adminSeesFullResponse` config (default `true`):** admins see the agent's full reply with policy detail; set `false` to route admin context only through the Lumin dashboard.
+- **New hooks registered:** `inbound_claim` (records sessionKey → senderId) and `before_message_write` (intercepts non-admin replies after recent block).
+- **Surfaces `agent_feedback` from Lumin's decide response** as the tool error string verbatim — authoritative, anti-hallucination, anti-retry text targeted at the LLM's reasoning trace.
+
+Behavior change vs 0.3.x: previously, every sender (including end users) saw OpenClaw's native `🛡️ Plugin approval required` prompt and could `/approve` it themselves — a real bypass. With `adminSenders` configured, end users never see the approval surface.
+
+### 0.3.0 — Lockstep version alignment
+
+Version bump to align with Lumin platform v0.3.0 (Lumin API Docker, all SDKs and integrations). No functional changes from 0.2.0.
 
 ### 0.2.0 — Agent Firewall enforcement
 
