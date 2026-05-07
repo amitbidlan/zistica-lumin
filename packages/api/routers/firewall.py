@@ -596,6 +596,61 @@ def instantiate_template(
     }
 
 
+# ---- labels  (§5.8 — Slice 3 PR C foundation) ---------------------------
+
+
+class LabelRequest(BaseModel):
+    """Body for POST /v1/labels — operator marks a trace/span as bad/good
+    for downstream classifier training and false-positive review."""
+    trace_id: Optional[str] = None
+    span_id: Optional[str] = None
+    decision_id: Optional[str] = None
+    field: str = Field(..., description="One of: input, output, tool_params, tool_result")
+    label: str = Field(..., description="One of: bad, good, neutral")
+    category: Optional[str] = None
+    notes: Optional[str] = None
+    labeled_by: Optional[str] = "dashboard"
+
+
+@router.post("/v1/labels")
+def post_label(payload: LabelRequest, db: Database = Depends(get_db)) -> Dict[str, Any]:
+    """Insert a label row. Used by the dashboard's 'Mark as false
+    positive' button on /decisions/{id}, and as the substrate for
+    the local classifier trainer (Slice 4)."""
+    if payload.label not in ("bad", "good", "neutral"):
+        raise HTTPException(status_code=400, detail="label must be bad/good/neutral")
+    if payload.field not in ("input", "output", "tool_params", "tool_result"):
+        raise HTTPException(
+            status_code=400,
+            detail="field must be one of: input, output, tool_params, tool_result",
+        )
+    import uuid as _uuid
+    label_id = "lbl_" + _uuid.uuid4().hex[:24]
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    try:
+        db.execute(
+            """
+            INSERT INTO labels (
+                id, trace_id, span_id, field, label, category, notes,
+                labeled_by, labeled_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                label_id, payload.trace_id, payload.span_id,
+                payload.field, payload.label, payload.category,
+                payload.notes, payload.labeled_by or "dashboard", now,
+            ],
+        )
+    except Exception:
+        logger.exception("firewall: failed to insert label row")
+        raise HTTPException(status_code=500, detail="label insert failed")
+    return {
+        "id": label_id,
+        "label": payload.label,
+        "labeled_at": now.isoformat(),
+    }
+
+
 # ---- pattern suggester (§5.5 — Slice 3 PR D) ----------------------------
 
 
