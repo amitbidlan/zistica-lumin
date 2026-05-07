@@ -34,6 +34,8 @@ import policy_store
 from db import Database, get_db
 
 from firewall import decide as fw_decide
+from firewall.templates import loader as fw_templates
+from models import TemplateInstantiateRequest
 
 logger = logging.getLogger("lumin.api.routers.firewall")
 
@@ -478,3 +480,76 @@ def _approval_row_to_dict(row: Dict[str, Any]) -> Dict[str, Any]:
         except json.JSONDecodeError:
             pass
     return out
+
+
+# ---- templates  (§8 dashboard, Slice 2 Tier 1.05) -----------------------
+
+
+@router.get("/v1/firewall/templates")
+def list_templates() -> Dict[str, Any]:
+    """All available rule templates. Cheap — registry is loaded once at
+    module load. Returns a compact summary; the dashboard fetches the
+    full template (with fields) on click via the {id} endpoint."""
+    return {"templates": fw_templates.list_templates_summary()}
+
+
+@router.get("/v1/firewall/templates/{template_id}")
+def get_template_detail(template_id: str) -> Dict[str, Any]:
+    """Full template — fields schema, defaults, condition string. The
+    dashboard's modal form renders ``fields`` as a form."""
+    tpl = fw_templates.get_template(template_id)
+    if tpl is None:
+        raise HTTPException(status_code=404, detail=f"template {template_id!r} not found")
+    return tpl
+
+
+@router.post("/v1/firewall/templates/{template_id}/instantiate")
+def instantiate_template(
+    template_id: str,
+    payload: TemplateInstantiateRequest,
+    db: Database = Depends(get_db),
+) -> Dict[str, Any]:
+    """Create a policy from a template + operator's field values.
+
+    Always lands in mode=shadow per §10.1 unless operator explicitly
+    asks for another mode. Triggers an engine reload so the new rule
+    is live in the same response — same pattern as POST /v1/policies.
+    """
+    if not payload.name or not payload.name.strip():
+        raise HTTPException(status_code=400, detail="name is required")
+
+    try:
+        policy = fw_templates.compile_rule(
+            template_id, payload.name.strip(),
+            payload.field_values,
+            mode=payload.mode,
+        )
+    except KeyError:
+        raise HTTPException(
+            status_code=404, detail=f"template {template_id!r} not found"
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    try:
+        saved = policy_store.create_policy(db, policy, actor="template_instantiate")
+    except ValueError as e:
+        # Name conflict OR firewall-field validation error.
+        raise HTTPException(status_code=409, detail=str(e))
+
+    # Hot-reload so the new rule is live immediately.
+    try:
+        policy_runtime.reload_engine(db=db)
+    except Exception:
+        logger.exception("template instantiate: post-create reload failed")
+
+    return {
+        "name": saved.name,
+        "lifecycle": getattr(saved, "lifecycle", "post_ingest"),
+        "mode": getattr(saved, "mode", "shadow"),
+        "action": saved.action,
+        "severity": saved.severity,
+        "condition": saved.condition,
+        "description": saved.description,
+        "template_id": template_id,
+    }
