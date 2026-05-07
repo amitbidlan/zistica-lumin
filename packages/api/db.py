@@ -144,6 +144,23 @@ class Database:
                 stmt = stmt.strip()
                 if stmt:
                     self._duck.execute(stmt)
+            # Agent Firewall schema (§4 of AGENT_FIREWALL_SPEC.md). New
+            # tables: decisions, approvals, labels, pattern_suggestions,
+            # policy_versions. Plus columns added to the existing
+            # `policies` table (lifecycle, mode, priority, on_timeout,
+            # circuit_breaker_state, on_internal_error). Idempotent.
+            #
+            # Imported lazily to avoid a hard dependency cycle if some
+            # day db.py is reused outside the API context.
+            try:
+                from firewall import migrations as _firewall_migrations
+                _firewall_migrations.apply(self._duck)
+            except Exception:
+                # Migration module shouldn't crash startup either —
+                # log via the firewall logger and keep going. The
+                # firewall feature degrades to "tables missing" which
+                # the policy_decide endpoint already tolerates.
+                pass
             # Migrations for databases created before columns were added.
             # IF NOT EXISTS on ALTER COLUMN is supported in DuckDB >= 0.10
             # but we still wrap each ALTER in try/except as defense in

@@ -61,6 +61,16 @@ def _policy_to_row(p: Policy) -> dict:
         "webhook_url": p.webhook_url,
         "scope_agents": json.dumps(list(p.scope_agents or [])),
         "enabled": True,
+        # Agent Firewall fields (§3 of AGENT_FIREWALL_SPEC.md). Pass
+        # through as-is — the column defaults handle rows without
+        # these fields, and validate_policy_for_save catches bad
+        # values before we get here.
+        "lifecycle": getattr(p, "lifecycle", "post_ingest"),
+        "mode": getattr(p, "mode", "enforce"),
+        "priority": int(getattr(p, "priority", 0)),
+        "on_timeout": getattr(p, "on_timeout", "allow"),
+        "on_internal_error": getattr(p, "on_internal_error", "allow"),
+        "circuit_breaker_state": getattr(p, "circuit_breaker_state", "ok"),
     }
 
 
@@ -68,7 +78,9 @@ def _row_to_policy(row: dict) -> Policy:
     """Construct a Policy from a ``policies`` row.
 
     Tolerates both JSON-encoded scope_agents (DB read) and an already-
-    decoded list (test fixtures or manual inserts).
+    decoded list (test fixtures or manual inserts). Tolerates the
+    firewall fields being absent (older DBs from before the
+    migration ran) by falling back to the dataclass defaults.
     """
     raw_scope = row.get("scope_agents")
     scope: List[str] = []
@@ -92,7 +104,63 @@ def _row_to_policy(row: dict) -> Policy:
         severity=str(row["severity"]),
         webhook_url=row.get("webhook_url"),
         scope_agents=scope,
+        lifecycle=str(row.get("lifecycle") or "post_ingest"),
+        mode=str(row.get("mode") or "enforce"),
+        priority=int(row.get("priority") or 0),
+        on_timeout=str(row.get("on_timeout") or "allow"),
+        on_internal_error=str(row.get("on_internal_error") or "allow"),
+        circuit_breaker_state=str(row.get("circuit_breaker_state") or "ok"),
     )
+
+
+# ---- firewall field validation -------------------------------------------
+#
+# Called from create_policy / update_policy paths. Catches bad values
+# at the API boundary (HTTP 400) so the engine never has to reason
+# about lifecycle="ohno" or mode="???".
+
+VALID_LIFECYCLES = frozenset({
+    "post_ingest",
+    "before_proxy_call",
+    "after_proxy_call",
+    "before_tool_call",
+    "after_tool_call",
+})
+VALID_MODES = frozenset({"shadow", "flag", "enforce"})
+VALID_ON_TIMEOUT = frozenset({"allow", "deny"})
+VALID_ON_INTERNAL_ERROR = frozenset({"allow", "deny", "flag"})
+
+
+def validate_firewall_fields(p: Policy) -> Optional[str]:
+    """Returns ``None`` when the firewall fields on ``p`` are valid,
+    else a human-readable error string suitable for an HTTP 400.
+
+    Cheap to call repeatedly — used both at HTTP-handler validation
+    time and at engine-load time as a defense-in-depth check.
+    """
+    lc = getattr(p, "lifecycle", "post_ingest")
+    if lc not in VALID_LIFECYCLES:
+        return (
+            f"lifecycle '{lc}' is not one of {sorted(VALID_LIFECYCLES)}"
+        )
+    mode = getattr(p, "mode", "enforce")
+    if mode not in VALID_MODES:
+        return f"mode '{mode}' is not one of {sorted(VALID_MODES)}"
+    ot = getattr(p, "on_timeout", "allow")
+    if ot not in VALID_ON_TIMEOUT:
+        return f"on_timeout '{ot}' is not one of {sorted(VALID_ON_TIMEOUT)}"
+    oie = getattr(p, "on_internal_error", "allow")
+    if oie not in VALID_ON_INTERNAL_ERROR:
+        return (
+            f"on_internal_error '{oie}' is not one of "
+            f"{sorted(VALID_ON_INTERNAL_ERROR)}"
+        )
+    pri = getattr(p, "priority", 0)
+    try:
+        int(pri)
+    except (TypeError, ValueError):
+        return f"priority must be an integer, got {pri!r}"
+    return None
 
 
 # ---- read paths -----------------------------------------------------------
@@ -157,6 +225,13 @@ def create_policy(
     Raises ``ValueError`` if the name already exists (caller maps to
     HTTP 409 Conflict).
     """
+    # Validate firewall fields up-front so a 400 surfaces before we
+    # touch the DB. Cheap; defense in depth on top of the engine's
+    # own validation.
+    err = validate_firewall_fields(p)
+    if err:
+        raise ValueError(f"policy '{p.name}': {err}")
+
     existing = db.fetchone_dict(
         "SELECT name, enabled FROM policies WHERE name = ?", [p.name]
     )
@@ -179,6 +254,11 @@ def create_policy(
             webhook_url=p.webhook_url,
             scope_agents=list(p.scope_agents or []),
             enabled=True,
+            lifecycle=getattr(p, "lifecycle", "post_ingest"),
+            mode=getattr(p, "mode", "enforce"),
+            priority=int(getattr(p, "priority", 0)),
+            on_timeout=getattr(p, "on_timeout", "allow"),
+            on_internal_error=getattr(p, "on_internal_error", "allow"),
             actor=actor,
             audit_action="create",
         )
@@ -189,13 +269,16 @@ def create_policy(
         INSERT INTO policies (
             name, description, trigger, condition, action, severity,
             webhook_url, scope_agents, enabled, version,
+            lifecycle, mode, priority, on_timeout, on_internal_error,
             created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             row["name"], row["description"], row["trigger"], row["condition"],
             row["action"], row["severity"], row["webhook_url"],
             row["scope_agents"], row["enabled"],
+            row["lifecycle"], row["mode"], row["priority"],
+            row["on_timeout"], row["on_internal_error"],
             datetime.now(timezone.utc).replace(tzinfo=None),
             datetime.now(timezone.utc).replace(tzinfo=None),
         ],
@@ -218,6 +301,14 @@ def update_policy(
     webhook_url: Optional[str] = None,
     scope_agents: Optional[List[str]] = None,
     enabled: Optional[bool] = None,
+    # Agent Firewall fields (§3 of AGENT_FIREWALL_SPEC.md). All
+    # optional — pass None to leave the existing value untouched.
+    lifecycle: Optional[str] = None,
+    mode: Optional[str] = None,
+    priority: Optional[int] = None,
+    on_timeout: Optional[str] = None,
+    on_internal_error: Optional[str] = None,
+    circuit_breaker_state: Optional[str] = None,
     actor: Optional[str] = None,
     audit_action: str = "update",
 ) -> Policy:
@@ -249,6 +340,41 @@ def update_policy(
         fields.append("scope_agents = ?"); params.append(json.dumps(list(scope_agents)))
     if enabled is not None:
         fields.append("enabled = ?"); params.append(bool(enabled))
+    # Agent Firewall fields. Validated up-front so a bad mode/lifecycle
+    # surfaces as a 400 rather than landing in the DB.
+    if lifecycle is not None:
+        if lifecycle not in VALID_LIFECYCLES:
+            raise ValueError(
+                f"lifecycle '{lifecycle}' is not one of {sorted(VALID_LIFECYCLES)}"
+            )
+        fields.append("lifecycle = ?"); params.append(lifecycle)
+    if mode is not None:
+        if mode not in VALID_MODES:
+            raise ValueError(
+                f"mode '{mode}' is not one of {sorted(VALID_MODES)}"
+            )
+        fields.append("mode = ?"); params.append(mode)
+    if priority is not None:
+        fields.append("priority = ?"); params.append(int(priority))
+    if on_timeout is not None:
+        if on_timeout not in VALID_ON_TIMEOUT:
+            raise ValueError(
+                f"on_timeout '{on_timeout}' is not one of {sorted(VALID_ON_TIMEOUT)}"
+            )
+        fields.append("on_timeout = ?"); params.append(on_timeout)
+    if on_internal_error is not None:
+        if on_internal_error not in VALID_ON_INTERNAL_ERROR:
+            raise ValueError(
+                f"on_internal_error '{on_internal_error}' is not one of "
+                f"{sorted(VALID_ON_INTERNAL_ERROR)}"
+            )
+        fields.append("on_internal_error = ?"); params.append(on_internal_error)
+    if circuit_breaker_state is not None:
+        if circuit_breaker_state not in {"ok", "tripped"}:
+            raise ValueError(
+                f"circuit_breaker_state '{circuit_breaker_state}' must be 'ok' or 'tripped'"
+            )
+        fields.append("circuit_breaker_state = ?"); params.append(circuit_breaker_state)
 
     fields.append("version = version + 1")
     fields.append("updated_at = ?")

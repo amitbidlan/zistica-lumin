@@ -50,6 +50,35 @@ class Policy:
     ``scope_agents`` (Phase 3) limits the policy to a list of agent names
     (matched against ``trace.name`` — the agent identity in Lumin's
     Phase-1 model). Empty list = un-scoped = applies to every agent.
+
+    Agent Firewall fields (added in Slice 1 of the firewall pivot,
+    see ``docs/AGENT_FIREWALL_SPEC.md``) — all optional with
+    back-compat defaults so older SDK users authoring rules without
+    them keep the legacy post-ingest advisory behavior unchanged:
+
+    - ``lifecycle`` selects WHEN the rule fires:
+      ``post_ingest`` (legacy, default), ``before_proxy_call``,
+      ``after_proxy_call``, ``before_tool_call``, ``after_tool_call``.
+    - ``mode`` selects WHETHER the rule's action takes effect:
+      ``shadow`` (record only, never block), ``flag`` (record as
+      violation but don't block), ``enforce`` (do the real action).
+    - ``priority`` orders rules within a lifecycle: higher fires
+      first; an explicit ``allow`` short-circuits lower-priority
+      rules.
+    - ``on_timeout`` is the fallback when an approval round-trip
+      exceeds its timeout: ``allow`` or ``deny``.
+    - ``on_internal_error`` is the fallback when the engine itself
+      errors during evaluation: ``allow`` (Rule 7 default) or
+      ``deny`` for high-severity rules.
+    - ``circuit_breaker_state`` tracks runaway rules — when set to
+      ``tripped``, the rule is silently demoted to shadow until an
+      operator resets it via the dashboard.
+    - ``stream_behavior`` (after_proxy_call only) — controls how
+      streaming responses interact with policy enforcement: ``flag``
+      (default; record but never block; lossless UX), ``cancel``
+      (close the SSE mid-stream — partial leak still possible),
+      ``buffer`` (disable streaming for this lifecycle entirely;
+      full enforcement, slower UX).
     """
 
     name: str
@@ -60,6 +89,15 @@ class Policy:
     description: Optional[str] = None
     webhook_url: Optional[str] = None
     scope_agents: List[str] = field(default_factory=list)
+
+    # ----- Agent Firewall fields ---------------------------------------
+    lifecycle: str = "post_ingest"
+    mode: str = "enforce"
+    priority: int = 0
+    on_timeout: str = "allow"
+    on_internal_error: str = "allow"
+    circuit_breaker_state: str = "ok"
+    stream_behavior: str = "flag"
 
     def applies_to_agent(self, agent_name: Optional[str]) -> bool:
         """Whether this policy should fire for an event from `agent_name`.
