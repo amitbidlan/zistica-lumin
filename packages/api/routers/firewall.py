@@ -973,3 +973,44 @@ def run_test_cases_endpoint(
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ---- Synthetic adversarial generator (Slice 3 PR O — §14.2) --------------
+
+
+class GenerateAttacksRequest(BaseModel):
+    """Body for POST /v1/firewall/test/generate_attacks."""
+    categories: Optional[List[str]] = None
+    seed_prompt: Optional[str] = None
+    seed_ask: Optional[str] = None
+    limit: int = Field(100, ge=1, le=1000)
+
+
+@router.get("/v1/firewall/test/attack_categories")
+def list_attack_categories() -> Dict[str, Any]:
+    """Return the list of attack categories the generator supports.
+    Used by the dashboard's "Generate test attacks" UI."""
+    from firewall import attack_generator as fw_attacks
+    return {"categories": fw_attacks.available_categories()}
+
+
+@router.post("/v1/firewall/test/generate_attacks")
+def generate_attacks_endpoint(
+    payload: GenerateAttacksRequest,
+) -> Dict[str, Any]:
+    """Generate synthetic attack inputs operators can run through
+    the firewall (or their agent) to verify rule coverage.
+
+    Returns ``{count, attacks: [...]}``. Each attack is a dict in
+    decide()-request shape, with an extra ``expected_to`` field
+    listing decisions a properly-configured firewall should
+    produce. When the actual decision isn't in ``expected_to``,
+    that's a coverage gap the operator should investigate."""
+    from firewall import attack_generator as fw_attacks
+    attacks = fw_attacks.generate_attacks(
+        categories=payload.categories,
+        seed_prompt=payload.seed_prompt,
+        seed_ask=payload.seed_ask,
+        limit=payload.limit,
+    )
+    return {"count": len(attacks), "attacks": attacks}
