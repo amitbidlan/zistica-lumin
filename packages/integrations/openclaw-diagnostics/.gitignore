@@ -1,0 +1,4 @@
+
+
+# npm pack output — local-only, never commit
+*.tgz
