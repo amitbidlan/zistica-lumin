@@ -203,9 +203,25 @@ def policies_state_token(db: Database) -> Tuple[int, int]:
     Returns ``(row_count, max_version)``. Either changing implies the
     engine's cache is stale. Cheaper than re-reading every row on
     every span — the runtime polls this every N seconds.
+
+    Counts ONLY ``lifecycle = 'post_ingest'`` rows because that's
+    what the SDK PolicyEngine evaluates. Firewall rules are picked
+    up by the synchronous decide engine via its own per-request
+    SELECT and don't go through this token. Without this filter, an
+    install with only firewall rules would: (a) report a non-zero
+    token, (b) trigger reload_engine to build a DB-backed engine,
+    (c) get None back from build_engine_from_db (since it filters
+    too), (d) clear the in-memory engine, (e) on the next span fall
+    through to YAML — which silently disables YAML-supplied rules
+    that *should* still fire. Lockstep filtering keeps the watcher
+    inert when only firewall rules exist.
     """
     row = db.fetchone(
-        "SELECT COUNT(*), COALESCE(MAX(version), 0) FROM policies WHERE enabled = true"
+        """
+        SELECT COUNT(*), COALESCE(MAX(version), 0) FROM policies
+        WHERE enabled = true
+          AND COALESCE(lifecycle, 'post_ingest') = 'post_ingest'
+        """
     )
     if not row:
         return (0, 0)
@@ -556,8 +572,24 @@ def build_engine_from_db(db: Database) -> Optional[PolicyEngine]:
     and feed it to the engine via tempfile.
 
     Returns None when the DB has no enabled rows (= engine disabled).
+
+    Filters to ``lifecycle == 'post_ingest'``: the SDK PolicyEngine
+    evaluates spans/traces post-ingest and only knows the legacy
+    builtins (len/str/int/float/abs). Firewall lifecycles
+    (before_proxy_call, after_tool_call, etc.) are evaluated by
+    ``firewall.decide`` instead, which has the firewall builtins
+    (has_pii, looks_like_secret, …) in scope. Mixing the two would
+    silently drop firewall rules from the SDK engine with a "function
+    not defined" warning AND would prevent the firewall engine from
+    seeing them via lifecycle filter (it does its own DB read with
+    ``lifecycle = ?`` filter, so this is just for SDK-engine
+    correctness).
     """
-    policies = list_policies(db, include_disabled=False)
+    all_policies = list_policies(db, include_disabled=False)
+    policies = [
+        p for p in all_policies
+        if (getattr(p, "lifecycle", "post_ingest") or "post_ingest") == "post_ingest"
+    ]
     if not policies:
         return None
     return _build_engine_from_policies(policies)
