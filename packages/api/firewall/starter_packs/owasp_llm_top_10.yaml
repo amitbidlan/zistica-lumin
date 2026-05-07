@@ -85,19 +85,30 @@ policies:
     action: block
     severity: high
 
-  # LLM06 — Excessive Agency
-  # Block destructive shell paths in tool args (rm -rf /, drop
-  # database, etc.) without an approval round-trip.
-  - name: owasp_llm06_destructive_shell
-    description: Require approval for destructive shell commands (rm -rf, mkfs, format).
+  # LLM06 — Excessive Agency (split: irreversible vs recoverable per
+  # Slice 2 Tier 1.6.5 guidance — block> require_approval for ops that
+  # can't be safely undone, since require_approval creates a pending
+  # state the LLM tries to satisfy by hallucinating /approve syntax
+  # to the user. See live evidence in docs/SLICE_2_PLAN.md.)
+  - name: owasp_llm06_destructive_shell_irreversible
+    description: Block irreversible destructive shell commands (rm -rf, mkfs, dd, drop database). No approval — these can't be safely "undone".
     lifecycle: before_tool_call
     mode: shadow
     priority: 100
     trigger: span_end
-    condition: tool_name == "shell" and (regex_match(str(Input.params.get("command", "")), "(?i)rm\\s+-rf\\s") or regex_match(str(Input.params.get("command", "")), "(?i)mkfs|fdisk|dd\\s+if=") or is_destructive_path(str(Input.params.get("command", ""))))
-    action: require_approval
+    condition: is_shell_tool(tool_name) and (regex_match(str(Input.params.get("command", "")), "(?i)rm\\s+-rf\\s") or regex_match(str(Input.params.get("command", "")), "(?i)mkfs|fdisk|dd\\s+if=") or regex_match(str(Input.params.get("command", "")), "(?i)\\bdrop\\s+(database|table)\\b") or is_destructive_path(str(Input.params.get("command", ""))))
+    action: block
     severity: critical
-    on_timeout: deny
+
+  - name: owasp_llm06_sensitive_file_read
+    description: Block reads of sensitive credential / config files (SSH keys, AWS / GCP / kube credentials, /etc/passwd, .env). Defense-in-depth — even if the shell skill permits it, the firewall denies.
+    lifecycle: before_tool_call
+    mode: shadow
+    priority: 95
+    trigger: span_end
+    condition: is_shell_tool(tool_name) and regex_match(str(Input.params.get("command", "")), "(?i)(cat|head|tail|less|more|od|xxd|base64|cp|mv|grep)\\s.*?(/etc/(passwd|shadow|sudoers|hosts)|~/.ssh/|/Users/[^/]+/.ssh/|~/.aws/credentials|/Users/[^/]+/.aws/credentials|~/.kube/config|/var/log/auth|\\.env\\b|/secrets?/|/private[/-]key)")
+    action: block
+    severity: critical
 
   # LLM07 — System Prompt Leakage
   # If the model output verbatim-quotes the system prompt, flag it.
@@ -135,13 +146,17 @@ policies:
 
   # LLM10 — Unbounded Consumption
   # Cap per-session tokens. Default budget is generous; operators
-  # tighten it after seeing baseline traffic.
+  # tighten it after seeing baseline traffic. Returns 0 (and
+  # therefore doesn't fire) when session_id is missing — sessions
+  # are framework-conventional and a missing one means the request
+  # came in without the routing metadata we need to enforce a
+  # per-session cap.
   - name: owasp_llm10_session_token_budget
-    description: Block proxy calls when the session has burned through its token budget.
+    description: Block proxy calls when the session has burned through its token budget (default 1M tokens).
     lifecycle: before_proxy_call
     mode: shadow
     priority: 40
     trigger: span_end
-    condition: session_total_tokens(Input.session_id) > 1000000
+    condition: session_total_tokens(str(Input.session_id or "")) > 1000000
     action: block
     severity: medium
