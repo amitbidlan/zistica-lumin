@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -1014,3 +1014,38 @@ def generate_attacks_endpoint(
         limit=payload.limit,
     )
     return {"count": len(attacks), "attacks": attacks}
+
+
+# ---- Bypass log (Slice 3 PR P — §14.4) -----------------------------------
+#
+# Surfaces "things the firewall let through that an operator later marked
+# as bad". The flip-side of the test harness: tests check positive coverage,
+# bypass log surfaces the missed cases.
+
+
+@router.get("/v1/firewall/bypasses")
+def list_bypasses_endpoint(
+    days: int = Query(30, ge=1, le=365),
+    limit: int = Query(50, ge=1, le=500),
+    db: Database = Depends(get_db),
+) -> Dict[str, Any]:
+    """Recent bypasses — labels marked ``bad`` on traces where no
+    block-class decision fired. Default window: last 30 days."""
+    from firewall import bypass_log as fw_bypass
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    return {
+        "bypasses": fw_bypass.recent_bypasses(db, since=since, limit=limit),
+        "window_days": days,
+    }
+
+
+@router.get("/v1/firewall/bypasses/summary")
+def bypass_summary_endpoint(
+    days: int = Query(30, ge=1, le=365),
+    db: Database = Depends(get_db),
+) -> Dict[str, Any]:
+    """Aggregate bypass counts by category, tool, and agent. Used
+    by the dashboard banner / coverage page."""
+    from firewall import bypass_log as fw_bypass
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    return fw_bypass.bypass_summary(db, since=since)
