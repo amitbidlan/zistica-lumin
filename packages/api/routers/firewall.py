@@ -596,6 +596,106 @@ def instantiate_template(
     }
 
 
+# ---- Embedding similarity corpora (Slice 3 Tier 2.4) ---------------------
+#
+# Operators build org-specific corpora ("known jailbreak prompts",
+# "internal product codenames", etc.) and reference them from rule
+# conditions like:
+#
+#     condition: similar_to_corpus(Input.last_user_msg, "known_jailbreaks", 0.85)
+#
+# CRUD lives here so the dashboard can render a Corpora page; the
+# detector module (firewall.detectors.embedding) owns the actual
+# embedding + similarity computation.
+
+
+class CorpusCreateRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+
+class CorpusEntryAddRequest(BaseModel):
+    text: str
+
+
+@router.get("/v1/firewall/corpora")
+def list_corpora_endpoint(db: Database = Depends(get_db)) -> Dict[str, Any]:
+    """All corpora with their entry counts. Cheap aggregate query."""
+    from firewall.detectors import embedding as emb_det
+    return {"corpora": emb_det.list_corpora(db)}
+
+
+@router.post("/v1/firewall/corpora")
+def create_corpus_endpoint(
+    payload: CorpusCreateRequest, db: Database = Depends(get_db)
+) -> Dict[str, Any]:
+    """Create an empty corpus. Operators add entries one at a time."""
+    from firewall.detectors import embedding as emb_det
+    try:
+        new_id = emb_det.create_corpus(db, payload.name, payload.description)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return {"id": new_id, "name": payload.name}
+
+
+@router.delete("/v1/firewall/corpora/{name}")
+def delete_corpus_endpoint(
+    name: str, db: Database = Depends(get_db)
+) -> Dict[str, Any]:
+    """Delete a corpus + all its entries."""
+    from firewall.detectors import embedding as emb_det
+    deleted = emb_det.delete_corpus(db, name)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"corpus {name!r} not found")
+    return {"ok": True}
+
+
+@router.get("/v1/firewall/corpora/{name}/entries")
+def list_corpus_entries_endpoint(
+    name: str, db: Database = Depends(get_db)
+) -> Dict[str, Any]:
+    """Entries for a corpus. Returns text + created_at — embeddings
+    are not exposed (1.5KB BLOBs aren't useful to the dashboard)."""
+    from firewall.detectors import embedding as emb_det
+    return {"entries": emb_det.list_entries(db, name)}
+
+
+@router.post("/v1/firewall/corpora/{name}/entries")
+def add_corpus_entry_endpoint(
+    name: str,
+    payload: CorpusEntryAddRequest,
+    db: Database = Depends(get_db),
+) -> Dict[str, Any]:
+    """Embed ``text`` and add it to the corpus. Returns 503 when
+    the embedding model isn't installed — operators see a clear
+    "install sentence-transformers to use this feature" error
+    instead of silent failure."""
+    from firewall.detectors import embedding as emb_det
+    if not payload.text or not payload.text.strip():
+        raise HTTPException(status_code=400, detail="text is required")
+    try:
+        new_id = emb_det.add_entry(db, name, payload.text)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    if new_id is None:
+        raise HTTPException(
+            status_code=503,
+            detail="embedding model unavailable — install sentence-transformers",
+        )
+    return {"id": new_id}
+
+
+@router.delete("/v1/firewall/corpora/entries/{entry_id}")
+def delete_corpus_entry_endpoint(
+    entry_id: int, db: Database = Depends(get_db)
+) -> Dict[str, Any]:
+    from firewall.detectors import embedding as emb_det
+    deleted = emb_det.delete_entry(db, entry_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="entry not found")
+    return {"ok": True}
+
+
 # ---- labels  (§5.8 — Slice 3 PR C foundation) ---------------------------
 
 
