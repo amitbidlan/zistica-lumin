@@ -300,6 +300,7 @@ def create_policy(
         ],
     )
     _audit(db, p.name, "create", before=None, after=row, actor=actor)
+    _snapshot_version(db, p.name, actor=actor)
     saved = get_policy(db, p.name)
     assert saved is not None  # we just inserted it
     return saved
@@ -403,6 +404,12 @@ def update_policy(
     )
     after = db.fetchone_dict("SELECT * FROM policies WHERE name = ?", [name])
     _audit(db, name, audit_action, before=before, after=after, actor=actor)
+    # Slice 6C — snapshot the post-update policy into policy_versions
+    # so /v1/policies/{name}/versions has a complete audit-trail of
+    # what the rule looked like at every point in time. The snapshot
+    # uses the new ``version`` column we just bumped, so each row
+    # has a contiguous integer version_number.
+    _snapshot_version(db, name, actor=actor)
     saved = _row_to_policy(after) if after else None
     assert saved is not None
     return saved
@@ -460,6 +467,170 @@ def _audit(
         )
     except Exception:
         logger.exception("policy_audit: write failed for %s/%s", policy_name, action)
+
+
+def _snapshot_version(
+    db: Database,
+    policy_name: str,
+    *,
+    actor: Optional[str] = None,
+) -> Optional[int]:
+    """Snapshot the current policy row into ``policy_versions`` after
+    a successful create / update / rollback. Returns the version_number
+    written, or None if anything went wrong (Rule 7 — never let a
+    snapshot failure block the underlying CRUD).
+
+    The snapshot's ``version_number`` mirrors the ``version`` column on
+    ``policies`` so operators can refer to the same number across
+    audit / history surfaces.
+    """
+    try:
+        row = db.fetchone_dict(
+            "SELECT * FROM policies WHERE name = ?", [policy_name],
+        )
+        if row is None:
+            return None
+        version_number = int(row.get("version") or 1)
+        # YAML serialise — fall back to JSON if pyyaml chokes on a
+        # weird value. The yaml column is text either way.
+        try:
+            import yaml
+            payload_dict = _safe_audit_payload(row) or {}
+            yaml_blob = yaml.safe_dump(payload_dict, sort_keys=True, default_flow_style=False)
+        except Exception:
+            yaml_blob = json.dumps(_safe_audit_payload(row), default=str)
+
+        version_id = (
+            f"{policy_name}|{version_number}|"
+            f"{datetime.now(timezone.utc).timestamp()}"
+        )
+        db.execute(
+            """
+            INSERT INTO policy_versions (
+                id, policy_id, version_number, yaml, created_at, created_by
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            [
+                version_id,
+                policy_name,
+                version_number,
+                yaml_blob,
+                datetime.now(timezone.utc).replace(tzinfo=None),
+                actor,
+            ],
+        )
+        return version_number
+    except Exception:
+        logger.exception(
+            "policy_versions: snapshot failed for %s", policy_name,
+        )
+        return None
+
+
+def list_versions(
+    db: Database,
+    policy_name: str,
+    *,
+    limit: int = 100,
+) -> List[dict]:
+    """Return version snapshots for ``policy_name``, newest first.
+
+    Each row carries id, version_number, yaml (full policy at that
+    point in time), created_at, created_by.
+    """
+    rows = db.fetchall_dict(
+        """
+        SELECT * FROM policy_versions
+        WHERE policy_id = ?
+        ORDER BY version_number DESC
+        LIMIT ?
+        """,
+        [policy_name, limit],
+    )
+    return [
+        {
+            "id": r["id"],
+            "version_number": int(r.get("version_number") or 0),
+            "yaml": r.get("yaml") or "",
+            "created_at": r.get("created_at"),
+            "created_by": r.get("created_by"),
+        }
+        for r in rows
+    ]
+
+
+def get_version(
+    db: Database, policy_name: str, version_number: int,
+) -> Optional[dict]:
+    row = db.fetchone_dict(
+        """
+        SELECT * FROM policy_versions
+        WHERE policy_id = ? AND version_number = ?
+        """,
+        [policy_name, version_number],
+    )
+    if row is None:
+        return None
+    return {
+        "id": row["id"],
+        "version_number": int(row.get("version_number") or 0),
+        "yaml": row.get("yaml") or "",
+        "created_at": row.get("created_at"),
+        "created_by": row.get("created_by"),
+    }
+
+
+def rollback_to_version(
+    db: Database,
+    policy_name: str,
+    version_number: int,
+    *,
+    actor: Optional[str] = None,
+) -> Policy:
+    """Restore a policy to an earlier version. Pulls the snapshot,
+    parses it, applies via update_policy() so the rollback itself
+    is audited as a normal update — and itself produces a new
+    version snapshot.
+    """
+    snap = get_version(db, policy_name, version_number)
+    if snap is None:
+        raise KeyError(f"policy {policy_name!r} version {version_number} not found")
+
+    # Parse the YAML snapshot back to fields. yaml.safe_load handles
+    # both YAML and JSON.
+    try:
+        import yaml
+        parsed = yaml.safe_load(snap["yaml"]) or {}
+    except Exception:
+        try:
+            parsed = json.loads(snap["yaml"])
+        except Exception:
+            raise ValueError("snapshot yaml is malformed; rollback aborted")
+
+    # Apply via update_policy so the audit + new-snapshot path runs.
+    return update_policy(
+        db,
+        policy_name,
+        description=parsed.get("description"),
+        trigger=parsed.get("trigger"),
+        condition=parsed.get("condition"),
+        action=parsed.get("action"),
+        severity=parsed.get("severity"),
+        webhook_url=parsed.get("webhook_url"),
+        scope_agents=(
+            parsed.get("scope_agents") if isinstance(
+                parsed.get("scope_agents"), list,
+            ) else None
+        ),
+        enabled=parsed.get("enabled"),
+        lifecycle=parsed.get("lifecycle"),
+        mode=parsed.get("mode"),
+        priority=parsed.get("priority"),
+        on_timeout=parsed.get("on_timeout"),
+        on_internal_error=parsed.get("on_internal_error"),
+        actor=actor or "rollback",
+        audit_action="rollback",
+    )
 
 
 def _safe_audit_payload(d: Optional[dict]) -> Optional[dict]:
