@@ -1443,10 +1443,24 @@ export default definePluginEntry({
           sessionToSender.set(sessionKey, senderId);
         }
 
+        // Derive a deterministic trace_id BEFORE calling decide() so
+        // the resulting decision row carries trace_id from the start
+        // (otherwise we'd record an orphan decision and the operator
+        // sees no badge / no chat / no banner). The fingerprint mixes
+        // sessionKey + content + a fresh timestamp so two takeovers
+        // for the same user in quick succession don't collapse onto
+        // one synthetic trace.
+        const takeoverFingerprint =
+          `${sessionKey ?? "_"}::${senderId ?? "_"}::` +
+          `${nowIso()}::${userMessage.slice(0, 64)}`;
+        const takeoverTraceId = asUuid(undefined, takeoverFingerprint);
+        const takeoverStartedAt = nowIso();
+
         const decision = await fw.decide({
           lifecycle: "before_proxy_call",
           messages: [{ role: "user", content: userMessage }],
           session_id: sessionKey,
+          trace_id: takeoverTraceId,
           project: cfg.project || DEFAULT_PROJECT,
         });
 
@@ -1471,6 +1485,65 @@ export default definePluginEntry({
             `(sessionKey=${sessionKey ?? "?"} policy=${decision.policy_name ?? "?"} ` +
             `verb=${decision.decision} decision_id=${decision.decision_id ?? "?"})`,
           );
+
+          // Emit a synthetic trace span so the dashboard surfaces the
+          // takeover. Without this, before_dispatch short-circuits the
+          // LLM and no llm_input/llm_output event ever fires — which
+          // means no /v1/spans POST, which means no trace materializes,
+          // which means the operator sees the decision row in
+          // /decisions but no trace badge, no chat view, no banner.
+          // The synthetic span carries metadata.lumin.firewall.takeover
+          // so future tooling can distinguish it from real LLM calls.
+          //
+          // Fire-and-forget: a span POST failure must never affect the
+          // takeover (Rule 7). The catch swallows.
+          try {
+            const synthSpan: Record<string, unknown> = {
+              id: asUuid(undefined, `${takeoverFingerprint}::span`),
+              trace_id: takeoverTraceId,
+              parent_span_id: undefined,
+              name: "openclaw",
+              type: "llm",
+              started_at: takeoverStartedAt,
+              ended_at: nowIso(),
+              status: "ok",
+              model: "lumin-firewall",
+              provider: "lumin",
+              tokens_input: 0,
+              tokens_output: 0,
+              input: stringify(userMessage, cfg.maxContentChars ?? DEFAULT_MAX_CONTENT_CHARS),
+              output: text,
+              session_id: sessionKey,
+              metadata: {
+                // Keeps chat-shape detection happy — without one of
+                // these the dashboard would route this trace to the
+                // task-shape view and the user/Lumin bubbles wouldn't
+                // render.
+                "openclaw.history_message_count": 0,
+                "openclaw.system_message_chars": 0,
+                // Firewall provenance so the dashboard (and future
+                // analytics) know this turn was a takeover rather
+                // than a normal LLM call.
+                "lumin.firewall.takeover": true,
+                "lumin.firewall.lifecycle": "before_proxy_call",
+                "lumin.firewall.verb": decision.decision,
+                "lumin.firewall.policy_name": decision.policy_name ?? null,
+                "lumin.firewall.policy_id": decision.policy_id ?? null,
+                "lumin.firewall.decision_id": decision.decision_id ?? null,
+                "lumin.firewall.mode_at_decision": decision.mode_at_decision ?? null,
+                "lumin.firewall.reason": decision.reason ?? null,
+                "openclaw.sender": senderId ?? null,
+              },
+            };
+            // Don't await — Rule 7 plus we don't want to delay the
+            // user-facing reply waiting on a Lumin write.
+            void client.send(synthSpan);
+          } catch (synthErr) {
+            log?.warn?.(
+              `lumin-diagnostics: failed to emit synthetic takeover span: ${(synthErr as Error).message}`,
+            );
+          }
+
           return { handled: true, text };
         }
 
