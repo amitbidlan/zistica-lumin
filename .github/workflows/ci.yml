@@ -61,6 +61,13 @@ jobs:
       - name: Run tests
         run: pytest -v
 
+      - name: Verify OpenAPI export is up to date (Slice 7A)
+        # Catches the most common drift: someone adds an endpoint
+        # or changes a model and forgets to regenerate the spec.
+        # Failing here at PR review time is cheaper than discovering
+        # mismatch in a downstream client generator at integration.
+        run: python scripts/export_openapi.py --check --out openapi.json
+
   typescript-sdk:
     name: TypeScript SDK (session 7)
     runs-on: ubuntu-latest
