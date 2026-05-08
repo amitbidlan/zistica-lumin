@@ -112,13 +112,42 @@ export function LuminFirewallBanner({ trace }: { trace: Trace }) {
   const policy = trace.firewall_top_policy;
   const isBlock = verb === 'block' && trace.firewall_blocked;
 
-  const panel = isBlock
-    ? 'border-rose-500/50 bg-rose-500/[0.06]'
+  // Visual hierarchy: a hard enforce-mode block needs to *look*
+  // like a stop sign — saturated background, vivid border, red
+  // heading, and a left-edge accent bar so it's identifiable from
+  // 10 feet away. Other verbs stay calmer (operator hasn't been
+  // overridden, just nudged).
+  const palette = isBlock
+    ? {
+        panel: 'border-rose-500/70 bg-rose-500/[0.14] border-l-4 border-l-rose-500 shadow-[0_0_24px_-12px_rgba(244,63,94,0.6)]',
+        icon: 'text-rose-400',
+        heading: 'text-rose-200',
+        body: 'text-rose-300/70',
+        link: 'text-rose-200 underline decoration-rose-400/60 hover:decoration-rose-200',
+      }
     : verb === 'require_approval'
-    ? 'border-amber-500/50 bg-amber-500/[0.06]'
+    ? {
+        panel: 'border-amber-500/60 bg-amber-500/[0.10] border-l-4 border-l-amber-500',
+        icon: 'text-amber-400',
+        heading: 'text-amber-200',
+        body: 'text-amber-300/70',
+        link: 'text-amber-200 underline decoration-amber-400/60 hover:decoration-amber-200',
+      }
     : verb === 'rewrite'
-    ? 'border-cyan-500/50 bg-cyan-500/[0.06]'
-    : 'border-slate-500/40 bg-slate-500/[0.04]';
+    ? {
+        panel: 'border-cyan-500/60 bg-cyan-500/[0.10] border-l-4 border-l-cyan-500',
+        icon: 'text-cyan-400',
+        heading: 'text-cyan-200',
+        body: 'text-cyan-300/70',
+        link: 'text-cyan-200 underline decoration-cyan-400/60 hover:decoration-cyan-200',
+      }
+    : {
+        panel: 'border-slate-500/40 bg-slate-500/[0.04]',
+        icon: 'text-slate-400',
+        heading: 'text-slate-200',
+        body: 'text-[var(--muted)]',
+        link: 'underline hover:no-underline',
+      };
 
   const heading = isBlock
     ? 'Lumin firewall blocked this trace'
@@ -129,12 +158,14 @@ export function LuminFirewallBanner({ trace }: { trace: Trace }) {
     : 'Lumin firewall observed this trace';
 
   return (
-    <div className={`card p-4 border ${panel}`}>
+    <div className={`card p-4 border ${palette.panel}`}>
       <div className="flex items-start gap-3">
-        <ShieldIcon size="lg" />
+        <span className={palette.icon}>
+          <ShieldIcon size="lg" />
+        </span>
         <div className="flex-1">
-          <div className="font-semibold text-sm">{heading}</div>
-          <div className="text-[var(--muted)] text-xs mt-1">
+          <div className={`font-semibold text-sm ${palette.heading}`}>{heading}</div>
+          <div className={`text-xs mt-1 ${palette.body}`}>
             {policy ? (
               <>
                 Top policy: <span className="font-mono">{policy}</span>
@@ -145,7 +176,7 @@ export function LuminFirewallBanner({ trace }: { trace: Trace }) {
             {trace.firewall_decision_count === 1 ? '' : 's'} recorded.{' '}
             <a
               href={`/decisions?trace_id=${encodeURIComponent(trace.id)}`}
-              className="underline hover:no-underline"
+              className={palette.link}
             >
               View all →
             </a>
