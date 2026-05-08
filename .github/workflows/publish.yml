@@ -1,15 +1,25 @@
-name: Publish Docker image
+name: Publish (Docker + npm + ClawHub)
 
 # Triggers on a pushed tag matching v* (e.g. v0.2.0). The CI workflow
-# already builds + smoke-tests the image on every PR + main push, so by
-# the time a tag exists the build is known good. This workflow's job is
-# just to push the published bits.
+# already builds + smoke-tests every artifact on every PR + main push,
+# so by the time a tag exists the build is known good. This workflow's
+# job is just to push the published bits to:
+#
+#   - Docker Hub  (zistica/lumin image)
+#   - npm         (@lumin-io/{openclaw, mastra, voltagent,
+#                  openclaw-diagnostics})
+#   - ClawHub     (lumin-diagnostics — OpenClaw plugin marketplace)
 #
 # Why tag-triggered (not main-push)?
 #   Every merge would ship a new :latest, which surprises users who
 #   `docker pull zistica/lumin` expecting yesterday's behavior. Tags
 #   are an explicit "ship this" signal — same pattern as Sentry,
 #   Grafana, and the OTel collector.
+#
+# Required secrets:
+#   DOCKERHUB_USERNAME / DOCKERHUB_TOKEN — Docker Hub publish
+#   NPM_TOKEN                            — npm publish (auto-token, public scope)
+#   CLAWHUB_TOKEN                        — ClawHub publish (registry-issued)
 
 on:
   push:
@@ -114,3 +124,135 @@ jobs:
           echo "Platforms: \`linux/amd64\`, \`linux/arm64\`" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "Pull with: \`docker pull zistica/lumin:${{ steps.tags.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
+
+
+  # ----- npm publish -----------------------------------------------------
+  #
+  # Publishes the four `@lumin-io/*` integration packages to npmjs.com.
+  # Each package is built fresh on the runner so the published `dist/`
+  # matches the tagged source — no relying on stale local build state.
+  # Skips workflow_dispatch (manual) runs since lockstep version bumps
+  # only land via tags; a hotfix re-publish via dispatch would push the
+  # same version twice and npm would reject it.
+  npm:
+    name: Publish ${{ matrix.package }} to npm
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    needs: publish  # docker first; if image fails, npm shouldn't ship either
+    permissions:
+      contents: read
+      id-token: write  # OIDC for npm provenance attestation
+    strategy:
+      # One package per job, fail-fast=false so a single bad package
+      # doesn't poison the rest. npm publish is idempotent within a
+      # version (republishing fails cleanly) so a partial-success run
+      # can be retried tag-locally.
+      fail-fast: false
+      matrix:
+        package:
+          - openclaw
+          - openclaw-diagnostics
+          - mastra
+          - voltagent
+    defaults:
+      run:
+        working-directory: packages/integrations/${{ matrix.package }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install + build
+        run: |
+          npm ci
+          npm run build
+
+      - name: Verify package version matches tag
+        # Hard guard: if the package.json version doesn't match the git
+        # tag we're publishing under, fail loudly instead of pushing a
+        # mismatched version to npm. The lockstep release process bumps
+        # all packages together, so any drift here is a bug.
+        run: |
+          set -e
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::package.json version ($PKG_VERSION) does not match git tag ($TAG_VERSION)"
+            echo "Did you forget to bump packages/integrations/${{ matrix.package }}/package.json?"
+            exit 1
+          fi
+          echo "version OK: $PKG_VERSION"
+
+      - name: Publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public --provenance
+
+      - name: Summary
+        run: |
+          echo "### :package: Published \`@lumin-io/${{ matrix.package }}@${GITHUB_REF_NAME#v}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Install with: \`npm install @lumin-io/${{ matrix.package }}@${GITHUB_REF_NAME#v}\`" >> "$GITHUB_STEP_SUMMARY"
+
+
+  # ----- ClawHub publish -------------------------------------------------
+  #
+  # Publishes the OpenClaw plugin (`lumin-diagnostics`) to ClawHub —
+  # OpenClaw's plugin marketplace at clawhub.ai. Runs after npm because
+  # ClawHub typically resolves npm to fetch the plugin payload, and a
+  # ClawHub publish can race with the npm one if both run in parallel.
+  #
+  # Only the openclaw-diagnostics package is a ClawHub plugin (it ships
+  # the `openclaw.plugin.json` manifest); the others are SDKs / exporters
+  # for non-OpenClaw frameworks and don't belong on ClawHub.
+  clawhub:
+    name: Publish lumin-diagnostics to ClawHub
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    needs: npm
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install clawhub CLI
+        run: npm i -g clawhub
+
+      - name: Verify plugin version matches tag
+        run: |
+          set -e
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PKG_VERSION=$(node -p "require('./packages/integrations/openclaw-diagnostics/package.json').version")
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::openclaw-diagnostics version mismatch (tag=$TAG_VERSION, package=$PKG_VERSION)"
+            exit 1
+          fi
+          echo "ClawHub publish target: lumin-io/lumin-diagnostics@v$PKG_VERSION"
+
+      - name: Publish to ClawHub
+        env:
+          CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
+        # `clawhub package publish` reads the package metadata from the
+        # working directory (or via positional arg). The CLI authenticates
+        # via CLAWHUB_TOKEN env var; no separate `clawhub login` needed
+        # in CI. `--from-npm` would be cleaner if supported by the CLI;
+        # falling back to the standard publish form.
+        run: |
+          set -e
+          cd packages/integrations/openclaw-diagnostics
+          clawhub package publish --version "${GITHUB_REF_NAME#v}" || {
+            # Some clawhub CLI versions accept the package spec as
+            # positional. Retry that form before giving up.
+            clawhub package publish "lumin-io/lumin-diagnostics@v${GITHUB_REF_NAME#v}"
+          }
+
+      - name: Summary
+        run: |
+          echo "### :hammer_and_wrench: Published \`lumin-diagnostics\` to ClawHub" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Install with: \`openclaw plugins install clawhub:lumin-diagnostics@${GITHUB_REF_NAME#v}\`" >> "$GITHUB_STEP_SUMMARY"
