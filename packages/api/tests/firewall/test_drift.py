@@ -27,15 +27,15 @@ def db() -> Database:
 
 def _seed(db: Database, *, policy: str, days_ago: int, count: int) -> None:
     """Seed `count` decision rows for `policy` on the day `days_ago` days
-    ago. Used to build a daily count series for stddev. For days_ago=0
-    we write at NOW() so the bucket_day is unambiguously today (UTC);
-    for older days we subtract whole days, which lands them on the
-    same day-of-month as today regardless of the hour."""
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
-    if days_ago == 0:
-        base_dt = now
-    else:
-        base_dt = now - timedelta(days=days_ago)
+    ago. Used to build a daily count series for stddev.
+
+    Anchors each day's rows to noon UTC of that day so the seeded
+    rows can never spill across the UTC day boundary regardless of
+    when the test runs (CI hitting 23:59:58 UTC was previously
+    splitting today's 50 rows across two calendar days)."""
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+    today_noon = now_utc.replace(hour=12, minute=0, second=0, microsecond=0)
+    base_dt = today_noon - timedelta(days=days_ago)
     for i in range(count):
         decision_id = "dec_" + uuid.uuid4().hex[:24]
         db.execute(
