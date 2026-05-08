@@ -1,0 +1,86 @@
+# Cost guards — Lumin starter pack
+#
+# Token / dollar / rate-limit rails for every agent. These rules
+# protect against runaway loops, jailbreaks that spam the model,
+# and accidental high-cost tool patterns. All thresholds are
+# starting points — operators tune them to their org's spend
+# tolerance.
+#
+# Built on the firewall history builtins
+# (session_total_tokens, agent_total_tokens_24h, etc.) — the
+# data is queried from the spans / decisions tables, so this
+# pack only works when /v1/spans is being populated (which it is
+# by default for every Lumin integration).
+
+version: 1
+
+policies:
+
+  # Per-session token cap — halt runaway loops
+  - name: cost_session_token_hard_cap
+    description: Block when a single session crosses 10M tokens (runaway loop protection).
+    lifecycle: before_proxy_call
+    mode: shadow
+    priority: 90
+    trigger: span_end
+    condition: session_total_tokens(str(Input.session_id or "")) > 10000000
+    action: block
+    severity: high
+
+  # Per-session token warn — flag well before the hard cap
+  - name: cost_session_token_warn
+    description: Flag when a single session exceeds 1M tokens (early warning for pathological use).
+    lifecycle: before_proxy_call
+    mode: shadow
+    priority: 60
+    trigger: span_end
+    condition: session_total_tokens(str(Input.session_id or "")) > 1000000
+    action: flag
+    severity: medium
+
+  # Per-agent 24h ceiling
+  - name: cost_agent_daily_token_cap
+    description: Block when an agent has consumed >50M tokens in the last 24h (cap default).
+    lifecycle: before_proxy_call
+    mode: shadow
+    priority: 75
+    trigger: span_end
+    condition: agent_total_tokens_24h(str(Input.agent or "")) > 50000000
+    action: block
+    severity: high
+
+  # Per-agent 24h warn
+  - name: cost_agent_daily_token_warn
+    description: Flag when an agent has consumed >10M tokens in the last 24h.
+    lifecycle: before_proxy_call
+    mode: shadow
+    priority: 55
+    trigger: span_end
+    condition: agent_total_tokens_24h(str(Input.agent or "")) > 10000000
+    action: flag
+    severity: medium
+
+  # Per-tool 24h call rate (rate-limit-style)
+  - name: cost_tool_call_burst
+    description: Flag when a single tool has been called >1000 times in 24h on this project (loop / burst signal).
+    lifecycle: before_tool_call
+    mode: shadow
+    priority: 50
+    trigger: span_end
+    condition: tool_calls_24h(str(tool_name or "")) > 1000
+    action: flag
+    severity: low
+
+  # Single-turn token oversize — most user turns are <2k tokens.
+  # When a single turn carries >100k input tokens the agent is
+  # probably pasting an entire codebase or doing something the
+  # operator should review.
+  - name: cost_oversize_single_turn
+    description: Flag turns whose user input exceeds 100k chars (likely large paste or jailbreak smuggling).
+    lifecycle: before_proxy_call
+    mode: shadow
+    priority: 45
+    trigger: span_end
+    condition: len_chars(Input.last_user_msg) > 100000
+    action: flag
+    severity: low

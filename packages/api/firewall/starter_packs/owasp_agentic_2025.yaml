@@ -1,0 +1,113 @@
+# OWASP Agentic AI Top 10 (2025) — Lumin starter pack
+#
+# Covers the agent-specific threats that aren't on the LLM Top 10:
+# memory poisoning, tool misuse, privilege escalation, resource
+# overload, identity spoofing. Same shadow-by-default contract as
+# the OWASP LLM pack — operator promotes per environment after
+# reviewing the EnforcementTimeline.
+#
+# Companion to the OWASP LLM pack — install both for layered defense
+# against agentic systems (RAG bots, tool-calling agents, multi-step
+# reasoners).
+
+version: 1
+
+policies:
+
+  # AT1 — Memory poisoning
+  # Adversarial input attempts to write malicious "facts" into the
+  # agent's memory store so they surface in *future* turns. The
+  # injection markers are the same shape as direct prompt-injection
+  # but ride into long-term memory tools instead of the model.
+  - name: owasp_agentic_t1_memory_poisoning
+    description: Block attempts to write prompt-injection or hidden-instruction content into memory-store tools.
+    lifecycle: before_tool_call
+    mode: shadow
+    priority: 90
+    trigger: span_end
+    condition: regex_match(tool_name, "(?i)(memory|remember|store_fact|knowledge_(write|add)|add_to_memory)") and (has_ascii_smuggling(str(Input.params.get("content", "") or Input.params.get("text", "") or Input.params.get("fact", ""))) or contains_any(str(Input.params.get("content", "") or Input.params.get("text", "") or Input.params.get("fact", "")), ["ignore previous instructions", "ignore the above", "new system prompt", "from now on"]))
+    action: block
+    severity: high
+
+  # AT2 — Tool misuse (require_approval for destructive tools)
+  # Operator-in-the-loop on irreversible operations. Pairs with the
+  # destructive-shell pack but generalizes to any tool whose name
+  # signals a destructive action.
+  - name: owasp_agentic_t2_destructive_tool_approval
+    description: Require operator approval before any tool whose name signals deletion, drop, truncate, force-push, or wipe.
+    lifecycle: before_tool_call
+    mode: shadow
+    priority: 80
+    trigger: span_end
+    condition: regex_match(tool_name, "(?i)(delete_|drop_|truncate_|wipe_|destroy_|force_push|reset_hard|nuke|purge)")
+    action: require_approval
+    severity: high
+
+  # AT3 — Privilege compromise
+  # Agent attempts to escalate privileges via shell or executor
+  # tools. sudo, runas, and setuid markers in tool params.
+  - name: owasp_agentic_t3_privilege_escalation
+    description: Block shell calls invoking sudo / runas / su / setuid / setgid escalation.
+    lifecycle: before_tool_call
+    mode: shadow
+    priority: 88
+    trigger: span_end
+    condition: is_shell_tool(tool_name) and regex_match(str(Input.params.get("command", "")), "(?i)\\b(sudo|runas|doas|pkexec|su\\s+-|setuid|setgid)\\b")
+    action: block
+    severity: critical
+
+  # AT4 — Resource overload
+  # Per-session token cap. Cost guard pack handles spend ceilings;
+  # this guards against runaway loops that pile up tokens.
+  - name: owasp_agentic_t4_session_token_cap
+    description: Block when a session exceeds 5M tokens (runaway loop signal). Tunable per deployment.
+    lifecycle: before_proxy_call
+    mode: shadow
+    priority: 70
+    trigger: span_end
+    condition: session_total_tokens(str(Input.session_id or "")) > 5000000
+    action: block
+    severity: medium
+
+  # AT6 — Intent breaking (goal hijacking)
+  # Pattern where the user asks the bot to "act as a different
+  # assistant" or roleplay around safety. Cheap heuristic — covers
+  # the obvious cases. Prompt Guard 2 catches the rest.
+  - name: owasp_agentic_t6_goal_hijack_basic
+    description: Flag inputs that try to redefine the agent's role / persona / system prompt.
+    lifecycle: before_proxy_call
+    mode: shadow
+    priority: 75
+    trigger: span_end
+    condition: contains_any(Input.last_user_msg, ["you are now", "pretend you are", "act as if you have no", "from now on you", "ignore your guidelines", "DAN mode", "developer mode"])
+    action: flag
+    severity: medium
+
+  # AT9 — Identity spoofing
+  # Inputs claiming to be from internal admin / system / operator.
+  # When the firewall sees these patterns at the user-message
+  # boundary, it's almost always an impersonation attempt — the
+  # legitimate operator surface is the dashboard, not the chat.
+  - name: owasp_agentic_t9_identity_spoofing
+    description: Flag user messages claiming to be from system / admin / operator / parent agent.
+    lifecycle: before_proxy_call
+    mode: shadow
+    priority: 78
+    trigger: span_end
+    condition: regex_match(Input.last_user_msg, "(?i)^\\s*(system|admin|operator|parent\\s+agent|root)\\s*[:>]") or contains_any(Input.last_user_msg, ["This is the system administrator", "I am the operator", "Override authorization granted"])
+    action: flag
+    severity: medium
+
+  # AT10 — Overreliance (high-stakes guard)
+  # When the agent is about to send an irreversible message
+  # (email, payment, public post), require approval. Tool-name
+  # heuristic — operators tighten the regex per their deployment.
+  - name: owasp_agentic_t10_high_stakes_approval
+    description: Require approval for irreversible external-facing actions (email send, payment, public post, ticket close).
+    lifecycle: before_tool_call
+    mode: shadow
+    priority: 82
+    trigger: span_end
+    condition: regex_match(tool_name, "(?i)(send_email|send_message|create_payment|charge_card|publish_(post|tweet|article)|close_ticket|deploy_to_prod)")
+    action: require_approval
+    severity: high

@@ -1,0 +1,97 @@
+# Customer-support agent — Lumin starter pack
+#
+# Tuned for support / CS / helpdesk bots that talk to end users
+# over Slack / Telegram / web chat. Three failure modes the rules
+# guard against:
+#
+#   1. PII leakage — bot accidentally echoes one customer's data
+#      into another customer's reply (the cross-tenant leakage
+#      pattern from the May 2026 case-driven testing).
+#   2. Refund / discount escalation — bot grants larger amounts
+#      than its policy allows.
+#   3. Brand safety — bot's reply contains profanity, competitor
+#      mentions, or off-topic content.
+#
+# Ships shadow. Promote after a week of dashboard observation.
+
+version: 1
+
+policies:
+
+  # PII in output — uses Presidio when installed, falls back to a
+  # built-in heuristic. Action=rewrite redacts the matched spans
+  # so the conversation continues — blocking would force the
+  # operator into manual mode for routine support cases.
+  - name: support_pii_in_output
+    description: Rewrite (redact) PII detected in the assistant reply — emails, phone numbers, government IDs, credit cards.
+    lifecycle: after_proxy_call
+    mode: shadow
+    priority: 85
+    trigger: span_end
+    condition: presidio_pii_score(Output.text) > 0.5 or has_pii(Output.text)
+    action: rewrite
+    severity: high
+
+  # Refund-amount ceiling. The exact $ trigger is per-deployment;
+  # operators tighten this per CS team policy.
+  - name: support_refund_ceiling
+    description: Require approval when the bot's reply quotes a refund / credit > $500.
+    lifecycle: after_proxy_call
+    mode: shadow
+    priority: 80
+    trigger: span_end
+    condition: regex_match(Output.text, "(?i)(refund|credit|reimburse(ment)?|chargeback)\\D{0,30}(\\$|USD\\s*)\\s*[5-9]\\d{2}|(\\$|USD\\s*)\\s*[1-9]\\d{3,}")
+    action: require_approval
+    severity: high
+
+  # Brand-safety — profanity / slurs in agent output. Flagged not
+  # blocked: a false-positive that suppresses a legitimate message
+  # is worse for support UX than a rare slur slipping through.
+  - name: support_brand_safety_profanity
+    description: Flag assistant replies containing profanity, slurs, or aggressive language.
+    lifecycle: after_proxy_call
+    mode: shadow
+    priority: 70
+    trigger: span_end
+    condition: contains_any(Output.text, ["fuck", "shit", "damn it", "stupid", "idiot", "retard", "moron"])
+    action: flag
+    severity: low
+
+  # Competitor mentions — flag, don't block.
+  - name: support_brand_safety_competitor_mention
+    description: Flag when the assistant mentions a competitor's product by name (sales / brand teams want visibility).
+    lifecycle: after_proxy_call
+    mode: shadow
+    priority: 60
+    trigger: span_end
+    condition: contains_any(Output.text, ["use Salesforce instead", "Zendesk has", "Intercom is better", "try our competitor", "you should switch to"])
+    action: flag
+    severity: low
+
+  # Cross-session data leakage hint — if the assistant's reply
+  # references another customer's name / order / account that
+  # wasn't in this turn's input or session history, that's a
+  # leakage signal. This is a heuristic placeholder; real
+  # cross-session detection is a separate detector (the session-
+  # vault feature).
+  - name: support_cross_session_leakage_hint
+    description: Flag replies containing customer / order / account references that don't appear in the current session's prior turns.
+    lifecycle: after_proxy_call
+    mode: shadow
+    priority: 78
+    trigger: span_end
+    condition: regex_match(Output.text, "(?i)(order\\s+#?\\d{6,}|customer\\s+id\\s*[:#]?\\s*[a-z0-9-]{6,}|account\\s+#?\\d{6,})") and not regex_match(str(Input.last_user_msg or ""), "(?i)(order\\s+#?\\d{6,}|customer\\s+id\\s*[:#]?\\s*[a-z0-9-]{6,}|account\\s+#?\\d{6,})")
+    action: flag
+    severity: medium
+
+  # Promise-of-action — bot promises to do something it can't
+  # actually do (file a ticket, escalate, refund). Audit-only.
+  - name: support_unbacked_promise
+    description: Flag replies promising actions the bot has no tool to perform (ticket creation, escalation, refund).
+    lifecycle: after_proxy_call
+    mode: shadow
+    priority: 55
+    trigger: span_end
+    condition: contains_any(Output.text, ["I will file a ticket", "I'll escalate this", "I've issued a refund", "I'll send this to", "I have notified", "I have alerted"])
+    action: flag
+    severity: low

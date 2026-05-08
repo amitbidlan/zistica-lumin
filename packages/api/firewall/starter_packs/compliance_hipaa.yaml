@@ -1,0 +1,82 @@
+# HIPAA compliance — Lumin starter pack
+#
+# Aligned to HIPAA Privacy Rule § 164.514 Safe Harbor — the 18
+# identifiers that must be removed for de-identification. All
+# rules ship advisory; HIPAA compliance is a posture not enforced
+# by software alone (BAA, audit, access control all required).
+#
+# Use case: agents in healthcare contexts, clinical research,
+# payor / provider interactions. Operator MUST also implement
+# administrative safeguards (training, audit) on top of the
+# technical layer this pack provides.
+
+version: 1
+
+policies:
+
+  # SSN — strongest single PHI identifier signal
+  - name: hipaa_ssn_in_output
+    description: Block (don't rewrite) SSNs in assistant output. Hard block matches HIPAA's strict-liability posture.
+    lifecycle: after_proxy_call
+    mode: shadow
+    priority: 95
+    trigger: span_end
+    condition: regex_match(Output.text, "\\b\\d{3}-\\d{2}-\\d{4}\\b") or regex_match(Output.text, "\\b\\d{9}\\b") and contains_any(Output.text, ["SSN", "social security", "social-security"])
+    action: block
+    severity: critical
+
+  # MRN (medical record number) — flag, don't block; legitimate
+  # clinical workflows reference these.
+  - name: hipaa_mrn_pattern
+    description: Flag content matching common medical record number patterns.
+    lifecycle: after_proxy_call
+    mode: shadow
+    priority: 80
+    trigger: span_end
+    condition: regex_match(Output.text, "(?i)\\b(MRN|medical\\s+record\\s+number|patient\\s+id)[:#=\\s]\\s*\\d{6,12}\\b")
+    action: flag
+    severity: high
+
+  # Health-plan beneficiary numbers
+  - name: hipaa_health_plan_number
+    description: Flag content quoting health-plan or beneficiary identifiers.
+    lifecycle: after_proxy_call
+    mode: shadow
+    priority: 80
+    trigger: span_end
+    condition: regex_match(Output.text, "(?i)\\b(member\\s+id|beneficiary|policy\\s+number|plan\\s+id)[:#=\\s]\\s*[A-Z0-9-]{6,16}\\b")
+    action: flag
+    severity: medium
+
+  # Diagnosis / treatment combined with name = PHI
+  - name: hipaa_diagnosis_with_name
+    description: Flag outputs that combine a person's name with a medical diagnosis (de-identification failure).
+    lifecycle: after_proxy_call
+    mode: shadow
+    priority: 85
+    trigger: span_end
+    condition: regex_match(Output.text, "(?i)([A-Z][a-z]+\\s+[A-Z][a-z]+)\\s.{0,100}?\\b(diagnosed\\s+with|suffers\\s+from|has\\s+(diabetes|cancer|HIV|hepatitis|asthma))")
+    action: flag
+    severity: critical
+
+  # PHI + treatment context
+  - name: hipaa_phi_treatment_context
+    description: Flag outputs containing prescription names + dosage + identifiable patient context.
+    lifecycle: after_proxy_call
+    mode: shadow
+    priority: 80
+    trigger: span_end
+    condition: regex_match(Output.text, "(?i)\\d+\\s*(mg|mcg|ml|tablets?|pills?)\\b") and regex_match(Output.text, "(?i)\\b(patient|client|individual|participant)\\b")
+    action: flag
+    severity: medium
+
+  # Audit log requirement: all PHI tool calls logged
+  - name: hipaa_audit_phi_tool_calls
+    description: Flag tool calls touching anything labeled PHI / medical / patient — for audit trail.
+    lifecycle: before_tool_call
+    mode: shadow
+    priority: 50
+    trigger: span_end
+    condition: regex_match(tool_name, "(?i)(patient|medical|clinical|phi|hipaa|ehr|emr)")
+    action: flag
+    severity: low
