@@ -47,16 +47,30 @@ export default function ChatView({
   const parsed = parseOpenClawPrompt(headline.input);
   const assistant = extractAssistantParts(headline);
 
-  // Lumin firewall takeover: when the firewall blocked / approved /
-  // rewrote this trace, the operator should see Lumin's reply as a
-  // *first-class participant* in the conversation — not buried in the
-  // banner up top. We keep the original assistant bubble so operators
-  // can compare what the LLM said (if anything) vs. what Lumin
-  // ultimately delivered to the user.
-  const showLuminTurn =
+  // Lumin firewall: a *decision* on a trace doesn't always mean Lumin
+  // replaced the reply. Three cases the chat needs to disambiguate:
+  //
+  //   1. Lumin replaced the reply (takeover) — trace.output differs
+  //      from the LLM span's output, OR the LLM span has no output
+  //      at all (LLM was bypassed entirely). Render Lumin as a chat
+  //      participant with its own reply bubble.
+  //
+  //   2. Lumin only observed / flagged — trace.output equals the LLM
+  //      span's output. The LLM's reply was delivered unchanged; Lumin
+  //      logged a decision but never spoke. Render a slim annotation
+  //      strip, NOT a fake reply bubble. (Showing the LLM's text as
+  //      if Lumin said it would be a lie — and operators noticed.)
+  //
+  //   3. No decision at all — nothing to render.
+  const llmText = (headline.output ?? '').trim();
+  const luminText = (trace.output ?? '').trim();
+  const luminReplaced =
     !!trace.firewall_decision_count &&
     !!trace.firewall_top_verb &&
-    !!trace.output;
+    !!luminText &&
+    luminText !== llmText;
+  const luminObservedOnly =
+    !!trace.firewall_decision_count && !luminReplaced;
 
   return (
     <div className="space-y-4">
@@ -68,13 +82,22 @@ export default function ChatView({
       <div className="space-y-3">
         <UserBubble text={parsed.userText} />
         <AssistantBubble parts={assistant} />
-        {showLuminTurn ? (
+        {luminReplaced ? (
           <LuminBubble
             text={trace.output ?? ''}
             verb={trace.firewall_top_verb ?? null}
             policy={trace.firewall_top_policy ?? null}
             traceId={trace.id}
             blocked={trace.firewall_blocked ?? false}
+          />
+        ) : null}
+        {luminObservedOnly ? (
+          <LuminObservation
+            verb={trace.firewall_top_verb ?? null}
+            policy={trace.firewall_top_policy ?? null}
+            traceId={trace.id}
+            blocked={trace.firewall_blocked ?? false}
+            decisionCount={trace.firewall_decision_count ?? 0}
           />
         ) : null}
       </div>
@@ -357,6 +380,86 @@ function LuminBubble({
             </a>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+
+/**
+ * Slim annotation strip rendered when Lumin recorded a decision but
+ * didn't actually replace the LLM's reply. Distinguishable from the
+ * LuminBubble at a glance: no avatar, no quoted text, just a
+ * timeline-style note. Honest about what happened — "decision
+ * recorded, reply unchanged" — so operators don't misread it as a
+ * Lumin reply.
+ */
+function LuminObservation({
+  verb,
+  policy,
+  traceId,
+  blocked,
+  decisionCount,
+}: {
+  verb: 'block' | 'require_approval' | 'rewrite' | null;
+  policy: string | null;
+  traceId: string;
+  blocked: boolean;
+  decisionCount: number;
+}) {
+  const tone =
+    verb === 'block'
+      ? blocked
+        ? 'border-rose-500/40 bg-rose-500/[0.04] text-rose-300'
+        : 'border-rose-500/30 bg-rose-500/[0.03] text-rose-300/80'
+      : verb === 'require_approval'
+      ? 'border-amber-500/40 bg-amber-500/[0.04] text-amber-300'
+      : verb === 'rewrite'
+      ? 'border-cyan-500/40 bg-cyan-500/[0.04] text-cyan-300'
+      : 'border-slate-500/30 bg-slate-500/[0.03] text-slate-300';
+
+  const verbLabel = (() => {
+    if (verb === 'block') {
+      return blocked
+        ? 'recorded a BLOCK decision in enforce mode'
+        : 'would have blocked (shadow mode)';
+    }
+    if (verb === 'rewrite') return 'flagged for rewrite';
+    if (verb === 'require_approval') return 'flagged for approval';
+    return 'observed this turn';
+  })();
+
+  return (
+    <div
+      className={`flex items-start gap-2 rounded-md border border-dashed ${tone} px-3 py-2 text-[11px] font-mono`}
+      role="note"
+    >
+      <span className="mt-0.5 shrink-0">
+        <ShieldGlyph />
+      </span>
+      <div className="flex-1 leading-relaxed">
+        <span className="font-semibold uppercase tracking-wider mr-1.5">
+          Lumin Firewall
+        </span>
+        <span>{verbLabel}</span>
+        {policy ? (
+          <>
+            <span className="opacity-50"> · </span>
+            <span title={`policy: ${policy}`}>{policy}</span>
+          </>
+        ) : null}
+        <span className="opacity-50"> · </span>
+        <span>
+          {decisionCount} decision{decisionCount === 1 ? '' : 's'} —{' '}
+          <span className="opacity-80">reply was not modified</span>
+        </span>
+        <span className="opacity-50"> · </span>
+        <a
+          href={`/decisions?trace_id=${encodeURIComponent(traceId)}`}
+          className="underline decoration-dotted hover:no-underline"
+        >
+          View decision →
+        </a>
       </div>
     </div>
   );
