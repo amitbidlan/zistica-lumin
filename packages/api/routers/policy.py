@@ -122,6 +122,10 @@ def list_violations(
     trace_id: Optional[str] = Query(None),
     severity: Optional[str] = Query(None),
     policy_name: Optional[str] = Query(None),
+    project: Optional[str] = Query(
+        None,
+        description="Multi-tenant scope — JOINs through traces.project.",
+    ),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     db: Database = Depends(get_db),
@@ -130,27 +134,42 @@ def list_violations(
     where: list[str] = []
     params: list = []
     if trace_id:
-        where.append("trace_id = ?")
+        where.append("v.trace_id = ?")
         params.append(trace_id)
     if severity:
-        where.append("severity = ?")
+        where.append("v.severity = ?")
         params.append(severity)
     if policy_name:
-        where.append("policy_name = ?")
+        where.append("v.policy_name = ?")
         params.append(policy_name)
+    if project:
+        # policy_violations doesn't carry project directly. JOIN
+        # through traces so the dashboard's project filter still
+        # scopes the violations view correctly.
+        if project == "default":
+            where.append(
+                "COALESCE("
+                "(SELECT project FROM traces t WHERE t.id = v.trace_id), '')"
+                " IN ('', 'default')"
+            )
+        else:
+            where.append(
+                "(SELECT project FROM traces t WHERE t.id = v.trace_id) = ?"
+            )
+            params.append(project)
     where_clause = ("WHERE " + " AND ".join(where)) if where else ""
 
     rows = db.fetchall_dict(
         f"""
-        SELECT * FROM policy_violations
+        SELECT v.* FROM policy_violations v
         {where_clause}
-        ORDER BY created_at DESC
+        ORDER BY v.created_at DESC
         LIMIT ? OFFSET ?
         """,
         [*params, limit, offset],
     )
     total_row = db.fetchone(
-        f"SELECT COUNT(*) FROM policy_violations {where_clause}", params
+        f"SELECT COUNT(*) FROM policy_violations v {where_clause}", params
     )
     total = int(total_row[0]) if total_row else 0
 
