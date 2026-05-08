@@ -180,6 +180,25 @@ def upsert_trace(payload: TraceCreate, db: Database = Depends(get_db)) -> Trace:
     row = db.fetchone_dict("SELECT * FROM traces WHERE id = ?", [payload.id])
     if row is None:
         raise HTTPException(500, "trace upsert failed")
+
+    # Slice 6A — record facts from this trace's input into the
+    # session vault. Tagged with the trace's user_id + session_id
+    # so the cross_session_leak detector can later catch a reply
+    # repeating any of these facts to a different user. Best-effort
+    # — vault failures must not block trace ingest.
+    if payload.input and payload.session_id:
+        try:
+            from firewall import vault as fw_vault
+            fw_vault.record_facts(
+                db,
+                session_id=payload.session_id,
+                user_id=payload.user_id or "",
+                project=None,
+                text=payload.input,
+            )
+        except Exception:
+            pass
+
     return _row_to_trace(row)
 
 

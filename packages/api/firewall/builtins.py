@@ -617,6 +617,45 @@ def build_history_builtins(db) -> Dict[str, Callable]:
         from firewall.detectors import local_classifier as lc_det
         return lc_det.org_classifier_predict(db, text, model_id=model_id)
 
+    def cross_session_leak(
+        text: Optional[str], user_id: Optional[str] = None,
+    ) -> bool:
+        """True iff ``text`` contains a fact previously stored in
+        the session vault under a *different* ``user_id``.
+
+        Used in policies like:
+
+            condition: cross_session_leak(Output.text, user_id)
+            action: rewrite
+
+        Returns False when text is empty, when user_id is empty
+        (no signal — we'd false-flag every reply), or on any
+        internal error (Rule 7 — Lumin failures default to allow).
+        See ``firewall.vault.check_for_leak`` for the algorithm.
+        """
+        if not text or not user_id:
+            return False
+        try:
+            from firewall import vault as fw_vault
+            leaks = fw_vault.check_for_leak(db, text=text, user_id=user_id)
+            return bool(leaks)
+        except Exception:
+            return False
+
+    def cross_session_leak_details(
+        text: Optional[str], user_id: Optional[str] = None,
+    ) -> list:
+        """Same as ``cross_session_leak`` but returns the list of
+        leak rows so a rewrite policy can use them in the reason
+        string. Empty list when no leak."""
+        if not text or not user_id:
+            return []
+        try:
+            from firewall import vault as fw_vault
+            return fw_vault.check_for_leak(db, text=text, user_id=user_id)
+        except Exception:
+            return []
+
     return {
         "session_total_tokens": session_total_tokens,
         "session_total_cost": session_total_cost,
@@ -636,6 +675,10 @@ def build_history_builtins(db) -> Dict[str, Callable]:
         # DB-bound — artifacts in firewall_classifier_artifacts)
         "org_classifier_score": org_classifier_score,
         "org_classifier_predict": org_classifier_predict,
+        # Cross-session vault (Slice 6A — DB-bound, looks up
+        # session_vault for foreign-user fact matches)
+        "cross_session_leak": cross_session_leak,
+        "cross_session_leak_details": cross_session_leak_details,
     }
 
 

@@ -1095,3 +1095,54 @@ def list_classifier_models_endpoint(
     classifier page."""
     from firewall.detectors import local_classifier as lc_det
     return {"models": lc_det.list_models(db)}
+
+
+# ----- Session vault (Slice 6A) ---------------------------------------------
+#
+# Cross-session data isolation. Operators inspect the vault to see
+# which facts have been recorded against which user / session and
+# delete entries when a customer invokes a right-to-erasure request.
+
+
+@router.get("/v1/firewall/vault")
+def list_vault_entries_endpoint(
+    user_id: Optional[str] = Query(None),
+    session_id: Optional[str] = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    db: Database = Depends(get_db),
+) -> Dict[str, Any]:
+    """List session-vault entries (the cross-session leak detector's
+    DB). Filter by user_id / session_id; default 100 most recent.
+
+    The full fact value was never stored — operators see only the
+    truncated excerpt + metadata so a vault dump can't re-leak the
+    sensitive data it was protecting.
+    """
+    from firewall import vault as fw_vault
+    rows = fw_vault.list_vault_entries(
+        db, user_id=user_id, session_id=session_id, limit=limit,
+    )
+    return {"entries": rows, "count": len(rows)}
+
+
+@router.get("/v1/firewall/vault/stats")
+def vault_stats_endpoint(db: Database = Depends(get_db)) -> Dict[str, Any]:
+    """Aggregate counts for the dashboard's vault overview card —
+    total entries, breakdown by fact_kind, top-20 user_ids by
+    entry count."""
+    from firewall import vault as fw_vault
+    return fw_vault.vault_stats(db)
+
+
+@router.delete("/v1/firewall/vault/{entry_id}")
+def delete_vault_entry_endpoint(
+    entry_id: str, db: Database = Depends(get_db),
+) -> Dict[str, Any]:
+    """Erase a single vault entry. Useful for right-to-erasure
+    (GDPR Art. 17) and for cleaning up false-positive recordings
+    that would noise up the leak detector."""
+    from firewall import vault as fw_vault
+    deleted = fw_vault.delete_vault_entry(db, entry_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"vault entry {entry_id!r} not found")
+    return {"id": entry_id, "deleted": True}
