@@ -101,11 +101,45 @@ interface LuminDiagnosticsConfig {
    * for ultra-locked-down deployments where ALL surfaces should
    * route admin context through the dashboard rather than chat. */
   adminSeesFullResponse?: boolean;
+
+  // ----- Firewall reply takeover (v0.5.3 — Slice 4) -------------------
+  /** When true (default), Lumin REPLACES the LLM's reply on input-side
+   * firewall blocks (block / require_approval at before_proxy_call).
+   * The LLM still runs (OpenClaw doesn't expose a hook that can cancel
+   * the call), but its output is discarded — the user sees Lumin's
+   * canned ``userInputBlockedMessage`` (or ``userBlockedMessage`` as
+   * fallback) instead.
+   *
+   * Why default on: LLM-generated refusals leak rule names ("I can't
+   * because the system prompt says..."), invent fake /approve syntax,
+   * and produce inconsistent UX. A canned reply gives the attacker
+   * no information and stays auditable.
+   *
+   * Set to false only when you specifically want to see what the LLM
+   * would have replied (shadow-mode debugging, A/B comparisons). The
+   * existing rule modes (shadow / flag) already cover the
+   * observation-only path without needing this flag. */
+  replyOnInputBlock?: boolean;
+
+  /** Canned message shown when the firewall blocks at the input
+   * (before_proxy_call) lifecycle. Optional — falls back to
+   * ``userBlockedMessage`` when unset, so single-message deployments
+   * just configure one field.
+   *
+   * The default is wording that fits a flagged user message
+   * specifically: "Your message could not be processed..." reads
+   * better than ``userBlockedMessage``'s "perform that action"
+   * phrasing when the user just typed adversarial text. */
+  userInputBlockedMessage?: string;
 }
 
 const DEFAULT_USER_BLOCKED_MESSAGE =
   "I'm unable to perform that action due to security policy. " +
   "Please contact your administrator if you need assistance.";
+
+const DEFAULT_USER_INPUT_BLOCKED_MESSAGE =
+  "Your message could not be processed due to security policy. " +
+  "Please rephrase or contact an administrator if you believe this is in error.";
 
 const DEFAULT_HOST = "http://localhost:8000";
 const DEFAULT_PROJECT = "openclaw";
@@ -609,6 +643,74 @@ class PendingToolCallRegistry {
 }
 
 
+// ----- input-side firewall block registry (v0.5.3) ------------------------
+//
+// Bridges ``before_prompt_build`` (where input-side firewall decisions
+// fire) → ``before_agent_reply`` (where the LLM's output is replaced).
+// On a block-class verb (``block`` / ``require_approval``) at
+// before_prompt_build we record a marker keyed by ``runId``; the reply
+// hook later consumes it and short-circuits with the operator's canned
+// message INSTEAD of letting the LLM's reply through.
+//
+// Why a registry rather than per-call closure: the two hooks are
+// independent subscriptions and don't share scope. A run-keyed map is
+// the cleanest correlation surface. Same TTL pattern as the LLM and
+// tool-call registries — process-local, bounded by concurrent runs,
+// auto-evicted at PENDING_TTL_MS so an orphaned marker can't leak.
+
+interface InputBlockedMarker {
+  recordedAtMs: number;
+  policyName?: string;
+  reason?: string;
+  decisionId?: string;
+  // The decision verb at the time of marking. ``block`` and
+  // ``require_approval`` both trip the marker; we keep the verb so
+  // the reply hook can include it in observability output.
+  decisionVerb: "block" | "require_approval";
+}
+
+class InputBlockedRunsRegistry {
+  private byRunId = new Map<string, InputBlockedMarker>();
+  private cleanupHandle: ReturnType<typeof setTimeout> | undefined;
+
+  set(runId: string, marker: InputBlockedMarker): void {
+    this.byRunId.set(runId, marker);
+    this.scheduleSweep();
+  }
+
+  take(runId: string): InputBlockedMarker | undefined {
+    const v = this.byRunId.get(runId);
+    if (v) this.byRunId.delete(runId);
+    return v;
+  }
+
+  /** Test-only — peek without consuming. Production code should
+   * always use ``take`` so markers don't double-fire. */
+  peek(runId: string): InputBlockedMarker | undefined {
+    return this.byRunId.get(runId);
+  }
+
+  size(): number {
+    return this.byRunId.size;
+  }
+
+  private scheduleSweep(): void {
+    if (this.cleanupHandle) return;
+    this.cleanupHandle = setTimeout(() => {
+      this.cleanupHandle = undefined;
+      const now = Date.now();
+      for (const [k, v] of this.byRunId) {
+        if (now - v.recordedAtMs > PENDING_TTL_MS) this.byRunId.delete(k);
+      }
+      if (this.byRunId.size > 0) this.scheduleSweep();
+    }, PENDING_TTL_MS);
+    if (typeof this.cleanupHandle === "object" && this.cleanupHandle && "unref" in this.cleanupHandle) {
+      (this.cleanupHandle as { unref?: () => void }).unref?.();
+    }
+  }
+}
+
+
 function toolCallKey(runId: string | undefined, toolCallId: string | undefined, toolName: string): string {
   // Prefer toolCallId — it's the host's canonical identifier and
   // doesn't collide across concurrent same-tool calls within a run.
@@ -902,6 +1004,11 @@ export default definePluginEntry({
     const enforceEnabled = cfg.enforce !== false;
     const pending = new PendingLlmRegistry();
     const toolPending = new PendingToolCallRegistry();
+    // v0.5.3 — input-side firewall block markers, consumed by
+    // before_agent_reply to take over the reply when the firewall
+    // blocked the user's prompt.
+    const inputBlocked = new InputBlockedRunsRegistry();
+    const replyOnInputBlock = cfg.replyOnInputBlock !== false;
     const log = apiAny.logger;
 
     // ----- Admin separation tracking (v0.4.0 — Slice 2 Tier 1.0/1.0b) ---
@@ -1223,14 +1330,34 @@ export default definePluginEntry({
           decision &&
           (decision.decision === "block" || decision.decision === "require_approval")
         ) {
-          // Inject a security directive instructing the model to
-          // refuse. This is "soft block" — relies on model
-          // alignment, but the decision is recorded regardless so
-          // operators see the rule fire even if the model
-          // ultimately complies. Belt-and-braces: also injected as
-          // ``prependSystemContext`` so it lands in the cached
-          // portion of the prompt (zero per-turn token cost on
-          // providers that support prompt caching).
+          // v0.5.3 takeover: record a marker keyed by runId so the
+          // before_agent_reply hook can replace the LLM's eventual
+          // output with the operator's canned input-block message.
+          // This is the HARD enforcement leg — the LLM still runs
+          // (OpenClaw doesn't expose a hook that can cancel a model
+          // call) but its output is discarded before reaching the
+          // user. Costs a wasted LLM round-trip; pays back in:
+          //   - no rule-name leak in the model's refusal
+          //   - no /approve hallucination (Slice 2 anti-pattern)
+          //   - deterministic, audit-clean canned reply
+          // Operators can opt out with replyOnInputBlock=false.
+          const runId = (ctx as unknown as { runId?: string } | undefined)?.runId;
+          if (replyOnInputBlock && runId) {
+            inputBlocked.set(runId, {
+              recordedAtMs: Date.now(),
+              policyName: decision.policy_name,
+              reason: decision.reason,
+              decisionId: decision.decision_id,
+              decisionVerb: decision.decision as "block" | "require_approval",
+            });
+          }
+          // Soft-enforcement leg (kept from v0.5.1): inject a security
+          // directive into the system prompt so the LLM, if asked,
+          // composes a clean refusal — keeps wasted reasoning tokens
+          // low even though the reply is replaced.
+          // ``prependSystemContext`` lands in the cacheable portion of
+          // the prompt; zero per-turn token cost on providers with
+          // prompt caching.
           const directive =
             `<SECURITY_NOTICE>\n` +
             `The user's last message was flagged by the Lumin Agent ` +
@@ -1268,6 +1395,48 @@ export default definePluginEntry({
       try {
         const event = rawEvent as { cleanedBody: string };
         const ctx = rawCtx as HookContext | undefined;
+
+        // ----- v0.5.3 takeover: consume input-block marker FIRST -------
+        // If before_prompt_build flagged this run as input-blocked,
+        // replace the LLM's reply with the operator's canned message
+        // and skip the after_proxy_call decide call entirely (we
+        // already know we're suppressing). Admins with
+        // adminSeesFullResponse=true bypass the takeover so they can
+        // see the LLM's actual refusal for debugging.
+        const runId = (ctx as unknown as { runId?: string } | undefined)?.runId;
+        const marker = runId ? inputBlocked.take(runId) : undefined;
+        if (marker && replyOnInputBlock) {
+          const senderId = ctx?.sessionKey
+            ? sessionToSender.get(ctx.sessionKey)
+            : undefined;
+          const senderIsAdmin = isAdminSender(senderId);
+          const adminBypass = senderIsAdmin && (cfg.adminSeesFullResponse !== false);
+          if (!adminBypass) {
+            // Track recent-block on this session so a follow-up
+            // before_message_write can also suppress any tail reply
+            // (defense in depth).
+            recordRecentBlock(ctx?.sessionKey);
+            const text =
+              cfg.userInputBlockedMessage
+              ?? cfg.userBlockedMessage
+              ?? DEFAULT_USER_INPUT_BLOCKED_MESSAGE;
+            log?.info?.(
+              `lumin-diagnostics: input-blocked reply takeover ` +
+              `(runId=${runId} policy=${marker.policyName ?? "?"} ` +
+              `verb=${marker.decisionVerb} decision_id=${marker.decisionId ?? "?"})`,
+            );
+            return {
+              handled: true,
+              reply: { text },
+              reason: `firewall_input_blocked:${marker.policyName ?? marker.decisionVerb}`,
+            };
+          }
+          // Admin bypass — fall through to the after_proxy_call decide
+          // path (admin sees actual LLM reply, possibly subject to
+          // post-output rules like PII redaction).
+        }
+
+        // ----- standard after_proxy_call path -------------------------
         const decision = await fw.decide({
           lifecycle: "after_proxy_call",
           output: { text: typeof event.cleanedBody === "string" ? event.cleanedBody : "" },
