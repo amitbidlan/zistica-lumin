@@ -14,6 +14,7 @@ import {
 } from '@/lib/api';
 import { useTraceStream, WSMessage } from '@/lib/websocket';
 import { useUrlBoolean, useUrlNumber } from '@/lib/url-state';
+import { LuminFirewallBadge } from './LuminFirewallBadge';
 
 const COLS =
   'grid grid-cols-[1fr_180px_100px_120px_100px_80px_110px] gap-4 px-4 py-2.5';
@@ -170,8 +171,9 @@ export default function TraceList() {
                 <div>
                   <StatusBadge value={deriveStatus(t)} />
                 </div>
-                <div>
+                <div className="flex items-center gap-1.5 flex-wrap">
                   <ViolationBadge count={t.violation_count ?? 0} />
+                  <LuminFirewallBadge trace={t} />
                 </div>
               </Link>
             ))
