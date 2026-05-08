@@ -921,6 +921,8 @@ def _record_decision(
     insert fails — caller still wants something to put in the response.
     """
     decision_id = "dec_" + uuid.uuid4().hex[:24]
+    policy_name = policy.name if policy else "_engine_"
+    severity = getattr(policy, "severity", None) if policy is not None else None
     try:
         db.execute(
             """
@@ -934,8 +936,8 @@ def _record_decision(
             """,
             [
                 decision_id,
-                policy.name if policy else "_engine_",
-                policy.name if policy else "_engine_",
+                policy_name,
+                policy_name,
                 lifecycle,
                 decision,
                 mode_at_decision,
@@ -949,6 +951,30 @@ def _record_decision(
         )
     except Exception:
         logger.exception("firewall.decide: failed to insert decision row")
+
+    # §9.10 / §9.11 — fire outbound webhooks for block-class decisions.
+    # Fire-and-forget via a worker pool inside webhooks.py so a slow
+    # webhook never delays the firewall response (Rule 7).
+    if decision in {"block", "require_approval", "rewrite"}:
+        try:
+            from firewall import webhooks as fw_webhooks
+            fw_webhooks.fire_for_decision(
+                db,
+                decision_id=decision_id,
+                decision=decision,
+                severity=severity,
+                policy_name=policy_name,
+                project=project,
+                reason=reason,
+                trace_id=trace_id,
+                mode_at_decision=mode_at_decision,
+            )
+        except Exception:
+            logger.exception(
+                "firewall.decide: webhook dispatch failed for decision %s",
+                decision_id,
+            )
+
     return decision_id
 
 
