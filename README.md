@@ -15,16 +15,38 @@ Lumin is a CCTV camera for your AI agent. Add 2 lines of code. Every decision, e
 
 ## Quick start
 
+### Option 1 — Docker compose (recommended)
+
 ```bash
 git clone https://github.com/amitbidlan/zistica-lumin
 cd zistica-lumin
+cp .env.example .env          # optional — edit thresholds / SMTP
+docker compose up -d --wait   # builds and waits until /health responds
+```
+
+`docker compose up -d --wait` returns clean only when the container's healthcheck passes — useful in CI / orchestration scripts. Drop `--wait` for an interactive run.
+
+Then open <http://localhost:3000>.
+
+To stop: `docker compose down`. To wipe state: `docker compose down -v` (removes the `lumin-data` named volume — months of training data and traces, gone — be sure).
+
+### Option 2 — Plain `docker run`
+
+```bash
 docker build -t lumin .
-docker run -p 3000:3000 -p 8000:8000 -v $(pwd)/data:/data lumin
+docker run -d \
+  --name lumin \
+  -p 127.0.0.1:3000:3000 \
+  -p 127.0.0.1:8000:8000 \
+  -v lumin-data:/data \
+  lumin
 ```
 
 Both ports matter:
 - **`3000`** — the dashboard (this is what you open in the browser)
 - **`8000`** — the API. The browser also connects to it directly for the WebSocket real-time stream. Skip this mapping and the dashboard still works, but new traces appear via 5-second polling instead of live push.
+
+⚠️ **Public VPS deployment**: the dashboard at `:3000` has **no authentication today**. Bind ports to `127.0.0.1` (as shown above) and reach the dashboard via SSH tunnel: `ssh -L 3000:localhost:3000 user@vps`. Auth (bearer token + dashboard password) lands in Slice 5B.
 
 Open <http://localhost:3000> — the agent grid (`/agents`) is the dashboard home. From there you can drill into individual agents, traces, sessions, and policy violations.
 
