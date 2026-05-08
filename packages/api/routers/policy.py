@@ -569,6 +569,8 @@ _ALLOWED_FUNCTIONS = frozenset({
     "similar_to_corpus", "max_corpus_similarity",
     # Behavioral anomaly detector (Slice 3 PR Q — §11.4)
     "behavioral_anomaly_score",
+    # LLM-as-judge (Slice 3 PR R — §6.7; opt-in via LUMIN_LLM_JUDGE_ENDPOINT)
+    "llm_judge", "llm_judge_unsafe", "llm_judge_label",
 })
 
 
