@@ -597,6 +597,26 @@ def build_history_builtins(db) -> Dict[str, Callable]:
             db, tool_name, params, agent, session_id=session_id,
         )
 
+    def org_classifier_score(
+        text: Optional[str], model_id: str = "default",
+    ) -> float:
+        """Operator's local classifier score (0.0-1.0) — probability
+        ``text`` is class=bad per the LogisticRegression trained on
+        the labels table. Returns 0.0 when sklearn unavailable / no
+        classifier trained / inference fails (Rule 7).
+        See ``firewall.detectors.local_classifier``."""
+        from firewall.detectors import local_classifier as lc_det
+        return lc_det.org_classifier_score(db, text, model_id=model_id)
+
+    def org_classifier_predict(
+        text: Optional[str], model_id: str = "default",
+    ) -> dict:
+        """Full prediction with provenance. Returns
+        ``{label, score, model_id, version, trained_at,
+        n_train_examples, n_features, ok}``."""
+        from firewall.detectors import local_classifier as lc_det
+        return lc_det.org_classifier_predict(db, text, model_id=model_id)
+
     return {
         "session_total_tokens": session_total_tokens,
         "session_total_cost": session_total_cost,
@@ -612,6 +632,10 @@ def build_history_builtins(db) -> Dict[str, Callable]:
         # Behavioral anomaly (Slice 3 PR Q — §11.4 — DB-bound
         # baseline lives in spans table)
         "behavioral_anomaly_score": behavioral_anomaly_score,
+        # Local fine-tuned classifier (Slice 3 PR S — §6.8 / §11.6;
+        # DB-bound — artifacts in firewall_classifier_artifacts)
+        "org_classifier_score": org_classifier_score,
+        "org_classifier_predict": org_classifier_predict,
     }
 
 
