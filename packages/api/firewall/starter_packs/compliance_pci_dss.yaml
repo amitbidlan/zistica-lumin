@@ -1,0 +1,81 @@
+# PCI DSS compliance — Lumin starter pack
+#
+# Aligned to PCI DSS v4.0 § 3.3 (Sensitive Authentication Data)
+# and § 3.4 (Cardholder Data). Hard-block by design: PCI is a
+# strict-liability framework — full PANs and SAD never leave the
+# CDE in the clear. False positives are a feature, not a bug.
+
+version: 1
+
+policies:
+
+  # Full PAN — Visa / Mastercard / AmEx / Discover / JCB
+  # The Luhn check happens via regex pattern matching the issuer
+  # IIN — the regex is intentionally over-broad so we err on the
+  # side of redaction.
+  - name: pci_pan_in_output
+    description: Block assistant output containing full Primary Account Numbers (PANs). Visa/MC/AmEx/Discover/JCB.
+    lifecycle: after_proxy_call
+    mode: shadow
+    priority: 99
+    trigger: span_end
+    condition: regex_match(Output.text, "\\b4\\d{3}[\\s-]?\\d{4}[\\s-]?\\d{4}[\\s-]?\\d{4}\\b") or regex_match(Output.text, "\\b5[1-5]\\d{2}[\\s-]?\\d{4}[\\s-]?\\d{4}[\\s-]?\\d{4}\\b") or regex_match(Output.text, "\\b3[47]\\d{2}[\\s-]?\\d{6}[\\s-]?\\d{5}\\b") or regex_match(Output.text, "\\b6011[\\s-]?\\d{4}[\\s-]?\\d{4}[\\s-]?\\d{4}\\b")
+    action: block
+    severity: critical
+
+  # CVV / CVC — Sensitive Authentication Data, may NEVER be stored
+  - name: pci_cvv_in_output
+    description: Block assistant output containing 3 or 4-digit CVV/CVC codes adjacent to card-related context.
+    lifecycle: after_proxy_call
+    mode: shadow
+    priority: 99
+    trigger: span_end
+    condition: regex_match(Output.text, "(?i)(cvv|cvc|cvn|card\\s+verification|security\\s+code)[:#=\\s]\\s*\\d{3,4}\\b")
+    action: block
+    severity: critical
+
+  # Magnetic stripe data (track 1 / track 2)
+  - name: pci_magnetic_stripe
+    description: Block content matching magnetic-stripe track 1 or track 2 patterns.
+    lifecycle: after_proxy_call
+    mode: shadow
+    priority: 99
+    trigger: span_end
+    condition: regex_match(Output.text, "%B\\d{13,19}\\^") or regex_match(Output.text, ";\\d{13,19}=\\d{4,}\\?")
+    action: block
+    severity: critical
+
+  # PIN (4-6 digit) in proximity to card context
+  - name: pci_pin_in_output
+    description: Block 4–6 digit PINs in card-context output.
+    lifecycle: after_proxy_call
+    mode: shadow
+    priority: 95
+    trigger: span_end
+    condition: regex_match(Output.text, "(?i)(\\bpin\\b)[:#=\\s]\\s*\\d{4,6}\\b")
+    action: block
+    severity: critical
+
+  # PAN in tool input — the agent shouldn't be passing PANs into
+  # arbitrary tools. Tokenization is the PCI-blessed pattern.
+  - name: pci_pan_in_tool_input
+    description: Block tool calls whose params contain a full PAN.
+    lifecycle: before_tool_call
+    mode: shadow
+    priority: 99
+    trigger: span_end
+    condition: regex_match(str(Input.params or {}), "\\b4\\d{3}[\\s-]?\\d{4}[\\s-]?\\d{4}[\\s-]?\\d{4}\\b") or regex_match(str(Input.params or {}), "\\b5[1-5]\\d{2}[\\s-]?\\d{4}[\\s-]?\\d{4}[\\s-]?\\d{4}\\b") or regex_match(str(Input.params or {}), "\\b3[47]\\d{2}[\\s-]?\\d{6}[\\s-]?\\d{5}\\b")
+    action: block
+    severity: critical
+
+  # PAN logging requirement — flag spans that LOOK like they're
+  # writing payment data into log/observability tools.
+  - name: pci_pan_in_logging
+    description: Flag tool calls writing card-shaped data to logging / metrics / observability sinks.
+    lifecycle: before_tool_call
+    mode: shadow
+    priority: 80
+    trigger: span_end
+    condition: regex_match(tool_name, "(?i)(log|metric|trace|datadog|splunk|sentry|honeycomb)") and regex_match(str(Input.params or {}), "\\b\\d{13,19}\\b")
+    action: flag
+    severity: high

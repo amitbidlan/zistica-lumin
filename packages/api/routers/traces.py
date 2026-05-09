@@ -61,6 +61,10 @@ def _row_to_trace(row: dict) -> Trace:
         metadata=metadata,
         ingest_at=row.get("ingest_at"),
         violation_count=int(row.get("violation_count") or 0),
+        firewall_decision_count=int(row.get("firewall_decision_count") or 0),
+        firewall_blocked=bool(row.get("firewall_blocked") or False),
+        firewall_top_policy=row.get("firewall_top_policy"),
+        firewall_top_verb=row.get("firewall_top_verb"),
     )
 
 
@@ -85,7 +89,51 @@ SELECT
     COALESCE(
         (SELECT COUNT(*) FROM policy_violations WHERE trace_id = t.id),
         0
-    ) AS violation_count
+    ) AS violation_count,
+    -- Agent Firewall summary. Counts decisions linked to this trace
+    -- and surfaces a single "top" verb + policy name for the
+    -- dashboard badge. ``firewall_blocked`` is true when any of the
+    -- block-class verbs (block / require_approval / rewrite) fired
+    -- in enforce mode against this trace. Subqueries are bounded by
+    -- decision retention so the cost stays linear.
+    COALESCE(
+        (SELECT COUNT(*) FROM decisions WHERE trace_id = t.id),
+        0
+    ) AS firewall_decision_count,
+    EXISTS (
+        SELECT 1 FROM decisions
+        WHERE trace_id = t.id
+          AND decision IN ('block', 'require_approval', 'rewrite')
+          AND mode_at_decision = 'enforce'
+    ) AS firewall_blocked,
+    (
+        SELECT policy_name FROM decisions
+        WHERE trace_id = t.id
+          AND decision IN ('block', 'require_approval', 'rewrite')
+        ORDER BY
+            CASE decision
+                WHEN 'block' THEN 0
+                WHEN 'require_approval' THEN 1
+                WHEN 'rewrite' THEN 2
+                ELSE 3
+            END,
+            decision_at ASC
+        LIMIT 1
+    ) AS firewall_top_policy,
+    (
+        SELECT decision FROM decisions
+        WHERE trace_id = t.id
+          AND decision IN ('block', 'require_approval', 'rewrite')
+        ORDER BY
+            CASE decision
+                WHEN 'block' THEN 0
+                WHEN 'require_approval' THEN 1
+                WHEN 'rewrite' THEN 2
+                ELSE 3
+            END,
+            decision_at ASC
+        LIMIT 1
+    ) AS firewall_top_verb
 FROM traces t
 """
 
@@ -180,6 +228,25 @@ def upsert_trace(payload: TraceCreate, db: Database = Depends(get_db)) -> Trace:
     row = db.fetchone_dict("SELECT * FROM traces WHERE id = ?", [payload.id])
     if row is None:
         raise HTTPException(500, "trace upsert failed")
+
+    # Slice 6A — record facts from this trace's input into the
+    # session vault. Tagged with the trace's user_id + session_id
+    # so the cross_session_leak detector can later catch a reply
+    # repeating any of these facts to a different user. Best-effort
+    # — vault failures must not block trace ingest.
+    if payload.input and payload.session_id:
+        try:
+            from firewall import vault as fw_vault
+            fw_vault.record_facts(
+                db,
+                session_id=payload.session_id,
+                user_id=payload.user_id or "",
+                project=None,
+                text=payload.input,
+            )
+        except Exception:
+            pass
+
     return _row_to_trace(row)
 
 
@@ -187,13 +254,39 @@ def upsert_trace(payload: TraceCreate, db: Database = Depends(get_db)) -> Trace:
 def list_traces(
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
+    project: Optional[str] = Query(
+        None,
+        description=(
+            "Multi-tenant scope. When set, returns only traces tagged "
+            "with this project. Use 'default' for the un-tagged bucket. "
+            "Omit to see all projects (operator view)."
+        ),
+    ),
     db: Database = Depends(get_db),
 ) -> List[Trace]:
+    where, params = _project_filter(project, table_alias="t")
     rows = db.fetchall_dict(
-        _TRACE_WITH_AGGREGATES + " ORDER BY t.started_at DESC LIMIT ? OFFSET ?",
-        [limit, offset],
+        _TRACE_WITH_AGGREGATES + where + " ORDER BY t.started_at DESC LIMIT ? OFFSET ?",
+        [*params, limit, offset],
     )
     return [_row_to_trace(r) for r in rows]
+
+
+def _project_filter(
+    project: Optional[str], *, table_alias: str = "t",
+) -> tuple[str, list]:
+    """Multi-tenant scope helper. Returns ('', []) when no project
+    filter requested; otherwise (' WHERE project = ?', [project])
+    with one twist: 'default' also matches NULL / empty so traces
+    that landed without an X-Lumin-Project header still surface in
+    the default bucket.
+    """
+    if not project:
+        return "", []
+    col = f"{table_alias}.project" if table_alias else "project"
+    if project == "default":
+        return f" WHERE COALESCE({col}, '') IN ('', 'default')", []
+    return f" WHERE {col} = ?", [project]
 
 
 @router.get("/v1/traces/{trace_id}", response_model=TraceDetail)

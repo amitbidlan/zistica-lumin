@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lumin"
-version = "0.5.0"
+version = "0.5.2"
 description = "Local-first AI agent observability SDK"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -33,6 +33,9 @@ test = [
 langchain = [
     "langchain-core>=0.3.0",
 ]
+langgraph = [
+    "langgraph>=0.2.0",
+]
 crewai = [
     "crewai>=0.80.0",
 ]
@@ -42,11 +45,28 @@ anthropic = [
 llama_index = [
     "llama-index-core>=0.10.0",
 ]
+litellm = [
+    "litellm>=1.40.0",
+]
+openai_agents = [
+    "openai-agents>=0.0.1",
+]
+autogen = [
+    "pyautogen>=0.4.0",
+]
+pydantic_ai = [
+    "pydantic-ai>=0.0.13",
+]
 all = [
     "langchain-core>=0.3.0",
+    "langgraph>=0.2.0",
     "crewai>=0.80.0",
     "anthropic>=0.30.0",
     "llama-index-core>=0.10.0",
+    "litellm>=1.40.0",
+    "openai-agents>=0.0.1",
+    "pyautogen>=0.4.0",
+    "pydantic-ai>=0.0.13",
 ]
 
 [tool.setuptools.packages.find]

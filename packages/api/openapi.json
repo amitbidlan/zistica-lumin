@@ -1,0 +1,7014 @@
+{
+  "components": {
+    "schemas": {
+      "AdminHealth": {
+        "properties": {
+          "components": {
+            "items": {
+              "$ref": "#/components/schemas/HealthComponent"
+            },
+            "title": "Components",
+            "type": "array"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "components"
+        ],
+        "title": "AdminHealth",
+        "type": "object"
+      },
+      "AgentDetail": {
+        "description": "Detail page payload \u2014 same metrics + recent traces + violation\nbreakdown by policy.",
+        "properties": {
+          "active_traces": {
+            "default": 0,
+            "title": "Active Traces",
+            "type": "integer"
+          },
+          "activity": {
+            "title": "Activity",
+            "type": "string"
+          },
+          "activity_buckets": {
+            "default": [],
+            "items": {
+              "type": "integer"
+            },
+            "title": "Activity Buckets",
+            "type": "array"
+          },
+          "avg_duration_ms": {
+            "title": "Avg Duration Ms",
+            "type": "integer"
+          },
+          "error_rate": {
+            "title": "Error Rate",
+            "type": "number"
+          },
+          "has_violations": {
+            "title": "Has Violations",
+            "type": "boolean"
+          },
+          "last_seen": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project": {
+            "title": "Project",
+            "type": "string"
+          },
+          "providers": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Providers",
+            "type": "array"
+          },
+          "recent_traces": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/Trace"
+            },
+            "title": "Recent Traces",
+            "type": "array"
+          },
+          "seconds_since_last_seen": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seconds Since Last Seen"
+          },
+          "top_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top Model"
+          },
+          "top_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top Provider"
+          },
+          "total_cost_usd": {
+            "title": "Total Cost Usd",
+            "type": "number"
+          },
+          "total_tokens": {
+            "title": "Total Tokens",
+            "type": "integer"
+          },
+          "trace_count": {
+            "title": "Trace Count",
+            "type": "integer"
+          },
+          "violation_count": {
+            "title": "Violation Count",
+            "type": "integer"
+          },
+          "violations_by_policy": {
+            "additionalProperties": true,
+            "default": {},
+            "title": "Violations By Policy",
+            "type": "object"
+          },
+          "violations_by_severity": {
+            "additionalProperties": true,
+            "default": {},
+            "title": "Violations By Severity",
+            "type": "object"
+          }
+        },
+        "required": [
+          "name",
+          "project",
+          "trace_count",
+          "total_cost_usd",
+          "total_tokens",
+          "avg_duration_ms",
+          "error_rate",
+          "violation_count",
+          "has_violations",
+          "last_seen",
+          "top_model",
+          "top_provider",
+          "seconds_since_last_seen",
+          "activity"
+        ],
+        "title": "AgentDetail",
+        "type": "object"
+      },
+      "AgentListResponse": {
+        "properties": {
+          "agents": {
+            "items": {
+              "$ref": "#/components/schemas/AgentSummary"
+            },
+            "title": "Agents",
+            "type": "array"
+          },
+          "older_data_exists": {
+            "default": false,
+            "title": "Older Data Exists",
+            "type": "boolean"
+          },
+          "projects": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Projects",
+            "type": "array"
+          },
+          "window_hours": {
+            "title": "Window Hours",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "agents",
+          "window_hours"
+        ],
+        "title": "AgentListResponse",
+        "type": "object"
+      },
+      "AgentSummary": {
+        "description": "One card on the agent grid.",
+        "properties": {
+          "active_traces": {
+            "default": 0,
+            "title": "Active Traces",
+            "type": "integer"
+          },
+          "activity": {
+            "title": "Activity",
+            "type": "string"
+          },
+          "activity_buckets": {
+            "default": [],
+            "items": {
+              "type": "integer"
+            },
+            "title": "Activity Buckets",
+            "type": "array"
+          },
+          "avg_duration_ms": {
+            "title": "Avg Duration Ms",
+            "type": "integer"
+          },
+          "error_rate": {
+            "title": "Error Rate",
+            "type": "number"
+          },
+          "has_violations": {
+            "title": "Has Violations",
+            "type": "boolean"
+          },
+          "last_seen": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project": {
+            "title": "Project",
+            "type": "string"
+          },
+          "providers": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Providers",
+            "type": "array"
+          },
+          "seconds_since_last_seen": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seconds Since Last Seen"
+          },
+          "top_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top Model"
+          },
+          "top_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top Provider"
+          },
+          "total_cost_usd": {
+            "title": "Total Cost Usd",
+            "type": "number"
+          },
+          "total_tokens": {
+            "title": "Total Tokens",
+            "type": "integer"
+          },
+          "trace_count": {
+            "title": "Trace Count",
+            "type": "integer"
+          },
+          "violation_count": {
+            "title": "Violation Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "project",
+          "trace_count",
+          "total_cost_usd",
+          "total_tokens",
+          "avg_duration_ms",
+          "error_rate",
+          "violation_count",
+          "has_violations",
+          "last_seen",
+          "top_model",
+          "top_provider",
+          "seconds_since_last_seen",
+          "activity"
+        ],
+        "title": "AgentSummary",
+        "type": "object"
+      },
+      "ApprovalResolveRequest": {
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "resolution": {
+            "description": "One of: allow, deny",
+            "title": "Resolution",
+            "type": "string"
+          },
+          "resolver": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolver"
+          }
+        },
+        "required": [
+          "resolution"
+        ],
+        "title": "ApprovalResolveRequest",
+        "type": "object"
+      },
+      "BackupCreateRequest": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "title": "BackupCreateRequest",
+        "type": "object"
+      },
+      "BackupCreateResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "path",
+          "size_bytes",
+          "created_at"
+        ],
+        "title": "BackupCreateResponse",
+        "type": "object"
+      },
+      "BackupListResponse": {
+        "properties": {
+          "backup_dir": {
+            "title": "Backup Dir",
+            "type": "string"
+          },
+          "backups": {
+            "items": {
+              "$ref": "#/components/schemas/BackupSummary"
+            },
+            "title": "Backups",
+            "type": "array"
+          }
+        },
+        "required": [
+          "backup_dir",
+          "backups"
+        ],
+        "title": "BackupListResponse",
+        "type": "object"
+      },
+      "BackupSummary": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "path",
+          "created_at",
+          "size_bytes"
+        ],
+        "title": "BackupSummary",
+        "type": "object"
+      },
+      "ClassifierTrainRequest": {
+        "description": "Body for POST /v1/firewall/classifier/retrain.",
+        "properties": {
+          "backend": {
+            "default": "linear",
+            "title": "Backend",
+            "type": "string"
+          },
+          "min_examples": {
+            "default": 20,
+            "maximum": 100000.0,
+            "minimum": 2.0,
+            "title": "Min Examples",
+            "type": "integer"
+          },
+          "model_id": {
+            "default": "default",
+            "title": "Model Id",
+            "type": "string"
+          }
+        },
+        "title": "ClassifierTrainRequest",
+        "type": "object"
+      },
+      "CorpusCreateRequest": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "CorpusCreateRequest",
+        "type": "object"
+      },
+      "CorpusEntryAddRequest": {
+        "properties": {
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "CorpusEntryAddRequest",
+        "type": "object"
+      },
+      "DecideRequest": {
+        "properties": {
+          "agent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent"
+          },
+          "lifecycle": {
+            "title": "Lifecycle",
+            "type": "string"
+          },
+          "messages": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Messages"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "output": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output"
+          },
+          "params": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Params"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "span_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Span Id"
+          },
+          "tool_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Name"
+          },
+          "trace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trace Id"
+          }
+        },
+        "required": [
+          "lifecycle"
+        ],
+        "title": "DecideRequest",
+        "type": "object"
+      },
+      "Eval": {
+        "properties": {
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "span_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Span Id"
+          },
+          "trace_id": {
+            "title": "Trace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "trace_id"
+        ],
+        "title": "Eval",
+        "type": "object"
+      },
+      "EvalCreate": {
+        "properties": {
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "score": {
+            "title": "Score",
+            "type": "number"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "manual",
+            "title": "Source"
+          },
+          "span_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Span Id"
+          },
+          "trace_id": {
+            "title": "Trace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "trace_id",
+          "name",
+          "score"
+        ],
+        "title": "EvalCreate",
+        "type": "object"
+      },
+      "GenerateAttacksRequest": {
+        "description": "Body for POST /v1/firewall/test/generate_attacks.",
+        "properties": {
+          "categories": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Categories"
+          },
+          "limit": {
+            "default": 100,
+            "maximum": 1000.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "seed_ask": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seed Ask"
+          },
+          "seed_prompt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seed Prompt"
+          }
+        },
+        "title": "GenerateAttacksRequest",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthComponent": {
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "status"
+        ],
+        "title": "HealthComponent",
+        "type": "object"
+      },
+      "IngestRequest": {
+        "properties": {
+          "spans": {
+            "items": {
+              "$ref": "#/components/schemas/SpanInput"
+            },
+            "title": "Spans",
+            "type": "array"
+          }
+        },
+        "required": [
+          "spans"
+        ],
+        "title": "IngestRequest",
+        "type": "object"
+      },
+      "IngestResponse": {
+        "properties": {
+          "accepted": {
+            "title": "Accepted",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "accepted"
+        ],
+        "title": "IngestResponse",
+        "type": "object"
+      },
+      "LabelRequest": {
+        "description": "Body for POST /v1/labels \u2014 operator marks a trace/span as bad/good\nfor downstream classifier training and false-positive review.",
+        "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "decision_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Id"
+          },
+          "field": {
+            "description": "One of: input, output, tool_params, tool_result",
+            "title": "Field",
+            "type": "string"
+          },
+          "label": {
+            "description": "One of: bad, good, neutral",
+            "title": "Label",
+            "type": "string"
+          },
+          "labeled_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "dashboard",
+            "title": "Labeled By"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "span_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Span Id"
+          },
+          "trace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trace Id"
+          }
+        },
+        "required": [
+          "field",
+          "label"
+        ],
+        "title": "LabelRequest",
+        "type": "object"
+      },
+      "ModeChangeRequest": {
+        "properties": {
+          "mode": {
+            "description": "One of: shadow, flag, enforce",
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "title": "ModeChangeRequest",
+        "type": "object"
+      },
+      "PanicRequest": {
+        "properties": {
+          "actor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor"
+          },
+          "disabled": {
+            "title": "Disabled",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "disabled"
+        ],
+        "title": "PanicRequest",
+        "type": "object"
+      },
+      "PolicyAuditEntry": {
+        "description": "One row from the policy_audit log.",
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "actor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor"
+          },
+          "after": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After"
+          },
+          "before": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "policy_name": {
+            "title": "Policy Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "policy_name",
+          "action"
+        ],
+        "title": "PolicyAuditEntry",
+        "type": "object"
+      },
+      "PolicyAuditResponse": {
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/PolicyAuditEntry"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "entries",
+          "total"
+        ],
+        "title": "PolicyAuditResponse",
+        "type": "object"
+      },
+      "PolicyCreate": {
+        "description": "Body for POST /v1/policies (Phase 4).\n\nAgent Firewall fields (lifecycle/mode/priority/...) are optional \u2014\nwhen omitted they take spec defaults. Notably ``mode`` defaults to\n``shadow`` per \u00a710.1 of AGENT_FIREWALL_SPEC.md: a freshly authored\nrule never blocks live traffic until an operator promotes it.",
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "condition": {
+            "title": "Condition",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "lifecycle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lifecycle"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "on_internal_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "On Internal Error"
+          },
+          "on_timeout": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "On Timeout"
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Priority"
+          },
+          "scope_agents": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Scope Agents",
+            "type": "array"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          },
+          "trigger": {
+            "title": "Trigger",
+            "type": "string"
+          },
+          "webhook_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Webhook Url"
+          }
+        },
+        "required": [
+          "name",
+          "trigger",
+          "condition",
+          "action",
+          "severity"
+        ],
+        "title": "PolicyCreate",
+        "type": "object"
+      },
+      "PolicyListResponse": {
+        "properties": {
+          "engine_loaded": {
+            "title": "Engine Loaded",
+            "type": "boolean"
+          },
+          "policies": {
+            "items": {
+              "$ref": "#/components/schemas/PolicyOut"
+            },
+            "title": "Policies",
+            "type": "array"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "policies",
+          "source",
+          "engine_loaded"
+        ],
+        "title": "PolicyListResponse",
+        "type": "object"
+      },
+      "PolicyOut": {
+        "description": "Policy as returned by GET /v1/policies + GET /v1/policies/{name}.\n\nMirrors the YAML/DB shape but is the only schema that crosses the\nAPI boundary \u2014 the SDK's internal ``Policy`` dataclass stays in\nthe SDK.",
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "circuit_breaker_state": {
+            "default": "ok",
+            "title": "Circuit Breaker State",
+            "type": "string"
+          },
+          "condition": {
+            "title": "Condition",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "lifecycle": {
+            "default": "post_ingest",
+            "title": "Lifecycle",
+            "type": "string"
+          },
+          "mode": {
+            "default": "enforce",
+            "title": "Mode",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "on_internal_error": {
+            "default": "allow",
+            "title": "On Internal Error",
+            "type": "string"
+          },
+          "on_timeout": {
+            "default": "allow",
+            "title": "On Timeout",
+            "type": "string"
+          },
+          "priority": {
+            "default": 0,
+            "title": "Priority",
+            "type": "integer"
+          },
+          "scope_agents": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Scope Agents",
+            "type": "array"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          },
+          "source": {
+            "default": "yaml",
+            "title": "Source",
+            "type": "string"
+          },
+          "trigger": {
+            "title": "Trigger",
+            "type": "string"
+          },
+          "version": {
+            "default": 1,
+            "title": "Version",
+            "type": "integer"
+          },
+          "webhook_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Webhook Url"
+          }
+        },
+        "required": [
+          "name",
+          "trigger",
+          "condition",
+          "action",
+          "severity"
+        ],
+        "title": "PolicyOut",
+        "type": "object"
+      },
+      "PolicyUpdate": {
+        "description": "Body for PUT /v1/policies/{name} (Phase 4). Every field optional;\nomitted fields keep their existing value. The engine reload is\ntriggered after a successful write.",
+        "properties": {
+          "action": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action"
+          },
+          "condition": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Condition"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "lifecycle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lifecycle"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
+          },
+          "on_internal_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "On Internal Error"
+          },
+          "on_timeout": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "On Timeout"
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Priority"
+          },
+          "scope_agents": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope Agents"
+          },
+          "severity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Severity"
+          },
+          "trigger": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trigger"
+          },
+          "webhook_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Webhook Url"
+          }
+        },
+        "title": "PolicyUpdate",
+        "type": "object"
+      },
+      "PolicyViolation": {
+        "description": "One violation as returned by GET /v1/violations.",
+        "properties": {
+          "action_taken": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action Taken"
+          },
+          "actual_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actual Value"
+          },
+          "condition_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Condition Text"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "policy_description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Policy Description"
+          },
+          "policy_name": {
+            "title": "Policy Name",
+            "type": "string"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          },
+          "span_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Span Id"
+          },
+          "trace_id": {
+            "title": "Trace Id",
+            "type": "string"
+          },
+          "webhook_fired": {
+            "default": false,
+            "title": "Webhook Fired",
+            "type": "boolean"
+          },
+          "webhook_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Webhook Url"
+          }
+        },
+        "required": [
+          "id",
+          "policy_name",
+          "severity",
+          "trace_id"
+        ],
+        "title": "PolicyViolation",
+        "type": "object"
+      },
+      "PolicyViolationInput": {
+        "description": "One violation as accepted by POST /v1/violations from the SDK.",
+        "properties": {
+          "action_taken": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action Taken"
+          },
+          "actual_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actual Value"
+          },
+          "condition_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Condition Text"
+          },
+          "policy_description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Policy Description"
+          },
+          "policy_name": {
+            "title": "Policy Name",
+            "type": "string"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          },
+          "span_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Span Id"
+          },
+          "trace_id": {
+            "title": "Trace Id",
+            "type": "string"
+          },
+          "webhook_fired": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": false,
+            "title": "Webhook Fired"
+          },
+          "webhook_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Webhook Url"
+          }
+        },
+        "required": [
+          "policy_name",
+          "severity",
+          "trace_id"
+        ],
+        "title": "PolicyViolationInput",
+        "type": "object"
+      },
+      "PolicyViolationStats": {
+        "properties": {
+          "by_policy": {
+            "additionalProperties": true,
+            "title": "By Policy",
+            "type": "object"
+          },
+          "by_severity": {
+            "additionalProperties": true,
+            "title": "By Severity",
+            "type": "object"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "by_severity",
+          "by_policy"
+        ],
+        "title": "PolicyViolationStats",
+        "type": "object"
+      },
+      "PolicyViolationsIngest": {
+        "properties": {
+          "violations": {
+            "items": {
+              "$ref": "#/components/schemas/PolicyViolationInput"
+            },
+            "title": "Violations",
+            "type": "array"
+          }
+        },
+        "required": [
+          "violations"
+        ],
+        "title": "PolicyViolationsIngest",
+        "type": "object"
+      },
+      "PolicyViolationsIngestResponse": {
+        "properties": {
+          "accepted": {
+            "title": "Accepted",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "accepted"
+        ],
+        "title": "PolicyViolationsIngestResponse",
+        "type": "object"
+      },
+      "PolicyViolationsResponse": {
+        "properties": {
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "violations": {
+            "items": {
+              "$ref": "#/components/schemas/PolicyViolation"
+            },
+            "title": "Violations",
+            "type": "array"
+          }
+        },
+        "required": [
+          "violations",
+          "total"
+        ],
+        "title": "PolicyViolationsResponse",
+        "type": "object"
+      },
+      "PromoteSuggestionRequest": {
+        "description": "Body for POST /v1/policies/suggest/{id}/promote. The operator\ncan rename the policy at promotion time \u2014 the auto-generated name\nis fine but operators usually want something descriptive.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "PromoteSuggestionRequest",
+        "type": "object"
+      },
+      "ReplayRequest": {
+        "description": "Body for POST /v1/firewall/test/replay.",
+        "properties": {
+          "policy_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Policy Ids"
+          },
+          "trace_id": {
+            "title": "Trace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "trace_id"
+        ],
+        "title": "ReplayRequest",
+        "type": "object"
+      },
+      "RestoreRequest": {
+        "properties": {
+          "confirm": {
+            "description": "MUST be true. Required acknowledgement that restore overwrites the live database.",
+            "title": "Confirm",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "confirm"
+        ],
+        "title": "RestoreRequest",
+        "type": "object"
+      },
+      "RetentionCleanupRequest": {
+        "properties": {
+          "days": {
+            "maximum": 3650.0,
+            "minimum": 0.0,
+            "title": "Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "days"
+        ],
+        "title": "RetentionCleanupRequest",
+        "type": "object"
+      },
+      "RetentionCleanupResponse": {
+        "properties": {
+          "cutoff": {
+            "format": "date-time",
+            "title": "Cutoff",
+            "type": "string"
+          },
+          "deleted_traces": {
+            "title": "Deleted Traces",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "deleted_traces",
+          "cutoff"
+        ],
+        "title": "RetentionCleanupResponse",
+        "type": "object"
+      },
+      "RetentionConfig": {
+        "properties": {
+          "backup_dir": {
+            "title": "Backup Dir",
+            "type": "string"
+          },
+          "cleanup_enabled": {
+            "title": "Cleanup Enabled",
+            "type": "boolean"
+          },
+          "cleanup_interval_hours": {
+            "title": "Cleanup Interval Hours",
+            "type": "integer"
+          },
+          "days": {
+            "title": "Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "days",
+          "cleanup_enabled",
+          "cleanup_interval_hours",
+          "backup_dir"
+        ],
+        "title": "RetentionConfig",
+        "type": "object"
+      },
+      "Session": {
+        "properties": {
+          "first_seen": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Seen"
+          },
+          "last_seen": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen"
+          },
+          "quality_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quality Score"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "total_cost_usd": {
+            "default": 0.0,
+            "title": "Total Cost Usd",
+            "type": "number"
+          },
+          "total_duration_ms": {
+            "default": 0,
+            "title": "Total Duration Ms",
+            "type": "integer"
+          },
+          "total_tokens": {
+            "default": 0,
+            "title": "Total Tokens",
+            "type": "integer"
+          },
+          "trace_count": {
+            "default": 0,
+            "title": "Trace Count",
+            "type": "integer"
+          },
+          "wall_duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wall Duration Ms"
+          }
+        },
+        "required": [
+          "session_id"
+        ],
+        "title": "Session",
+        "type": "object"
+      },
+      "SessionDetail": {
+        "properties": {
+          "first_seen": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Seen"
+          },
+          "last_seen": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen"
+          },
+          "quality_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quality Score"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "total_cost_usd": {
+            "default": 0.0,
+            "title": "Total Cost Usd",
+            "type": "number"
+          },
+          "total_duration_ms": {
+            "default": 0,
+            "title": "Total Duration Ms",
+            "type": "integer"
+          },
+          "total_tokens": {
+            "default": 0,
+            "title": "Total Tokens",
+            "type": "integer"
+          },
+          "trace_count": {
+            "default": 0,
+            "title": "Trace Count",
+            "type": "integer"
+          },
+          "traces": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/Trace"
+            },
+            "title": "Traces",
+            "type": "array"
+          },
+          "wall_duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wall Duration Ms"
+          }
+        },
+        "required": [
+          "session_id"
+        ],
+        "title": "SessionDetail",
+        "type": "object"
+      },
+      "Span": {
+        "properties": {
+          "cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Usd"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "input": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input"
+          },
+          "metadata": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "output": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output"
+          },
+          "parent_span_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Span Id"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "span_subtype": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Span Subtype"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "ok",
+            "title": "Status"
+          },
+          "thinking_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thinking Tokens"
+          },
+          "tokens_input": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tokens Input"
+          },
+          "tokens_output": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tokens Output"
+          },
+          "tool_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Name"
+          },
+          "trace_id": {
+            "title": "Trace Id",
+            "type": "string"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type"
+          }
+        },
+        "required": [
+          "id",
+          "trace_id"
+        ],
+        "title": "Span",
+        "type": "object"
+      },
+      "SpanInput": {
+        "description": "Span as accepted by POST /v1/spans. Many fields are optional so that\nminimal payloads (the curl example in the session prompt) and rich\npayloads (LangChain integration) both work.",
+        "properties": {
+          "cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Usd"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "input": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "output": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output"
+          },
+          "parent_span_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Span Id"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "span_subtype": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Span Subtype"
+          },
+          "started_at": {
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "thinking_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thinking Tokens"
+          },
+          "tokens_input": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tokens Input"
+          },
+          "tokens_output": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tokens Output"
+          },
+          "tool_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Name"
+          },
+          "trace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trace Id"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "custom",
+            "title": "Type"
+          }
+        },
+        "required": [
+          "id",
+          "started_at"
+        ],
+        "title": "SpanInput",
+        "type": "object"
+      },
+      "SuggestRequest": {
+        "description": "Body for POST /v1/policies/suggest. Operator clicks \"Block this\npattern\" on a fired decision; we synthesize a draft policy.",
+        "properties": {
+          "decision_id": {
+            "title": "Decision Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision_id"
+        ],
+        "title": "SuggestRequest",
+        "type": "object"
+      },
+      "TemplateInstantiateRequest": {
+        "description": "Body for POST /v1/firewall/templates/{id}/instantiate.\n\nThe dashboard renders the template's ``fields`` schema as a form,\ncollects the operator's choices, and POSTs them here. The server\ncompiles the condition + creates the policy in mode=shadow per\n\u00a710.1 (operator promotes via ModeToggle after reviewing forecast).",
+        "properties": {
+          "field_values": {
+            "additionalProperties": true,
+            "title": "Field Values",
+            "type": "object"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "TemplateInstantiateRequest",
+        "type": "object"
+      },
+      "TestSuiteRequest": {
+        "description": "Body for POST /v1/firewall/test/cases. The shape mirrors the\non-disk YAML format documented in firewall.test_runner.",
+        "properties": {
+          "policy": {
+            "title": "Policy",
+            "type": "string"
+          },
+          "tests": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Tests",
+            "type": "array"
+          }
+        },
+        "required": [
+          "policy",
+          "tests"
+        ],
+        "title": "TestSuiteRequest",
+        "type": "object"
+      },
+      "Trace": {
+        "properties": {
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "firewall_blocked": {
+            "default": false,
+            "title": "Firewall Blocked",
+            "type": "boolean"
+          },
+          "firewall_decision_count": {
+            "default": 0,
+            "title": "Firewall Decision Count",
+            "type": "integer"
+          },
+          "firewall_top_policy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Firewall Top Policy"
+          },
+          "firewall_top_verb": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Firewall Top Verb"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "ingest_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ingest At"
+          },
+          "input": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input"
+          },
+          "metadata": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "output": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output"
+          },
+          "quality_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quality Score"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
+          },
+          "total_cost_usd": {
+            "default": 0.0,
+            "title": "Total Cost Usd",
+            "type": "number"
+          },
+          "total_tokens": {
+            "default": 0,
+            "title": "Total Tokens",
+            "type": "integer"
+          },
+          "user_id": {
+            "default": "",
+            "title": "User Id",
+            "type": "string"
+          },
+          "violation_count": {
+            "default": 0,
+            "title": "Violation Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "Trace",
+        "type": "object"
+      },
+      "TraceCreate": {
+        "properties": {
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "input": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "output": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output"
+          },
+          "quality_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quality Score"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "started_at": {
+            "title": "Started At",
+            "type": "string"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
+          },
+          "total_cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0.0,
+            "title": "Total Cost Usd"
+          },
+          "total_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "title": "Total Tokens"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "",
+            "title": "User Id"
+          }
+        },
+        "required": [
+          "id",
+          "started_at"
+        ],
+        "title": "TraceCreate",
+        "type": "object"
+      },
+      "TraceDetail": {
+        "description": "Trace shape returned by GET /v1/traces/{id} \u2014 same as Trace\nplus a compact list of policy violations attached to the trace\n(empty when the Policy Engine isn't in use). The list endpoint\n/v1/traces stays on the simpler Trace shape so its payload size\nis unchanged.",
+        "properties": {
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "firewall_blocked": {
+            "default": false,
+            "title": "Firewall Blocked",
+            "type": "boolean"
+          },
+          "firewall_decision_count": {
+            "default": 0,
+            "title": "Firewall Decision Count",
+            "type": "integer"
+          },
+          "firewall_top_policy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Firewall Top Policy"
+          },
+          "firewall_top_verb": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Firewall Top Verb"
+          },
+          "has_violations": {
+            "default": false,
+            "title": "Has Violations",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "ingest_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ingest At"
+          },
+          "input": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input"
+          },
+          "metadata": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "output": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output"
+          },
+          "policy_violations": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/TraceViolationSummary"
+            },
+            "title": "Policy Violations",
+            "type": "array"
+          },
+          "quality_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quality Score"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
+          },
+          "total_cost_usd": {
+            "default": 0.0,
+            "title": "Total Cost Usd",
+            "type": "number"
+          },
+          "total_tokens": {
+            "default": 0,
+            "title": "Total Tokens",
+            "type": "integer"
+          },
+          "user_id": {
+            "default": "",
+            "title": "User Id",
+            "type": "string"
+          },
+          "violation_count": {
+            "default": 0,
+            "title": "Violation Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "TraceDetail",
+        "type": "object"
+      },
+      "TraceViolationSummary": {
+        "description": "Compact form embedded in GET /v1/traces/{id} responses.",
+        "properties": {
+          "policy_name": {
+            "title": "Policy Name",
+            "type": "string"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          }
+        },
+        "required": [
+          "policy_name",
+          "severity"
+        ],
+        "title": "TraceViolationSummary",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "WebhookCreateRequest": {
+        "properties": {
+          "config": {
+            "additionalProperties": true,
+            "title": "Config",
+            "type": "object"
+          },
+          "kind": {
+            "description": "slack | discord | pagerduty | generic | email",
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "project_filter": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Filter"
+          },
+          "severity_min": {
+            "default": "medium",
+            "title": "Severity Min",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "kind"
+        ],
+        "title": "WebhookCreateRequest",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Local-first AI agent observability \u2014 ingest and query API",
+    "title": "Lumin API",
+    "version": "0.5.2"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Health Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    },
+    "/v1/admin/backups": {
+      "get": {
+        "operationId": "list_backups_v1_admin_backups_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Backups"
+      },
+      "post": {
+        "description": "Snapshot the DuckDB to a named directory under LUMIN_BACKUP_DIR.\n\nDefault name is the UTC timestamp (``snap_YYYYMMDDTHHMMSSZ``)\nso unattended cron jobs don't have to think up names.",
+        "operationId": "create_backup_v1_admin_backups_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BackupCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupCreateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Backup"
+      }
+    },
+    "/v1/admin/backups/{name}": {
+      "delete": {
+        "operationId": "delete_backup_v1_admin_backups__name__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Delete Backup V1 Admin Backups  Name  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Backup"
+      }
+    },
+    "/v1/admin/backups/{name}/restore": {
+      "post": {
+        "description": "Restore the named snapshot. **Destructive** \u2014 overwrites\nevery table in the live DB.\n\nCaller must pass ``{\"confirm\": true}``. Anything else 400s so a\nmisfired curl can't accidentally roll back the database.",
+        "operationId": "restore_backup_v1_admin_backups__name__restore_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestoreRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Restore Backup V1 Admin Backups  Name  Restore Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Restore Backup"
+      }
+    },
+    "/v1/admin/health": {
+      "get": {
+        "description": "Per-component health for the dashboard's ops page.\n\nDashboard's existing ``/health`` is a 200/200 binary \u2014 useful\nfor the Docker healthcheck, useless when something is degraded\nbut technically responding. This breaks it down per subsystem.",
+        "operationId": "admin_health_v1_admin_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminHealth"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Admin Health"
+      }
+    },
+    "/v1/admin/metrics": {
+      "get": {
+        "description": "Single-shot snapshot of every Lumin self-metric. Designed\nfor periodic scraping (every 30s is plenty).",
+        "operationId": "admin_metrics_v1_admin_metrics_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Admin Metrics V1 Admin Metrics Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Admin Metrics"
+      }
+    },
+    "/v1/admin/retention": {
+      "get": {
+        "operationId": "get_retention_v1_admin_retention_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetentionConfig"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Retention"
+      }
+    },
+    "/v1/admin/retention/cleanup": {
+      "post": {
+        "description": "Run the cleanup task once with an explicit cutoff.\n\nUseful for operators who want to trim a runaway DB without\nwaiting for the next scheduled tick (default daily). The env\nvar ``LUMIN_RETENTION_DAYS`` is unaffected \u2014 this is one-shot.",
+        "operationId": "run_retention_cleanup_v1_admin_retention_cleanup_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetentionCleanupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetentionCleanupResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Retention Cleanup"
+      }
+    },
+    "/v1/agents": {
+      "get": {
+        "description": "List all distinct agents (= distinct trace.name) and their\nactivity metrics over the configured window.\n\nThe query is one DuckDB aggregate \u2014 no per-agent N+1. Joins against\nspans for cost / token / model / error_rate, against\npolicy_violations for the violation count.",
+        "operationId": "list_agents_v1_agents_get",
+        "parameters": [
+          {
+            "description": "Activity window for aggregated metrics",
+            "in": "query",
+            "name": "window_hours",
+            "required": false,
+            "schema": {
+              "default": 24,
+              "description": "Activity window for aggregated metrics",
+              "maximum": 720,
+              "minimum": 1,
+              "title": "Window Hours",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Substring filter on agent name",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Substring filter on agent name",
+              "title": "Search"
+            }
+          },
+          {
+            "description": "Filter by framework: openclaw / mastra / voltagent / default",
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by framework: openclaw / mastra / voltagent / default",
+              "title": "Project"
+            }
+          },
+          {
+            "description": "Filter by LLM provider: anthropic / openai / ollama / etc.",
+            "in": "query",
+            "name": "provider",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by LLM provider: anthropic / openai / ollama / etc.",
+              "title": "Provider"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Agents"
+      }
+    },
+    "/v1/agents/{agent_name}": {
+      "get": {
+        "description": "One agent's detail page: same metrics as the card, plus the\nmost-recent traces and a per-policy violation breakdown so the\noperator can scan what's been firing.",
+        "operationId": "get_agent_v1_agents__agent_name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_name",
+            "required": true,
+            "schema": {
+              "title": "Agent Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "window_hours",
+            "required": false,
+            "schema": {
+              "default": 24,
+              "maximum": 720,
+              "minimum": 1,
+              "title": "Window Hours",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Agent"
+      }
+    },
+    "/v1/approvals": {
+      "get": {
+        "operationId": "list_approvals_v1_approvals_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "default": "pending",
+              "title": "State",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project"
+            }
+          },
+          {
+            "in": "query",
+            "name": "agent",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Agent"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Approvals V1 Approvals Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Approvals"
+      }
+    },
+    "/v1/approvals/{approval_id}": {
+      "get": {
+        "operationId": "get_approval_v1_approvals__approval_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "approval_id",
+            "required": true,
+            "schema": {
+              "title": "Approval Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Approval V1 Approvals  Approval Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Approval"
+      }
+    },
+    "/v1/approvals/{approval_id}/resolve": {
+      "post": {
+        "operationId": "resolve_approval_v1_approvals__approval_id__resolve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "approval_id",
+            "required": true,
+            "schema": {
+              "title": "Approval Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApprovalResolveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Resolve Approval V1 Approvals  Approval Id  Resolve Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Resolve Approval"
+      }
+    },
+    "/v1/decisions": {
+      "get": {
+        "operationId": "list_decisions_v1_decisions_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project"
+            }
+          },
+          {
+            "in": "query",
+            "name": "agent",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Agent"
+            }
+          },
+          {
+            "in": "query",
+            "name": "session_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Session Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "trace_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Trace Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "decision",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Decision"
+            }
+          },
+          {
+            "in": "query",
+            "name": "lifecycle",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Lifecycle"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since"
+            }
+          },
+          {
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Until"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Decisions V1 Decisions Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Decisions"
+      }
+    },
+    "/v1/decisions/{decision_id}": {
+      "get": {
+        "operationId": "get_decision_v1_decisions__decision_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "decision_id",
+            "required": true,
+            "schema": {
+              "title": "Decision Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Decision V1 Decisions  Decision Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Decision"
+      }
+    },
+    "/v1/evals": {
+      "post": {
+        "operationId": "create_eval_v1_evals_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvalCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Eval"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Eval"
+      }
+    },
+    "/v1/firewall/bypasses": {
+      "get": {
+        "description": "Recent bypasses \u2014 labels marked ``bad`` on traces where no\nblock-class decision fired. Default window: last 30 days.",
+        "operationId": "list_bypasses_endpoint_v1_firewall_bypasses_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "maximum": 365,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Bypasses Endpoint V1 Firewall Bypasses Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Bypasses Endpoint"
+      }
+    },
+    "/v1/firewall/bypasses/summary": {
+      "get": {
+        "description": "Aggregate bypass counts by category, tool, and agent. Used\nby the dashboard banner / coverage page.",
+        "operationId": "bypass_summary_endpoint_v1_firewall_bypasses_summary_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "maximum": 365,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Bypass Summary Endpoint V1 Firewall Bypasses Summary Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bypass Summary Endpoint"
+      }
+    },
+    "/v1/firewall/classifier/models": {
+      "get": {
+        "description": "List all trained classifier versions. Used by the dashboard\nclassifier page.",
+        "operationId": "list_classifier_models_endpoint_v1_firewall_classifier_models_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Classifier Models Endpoint V1 Firewall Classifier Models Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Classifier Models Endpoint"
+      }
+    },
+    "/v1/firewall/classifier/retrain": {
+      "post": {
+        "description": "Train a fresh classifier over the labels table. Returns the\nnew version's training summary. 503 when sklearn isn't\ninstalled; 400 on too-few labels or unsupported backend.",
+        "operationId": "retrain_classifier_endpoint_v1_firewall_classifier_retrain_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClassifierTrainRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Retrain Classifier Endpoint V1 Firewall Classifier Retrain Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Retrain Classifier Endpoint"
+      }
+    },
+    "/v1/firewall/corpora": {
+      "get": {
+        "description": "All corpora with their entry counts. Cheap aggregate query.",
+        "operationId": "list_corpora_endpoint_v1_firewall_corpora_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Corpora Endpoint V1 Firewall Corpora Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Corpora Endpoint"
+      },
+      "post": {
+        "description": "Create an empty corpus. Operators add entries one at a time.",
+        "operationId": "create_corpus_endpoint_v1_firewall_corpora_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CorpusCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Corpus Endpoint V1 Firewall Corpora Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Corpus Endpoint"
+      }
+    },
+    "/v1/firewall/corpora/entries/{entry_id}": {
+      "delete": {
+        "operationId": "delete_corpus_entry_endpoint_v1_firewall_corpora_entries__entry_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "title": "Entry Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Delete Corpus Entry Endpoint V1 Firewall Corpora Entries  Entry Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Corpus Entry Endpoint"
+      }
+    },
+    "/v1/firewall/corpora/{name}": {
+      "delete": {
+        "description": "Delete a corpus + all its entries.",
+        "operationId": "delete_corpus_endpoint_v1_firewall_corpora__name__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Delete Corpus Endpoint V1 Firewall Corpora  Name  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Corpus Endpoint"
+      }
+    },
+    "/v1/firewall/corpora/{name}/entries": {
+      "get": {
+        "description": "Entries for a corpus. Returns text + created_at \u2014 embeddings\nare not exposed (1.5KB BLOBs aren't useful to the dashboard).",
+        "operationId": "list_corpus_entries_endpoint_v1_firewall_corpora__name__entries_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Corpus Entries Endpoint V1 Firewall Corpora  Name  Entries Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Corpus Entries Endpoint"
+      },
+      "post": {
+        "description": "Embed ``text`` and add it to the corpus. Returns 503 when\nthe embedding model isn't installed \u2014 operators see a clear\n\"install sentence-transformers to use this feature\" error\ninstead of silent failure.",
+        "operationId": "add_corpus_entry_endpoint_v1_firewall_corpora__name__entries_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CorpusEntryAddRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Add Corpus Entry Endpoint V1 Firewall Corpora  Name  Entries Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Corpus Entry Endpoint"
+      }
+    },
+    "/v1/firewall/drift/alerts": {
+      "get": {
+        "description": "Recent drift alerts. Used by the dashboard banner.",
+        "operationId": "list_drift_alerts_v1_firewall_drift_alerts_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Drift Alerts V1 Firewall Drift Alerts Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Drift Alerts"
+      }
+    },
+    "/v1/firewall/drift/alerts/{alert_id}/acknowledge": {
+      "post": {
+        "operationId": "ack_drift_alert_v1_firewall_drift_alerts__alert_id__acknowledge_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "alert_id",
+            "required": true,
+            "schema": {
+              "title": "Alert Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Ack Drift Alert V1 Firewall Drift Alerts  Alert Id  Acknowledge Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ack Drift Alert"
+      }
+    },
+    "/v1/firewall/drift/run": {
+      "post": {
+        "description": "Manual trigger \u2014 detect drift now. Returns alerts created.",
+        "operationId": "run_drift_v1_firewall_drift_run_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Run Drift V1 Firewall Drift Run Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Run Drift"
+      }
+    },
+    "/v1/firewall/library": {
+      "get": {
+        "description": "List every starter pack available for import. Returns one\nobject per pack: pack_id, display name, category, policy count,\nshort description, lifecycle list, auto-installed flag.\n\nThe dashboard's /firewall/library page renders this verbatim;\noperators get a one-click install per pack.",
+        "operationId": "list_library_packs_endpoint_v1_firewall_library_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Library Packs Endpoint V1 Firewall Library Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Library Packs Endpoint"
+      }
+    },
+    "/v1/firewall/library/{pack_id}": {
+      "get": {
+        "description": "Preview a pack's policies without writing anything. Used by\nthe import-confirmation modal so operators see what they're\nabout to install.",
+        "operationId": "preview_library_pack_endpoint_v1_firewall_library__pack_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pack_id",
+            "required": true,
+            "schema": {
+              "title": "Pack Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Preview Library Pack Endpoint V1 Firewall Library  Pack Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview Library Pack Endpoint"
+      }
+    },
+    "/v1/firewall/library/{pack_id}/import": {
+      "post": {
+        "description": "Import every policy in a pack into the DB. Idempotent \u2014\nduplicate policy names are SKIPPED (operator's existing rule\nwins). All imported policies land in mode=shadow per \u00a710.1.",
+        "operationId": "import_library_pack_endpoint_v1_firewall_library__pack_id__import_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pack_id",
+            "required": true,
+            "schema": {
+              "title": "Pack Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Import Library Pack Endpoint V1 Firewall Library  Pack Id  Import Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import Library Pack Endpoint"
+      }
+    },
+    "/v1/firewall/miner/run": {
+      "post": {
+        "description": "Manual trigger \u2014 kicks the frequent-pattern miner on demand.\nSame scan + emit logic as the background loop. Returns a summary\nof what it did. Useful for ad-hoc operator-driven scans\n(\"refresh suggestions now\").",
+        "operationId": "run_miner_v1_firewall_miner_run_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Run Miner V1 Firewall Miner Run Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Run Miner"
+      }
+    },
+    "/v1/firewall/panic_disable": {
+      "get": {
+        "operationId": "get_panic_disabled_v1_firewall_panic_disable_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Panic Disabled V1 Firewall Panic Disable Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Panic Disabled"
+      },
+      "post": {
+        "description": "Operator big-red-button: turn off all enforcement immediately.\n\nPersisted to ``firewall_kv`` so a restart picks the disabled state\nback up. Re-enabling is the same endpoint with disabled=false.\n\nAuditable \u2014 writes a row in ``firewall_panic_audit`` (created\ninline if absent so the panic surface doesn't depend on a\nmigration the operator might not have run yet).",
+        "operationId": "set_panic_disabled_v1_firewall_panic_disable_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PanicRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Set Panic Disabled V1 Firewall Panic Disable Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Panic Disabled"
+      }
+    },
+    "/v1/firewall/suggestions": {
+      "get": {
+        "description": "Pending pattern suggestions for the dashboard inbox.\nstate \u2208 pending | promoted | dismissed | all.",
+        "operationId": "list_suggestions_v1_firewall_suggestions_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "default": "pending",
+              "title": "State",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Suggestions V1 Firewall Suggestions Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Suggestions"
+      }
+    },
+    "/v1/firewall/templates": {
+      "get": {
+        "description": "All available rule templates. Cheap \u2014 registry is loaded once at\nmodule load. Returns a compact summary; the dashboard fetches the\nfull template (with fields) on click via the {id} endpoint.",
+        "operationId": "list_templates_v1_firewall_templates_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Templates V1 Firewall Templates Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Templates"
+      }
+    },
+    "/v1/firewall/templates/{template_id}": {
+      "get": {
+        "description": "Full template \u2014 fields schema, defaults, condition string. The\ndashboard's modal form renders ``fields`` as a form.",
+        "operationId": "get_template_detail_v1_firewall_templates__template_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "template_id",
+            "required": true,
+            "schema": {
+              "title": "Template Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Template Detail V1 Firewall Templates  Template Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Template Detail"
+      }
+    },
+    "/v1/firewall/templates/{template_id}/instantiate": {
+      "post": {
+        "description": "Create a policy from a template + operator's field values.\n\nAlways lands in mode=shadow per \u00a710.1 unless operator explicitly\nasks for another mode. Triggers an engine reload so the new rule\nis live in the same response \u2014 same pattern as POST /v1/policies.",
+        "operationId": "instantiate_template_v1_firewall_templates__template_id__instantiate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "template_id",
+            "required": true,
+            "schema": {
+              "title": "Template Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemplateInstantiateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Instantiate Template V1 Firewall Templates  Template Id  Instantiate Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Instantiate Template"
+      }
+    },
+    "/v1/firewall/test/attack_categories": {
+      "get": {
+        "description": "Return the list of attack categories the generator supports.\nUsed by the dashboard's \"Generate test attacks\" UI.",
+        "operationId": "list_attack_categories_v1_firewall_test_attack_categories_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Attack Categories V1 Firewall Test Attack Categories Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Attack Categories"
+      }
+    },
+    "/v1/firewall/test/cases": {
+      "post": {
+        "description": "Run a rule unit-test suite against the current engine.\n\nReturns ``{policy, total, passed, failed, results: [...]}``. Each\nresult has ``name``, ``passed``, and (on failure) ``expected``,\n``actual``, ``actual_policy``, ``actual_reason``. Caller compares\n``failed > 0`` against zero for a pass/fail signal.\n\n400 on malformed suite (missing policy / tests / expect).",
+        "operationId": "run_test_cases_endpoint_v1_firewall_test_cases_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestSuiteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Run Test Cases Endpoint V1 Firewall Test Cases Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Test Cases Endpoint"
+      }
+    },
+    "/v1/firewall/test/generate_attacks": {
+      "post": {
+        "description": "Generate synthetic attack inputs operators can run through\nthe firewall (or their agent) to verify rule coverage.\n\nReturns ``{count, attacks: [...]}``. Each attack is a dict in\ndecide()-request shape, with an extra ``expected_to`` field\nlisting decisions a properly-configured firewall should\nproduce. When the actual decision isn't in ``expected_to``,\nthat's a coverage gap the operator should investigate.",
+        "operationId": "generate_attacks_endpoint_v1_firewall_test_generate_attacks_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateAttacksRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Generate Attacks Endpoint V1 Firewall Test Generate Attacks Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Generate Attacks Endpoint"
+      }
+    },
+    "/v1/firewall/test/replay": {
+      "post": {
+        "description": "Replay ``trace_id`` against the current engine. Returns a\nstructured per-span decision list + summary counts.\n\n404 when the trace doesn't exist or has no spans. 400 on\ninvalid request shape. The replay endpoint is read-only \u2014 no\ndecisions / approvals / circuit-breaker state are written.",
+        "operationId": "replay_endpoint_v1_firewall_test_replay_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplayRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Replay Endpoint V1 Firewall Test Replay Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Replay Endpoint"
+      }
+    },
+    "/v1/firewall/vault": {
+      "get": {
+        "description": "List session-vault entries (the cross-session leak detector's\nDB). Filter by user_id / session_id; default 100 most recent.\n\nThe full fact value was never stored \u2014 operators see only the\ntruncated excerpt + metadata so a vault dump can't re-leak the\nsensitive data it was protecting.",
+        "operationId": "list_vault_entries_endpoint_v1_firewall_vault_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "user_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "User Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "session_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Session Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Vault Entries Endpoint V1 Firewall Vault Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Vault Entries Endpoint"
+      }
+    },
+    "/v1/firewall/vault/stats": {
+      "get": {
+        "description": "Aggregate counts for the dashboard's vault overview card \u2014\ntotal entries, breakdown by fact_kind, top-20 user_ids by\nentry count.",
+        "operationId": "vault_stats_endpoint_v1_firewall_vault_stats_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Vault Stats Endpoint V1 Firewall Vault Stats Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Vault Stats Endpoint"
+      }
+    },
+    "/v1/firewall/vault/{entry_id}": {
+      "delete": {
+        "description": "Erase a single vault entry. Useful for right-to-erasure\n(GDPR Art. 17) and for cleaning up false-positive recordings\nthat would noise up the leak detector.",
+        "operationId": "delete_vault_entry_endpoint_v1_firewall_vault__entry_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "title": "Entry Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Delete Vault Entry Endpoint V1 Firewall Vault  Entry Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Vault Entry Endpoint"
+      }
+    },
+    "/v1/firewall/webhooks": {
+      "get": {
+        "description": "List configured webhook destinations. Secret config fields\n(tokens, HMAC keys) are masked in the response \u2014 operators see\nenough to identify the row but not exfiltrate the secret.",
+        "operationId": "list_firewall_webhooks_endpoint_v1_firewall_webhooks_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Firewall Webhooks Endpoint V1 Firewall Webhooks Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Firewall Webhooks Endpoint"
+      },
+      "post": {
+        "description": "Create a new webhook destination. Returns the row id; the\nsecret config field comes back masked on subsequent GETs.",
+        "operationId": "create_firewall_webhook_endpoint_v1_firewall_webhooks_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Firewall Webhook Endpoint V1 Firewall Webhooks Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Firewall Webhook Endpoint"
+      }
+    },
+    "/v1/firewall/webhooks/failures": {
+      "get": {
+        "description": "Webhook DLQ \u2014 deliveries that exhausted retries. Operators\ninspect this when a Slack / PagerDuty channel goes dark.",
+        "operationId": "list_webhook_failures_endpoint_v1_firewall_webhooks_failures_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Webhook Failures Endpoint V1 Firewall Webhooks Failures Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Webhook Failures Endpoint"
+      }
+    },
+    "/v1/firewall/webhooks/{webhook_id}": {
+      "delete": {
+        "operationId": "delete_firewall_webhook_endpoint_v1_firewall_webhooks__webhook_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "webhook_id",
+            "required": true,
+            "schema": {
+              "title": "Webhook Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Delete Firewall Webhook Endpoint V1 Firewall Webhooks  Webhook Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Firewall Webhook Endpoint"
+      }
+    },
+    "/v1/labels": {
+      "post": {
+        "description": "Insert a label row. Used by the dashboard's 'Mark as false\npositive' button on /decisions/{id}, and as the substrate for\nthe local classifier trainer (Slice 4).",
+        "operationId": "post_label_v1_labels_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LabelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Post Label V1 Labels Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Label"
+      }
+    },
+    "/v1/openai/{path}": {
+      "post": {
+        "description": "Forward an OpenAI-compatible request to the configured upstream\nand capture a Lumin span on the way back.\n\nPath is preserved verbatim under the upstream base, so a client\npointed at ``http://localhost:8000/v1/openai`` sees the upstream\nsurface unchanged: ``/v1/chat/completions``, ``/v1/embeddings``,\n``/v1/models``, etc. all work.\n\nStreaming responses (``stream: true``) are passed through chunk\nby chunk; we buffer in parallel to assemble the span at the end.\nNon-streaming responses are returned in a single Response.\n\nErrors from the upstream are returned as-is; a span is still\nemitted so operators can see failed calls in the dashboard.",
+        "operationId": "openai_proxy_v1_openai__path__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-lumin-project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Lumin-Project"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-lumin-upstream",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Lumin-Upstream"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-lumin-session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Lumin-Session"
+            }
+          },
+          {
+            "in": "header",
+            "name": "traceparent",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Traceparent"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Openai Proxy"
+      }
+    },
+    "/v1/otlp/v1/traces": {
+      "post": {
+        "description": "OTLP/HTTP traces endpoint.\n\nContent-Type resolution:\n  - ``application/x-protobuf`` \u2192 protobuf decode (the wire default\n    for OTel SDK exporters and the OTel collector).\n  - ``application/json`` \u2192 JSON decode (manual curl, dashboards,\n    easier to inspect during debugging).\n  - Anything else \u2192 try protobuf first, fall back to a 400 if\n    that also fails. OTel SDKs default to protobuf and sometimes\n    send no Content-Type at all.\n\nProject resolution:\n  - ``X-Lumin-Project`` header (operator-set; wins)\n  - Resource attribute ``service.name`` (auto-populated by every\n    OTel SDK from ``OTEL_SERVICE_NAME`` or the program name)\n  - Default: NULL (read paths coalesce to \"default\")\n\nBoth go through ``otlp_decode.normalize_project`` so the closed\nframework allowlist applies \u2014 keeps the /agents grid headlines\nstable when third-party tools emit arbitrary service names.",
+        "operationId": "receive_otlp_traces_v1_otlp_v1_traces_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-lumin-project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Lumin-Project"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Receive Otlp Traces"
+      }
+    },
+    "/v1/policies": {
+      "get": {
+        "description": "List currently active policies.\n\nDB-backed when the engine is sourced from the policies table; falls\nthrough to the in-memory engine state when YAML is the source.\n\nThe ``?agent=`` filter narrows to rules that would actually fire\nfor events from that agent \u2014 the dashboard's AgentDetail page\ncalls this to show the \"Active policies\" section.",
+        "operationId": "list_policies_v1_policies_get",
+        "parameters": [
+          {
+            "description": "Filter to policies that apply to this agent name",
+            "in": "query",
+            "name": "agent",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter to policies that apply to this agent name",
+              "title": "Agent"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Policies"
+      },
+      "post": {
+        "description": "Create a new policy. Validates against the engine's grammar\n(trigger / action / severity enums) AND parses the condition\nthrough SimpleEval to reject unparseable expressions.\n\nOn success: writes the row, bumps the engine's version watcher,\ntriggers an immediate reload so the new rule is live within the\nresponse. The dashboard sees the new policy without a poll.",
+        "operationId": "create_policy_v1_policies_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Policy"
+      }
+    },
+    "/v1/policies/suggest": {
+      "post": {
+        "description": "Generate a draft policy from a fired decision. Persists the\nsuggestion in the pattern_suggestions table so operators can\nrevisit / dismiss / promote later.",
+        "operationId": "suggest_policy_v1_policies_suggest_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SuggestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Suggest Policy V1 Policies Suggest Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Suggest Policy"
+      }
+    },
+    "/v1/policies/suggest/{suggestion_id}": {
+      "get": {
+        "operationId": "get_suggestion_v1_policies_suggest__suggestion_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "suggestion_id",
+            "required": true,
+            "schema": {
+              "title": "Suggestion Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Suggestion V1 Policies Suggest  Suggestion Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Suggestion"
+      }
+    },
+    "/v1/policies/suggest/{suggestion_id}/dismiss": {
+      "post": {
+        "operationId": "dismiss_suggestion_v1_policies_suggest__suggestion_id__dismiss_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "suggestion_id",
+            "required": true,
+            "schema": {
+              "title": "Suggestion Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Dismiss Suggestion V1 Policies Suggest  Suggestion Id  Dismiss Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Dismiss Suggestion"
+      }
+    },
+    "/v1/policies/suggest/{suggestion_id}/promote": {
+      "post": {
+        "description": "Promote a suggestion into a real policy. Lands in mode=shadow.",
+        "operationId": "promote_suggestion_v1_policies_suggest__suggestion_id__promote_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "suggestion_id",
+            "required": true,
+            "schema": {
+              "title": "Suggestion Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromoteSuggestionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Promote Suggestion V1 Policies Suggest  Suggestion Id  Promote Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Promote Suggestion"
+      }
+    },
+    "/v1/policies/{name}": {
+      "delete": {
+        "description": "Soft-delete (enabled=false). The row stays in the table so\nhistorical violations can still resolve a policy_name \u2192 row;\nUPDATE with enabled=true revives it.",
+        "operationId": "delete_policy_v1_policies__name__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Policy"
+      },
+      "get": {
+        "description": "Single policy by name. DB row when DB-backed, else from the\nin-memory YAML engine state.",
+        "operationId": "get_policy_v1_policies__name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Policy"
+      },
+      "put": {
+        "description": "Partial update of a policy. Field-level \u2014 omitted fields keep\ntheir current value.",
+        "operationId": "update_policy_v1_policies__name__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Policy"
+      }
+    },
+    "/v1/policies/{name}/audit": {
+      "get": {
+        "description": "Audit log for one policy. Most recent first.",
+        "operationId": "policy_audit_v1_policies__name__audit_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyAuditResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Policy Audit"
+      }
+    },
+    "/v1/policies/{name}/mode": {
+      "post": {
+        "operationId": "set_policy_mode_v1_policies__name__mode_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModeChangeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Set Policy Mode V1 Policies  Name  Mode Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Policy Mode"
+      }
+    },
+    "/v1/policies/{name}/rollback": {
+      "post": {
+        "description": "Restore a policy to an earlier version snapshot.\n\nBody: ``{\"version_number\": N}``. Operator-attributed via the\nstandard X-Lumin-Actor header so the rollback itself appears in\nthe audit log.",
+        "operationId": "rollback_policy_v1_policies__name__rollback_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Payload",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Rollback Policy V1 Policies  Name  Rollback Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rollback Policy"
+      }
+    },
+    "/v1/policies/{name}/versions": {
+      "get": {
+        "description": "Version snapshots \u2014 every create / update / rollback writes\na row to ``policy_versions``. The dashboard's history tab\nrenders this as a timeline with one-click rollback.",
+        "operationId": "list_policy_versions_v1_policies__name__versions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Policy Versions V1 Policies  Name  Versions Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Policy Versions"
+      }
+    },
+    "/v1/policies/{name}/versions/{version_number}": {
+      "get": {
+        "description": "Fetch a specific historical version (full YAML snapshot).",
+        "operationId": "get_policy_version_v1_policies__name__versions__version_number__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version_number",
+            "required": true,
+            "schema": {
+              "title": "Version Number",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Policy Version V1 Policies  Name  Versions  Version Number  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Policy Version"
+      }
+    },
+    "/v1/policy/decide": {
+      "post": {
+        "description": "Synchronous decision endpoint. Never raises \u2014 Rule 7.",
+        "operationId": "decide_endpoint_v1_policy_decide_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecideRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Decide Endpoint V1 Policy Decide Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Decide Endpoint"
+      }
+    },
+    "/v1/policy/metrics": {
+      "get": {
+        "description": "Snapshot of engine counters + p50/p99 eval latency.\n\nDesigned for ad-hoc curl + dashboard polling. Doesn't persist\nanything \u2014 all numbers are in-process state. Restart resets.",
+        "operationId": "get_metrics_v1_policy_metrics_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Metrics V1 Policy Metrics Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Metrics"
+      }
+    },
+    "/v1/policy/reload": {
+      "post": {
+        "description": "Force a hot-reload of LUMIN_POLICY_FILE.\n\nOn invalid YAML the previous engine stays in place \u2014 production-\nsafety choice over fail-open. Caller sees ``{\"ok\": false, ...}``\nand can re-fix the file before the next call.",
+        "operationId": "post_reload_v1_policy_reload_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Post Reload V1 Policy Reload Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Post Reload"
+      }
+    },
+    "/v1/sessions": {
+      "get": {
+        "operationId": "list_sessions_v1_sessions_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Multi-tenant scope. Same semantics as /v1/traces.",
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Multi-tenant scope. Same semantics as /v1/traces.",
+              "title": "Project"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Session"
+                  },
+                  "title": "Response List Sessions V1 Sessions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Sessions"
+      }
+    },
+    "/v1/sessions/{session_id}": {
+      "get": {
+        "operationId": "get_session_v1_sessions__session_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Session"
+      }
+    },
+    "/v1/spans": {
+      "post": {
+        "description": "Ingest a batch of spans.\n\nThe optional ``X-Lumin-Project`` header lets the integration declare\nwhich framework it is (set by every TS exporter \u2014 openclaw / mastra\n/ voltagent \u2014 and the Python SDK config). We persist it on each\nspan + propagate to the trace so the agent grid can group by\nframework. Empty / missing header \u2192 project stays NULL, treated\nas \"default\" downstream.",
+        "operationId": "ingest_spans_v1_spans_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-lumin-project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Lumin-Project"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IngestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ingest Spans"
+      }
+    },
+    "/v1/traces": {
+      "get": {
+        "operationId": "list_traces_v1_traces_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Multi-tenant scope. When set, returns only traces tagged with this project. Use 'default' for the un-tagged bucket. Omit to see all projects (operator view).",
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Multi-tenant scope. When set, returns only traces tagged with this project. Use 'default' for the un-tagged bucket. Omit to see all projects (operator view).",
+              "title": "Project"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Trace"
+                  },
+                  "title": "Response List Traces V1 Traces Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Traces"
+      },
+      "post": {
+        "operationId": "upsert_trace_v1_traces_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TraceCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Trace"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upsert Trace"
+      }
+    },
+    "/v1/traces/{trace_id}": {
+      "get": {
+        "operationId": "get_trace_v1_traces__trace_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trace_id",
+            "required": true,
+            "schema": {
+              "title": "Trace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TraceDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Trace"
+      }
+    },
+    "/v1/traces/{trace_id}/spans": {
+      "get": {
+        "operationId": "get_trace_spans_v1_traces__trace_id__spans_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trace_id",
+            "required": true,
+            "schema": {
+              "title": "Trace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Span"
+                  },
+                  "title": "Response Get Trace Spans V1 Traces  Trace Id  Spans Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Trace Spans"
+      }
+    },
+    "/v1/violations": {
+      "get": {
+        "description": "List violations with optional filters.",
+        "operationId": "list_violations_v1_violations_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "trace_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Trace Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "severity",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Severity"
+            }
+          },
+          {
+            "in": "query",
+            "name": "policy_name",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Policy Name"
+            }
+          },
+          {
+            "description": "Multi-tenant scope \u2014 JOINs through traces.project.",
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Multi-tenant scope \u2014 JOINs through traces.project.",
+              "title": "Project"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyViolationsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Violations"
+      },
+      "post": {
+        "description": "Bulk insert violations from the SDK. Returns count accepted.\n\nWebhook firing happens in the SDK, not here \u2014 by the time a\nviolation reaches this endpoint, ``webhook_fired`` already\nreflects whether the SDK successfully called the webhook URL.",
+        "operationId": "ingest_violations_v1_violations_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyViolationsIngest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyViolationsIngestResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ingest Violations"
+      }
+    },
+    "/v1/violations/stats": {
+      "get": {
+        "description": "Aggregate counts. Cheap because the table is bounded by retention.",
+        "operationId": "violation_stats_v1_violations_stats_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyViolationStats"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Violation Stats"
+      }
+    }
+  }
+}

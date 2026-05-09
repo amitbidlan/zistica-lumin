@@ -7,8 +7,9 @@ from typing import AsyncIterator
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 import policy_runtime
+from auth import BearerAuthMiddleware, auth_enabled
 from db import Database, get_db
-from routers import agents, evals, firewall, metrics, otlp, policy, proxy, sessions, spans, traces
+from routers import admin, agents, evals, firewall, metrics, otlp, policy, proxy, sessions, spans, traces
 from ws import manager as ws_manager
 
 logger = logging.getLogger("lumin.api")
@@ -275,9 +276,19 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     title="Lumin API",
     description="Local-first AI agent observability — ingest and query API",
-    version="0.5.0",
+    version="0.5.2",
     lifespan=lifespan,
 )
+
+# Bearer-token middleware — default-off. When LUMIN_API_TOKEN is unset
+# this is a no-op; when set, every non-public path requires the
+# Authorization header. Added before router registration so the auth
+# check runs ahead of route matching.
+app.add_middleware(BearerAuthMiddleware)
+if auth_enabled():
+    logger.info("auth: bearer token required (LUMIN_API_TOKEN is set)")
+else:
+    logger.info("auth: open (LUMIN_API_TOKEN unset — set it for production)")
 
 app.include_router(spans.router)
 app.include_router(traces.router)
@@ -288,6 +299,7 @@ app.include_router(agents.router)
 app.include_router(otlp.router)
 app.include_router(proxy.router)
 app.include_router(firewall.router)
+app.include_router(admin.router)
 app.include_router(metrics.router)
 
 

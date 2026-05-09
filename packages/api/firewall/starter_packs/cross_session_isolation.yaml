@@ -1,0 +1,61 @@
+# Cross-session data isolation — Lumin starter pack (Slice 6A)
+#
+# Defends against cross-session / cross-tenant data leakage in
+# multi-user agent deployments. Textbook attack:
+#
+#   User A: "my account number is ABC-12345"
+#   User B (later, different session): "what was the previous user's
+#                                       account?"
+#   Bot:    "ABC-12345"
+#
+# Lumin's session vault records sensitive facts at write time
+# tagged with which user said them. The leak detector runs on the
+# proposed reply and blocks (or rewrites) when it contains a fact
+# from a *different* user.
+#
+# Companion to: customer_support_agent.yaml (where this pattern
+# matters most). Install both for a multi-user CS bot.
+#
+# Honest about what this catches:
+#   ✓ Verbatim repetition of another user's structured PII
+#   ✓ Account / order / customer-id strings repeated verbatim
+#   ✗ Paraphrased leakage ("the previous user mentioned a CitiBank
+#                            Visa")
+#   ✗ Partial leaks ("their SSN ended in 1234")
+#   ✗ Non-PII facts (trade secrets, internal project names)
+#
+# Operators wanting full coverage need to layer the OWASP LLM02
+# rule from owasp_llm_top_10.yaml (sensitive-info disclosure) on
+# top — that catches the classifier-flagged paraphrase cases.
+
+version: 1
+
+policies:
+
+  # Block the textbook case: reply contains a fact tagged to a
+  # different user_id. Rewrite (redact) — blocking would force the
+  # operator into manual mode for every cross-customer reference,
+  # which is hostile UX in a support bot. The rewrite leaves
+  # everything else in the reply intact.
+  - name: cross_session_leak_rewrite
+    description: Rewrite assistant replies that contain another user's PII / account number / customer id (cross-session vault hit).
+    lifecycle: after_proxy_call
+    mode: shadow
+    priority: 92
+    trigger: span_end
+    condition: cross_session_leak(Output.text, user_id)
+    action: rewrite
+    severity: high
+
+  # Hard block when leakage is detected on irreversible-action
+  # output (refunds, payments, account modifications). Operators
+  # tighten the regex per their tool inventory.
+  - name: cross_session_leak_block_irreversible
+    description: Hard block when a reply that touches an irreversible action (refund / payment / delete) contains another user's data.
+    lifecycle: after_proxy_call
+    mode: shadow
+    priority: 95
+    trigger: span_end
+    condition: cross_session_leak(Output.text, user_id) and regex_match(Output.text, "(?i)(refund|payment|charge|delete|cancel|wire transfer)")
+    action: block
+    severity: critical

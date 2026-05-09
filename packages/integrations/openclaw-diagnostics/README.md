@@ -2,6 +2,10 @@
 
 > Full-fidelity Lumin observability **and synchronous policy enforcement** for [OpenClaw](https://github.com/openclaw/openclaw) — every prompt, response, tool I/O, and reasoning trace captured per turn, every tool call checked against your firewall before it runs.
 
+**v0.5.3 — Lumin replies, not the LLM.** When the firewall blocks at the input boundary (prompt-injection attempt, training-data extraction, etc.), Lumin now **takes over the reply** entirely. The LLM still runs (OpenClaw's plugin SDK doesn't expose a hook that can cancel the model call) but its output is discarded — the user sees the operator's `userInputBlockedMessage` instead. Closes three attacker-visible leaks: LLM-generated refusals exposing rule names, fake `/approve` hallucinations, and inconsistent refusal phrasing. Default on; opt out with `replyOnInputBlock: false`.
+
+**v0.5.1 added LLM-side firewall hooks.** `before_prompt_build` calls `decide(before_proxy_call)`, `before_agent_reply` calls `decide(after_proxy_call)`. Together with the existing tool-call enforcement, every OWASP LLM Top 10 lifecycle is now reachable.
+
 **v0.4.0 adds admin separation.** Configure `adminSenders` to keep approval prompts and LLM technical detail away from end users — non-admin senders get a clean canned message after a block, admins get the full context. The plugin enforces this via OpenClaw's `inbound_claim` and `before_message_write` hooks. v0.2.0 introduced the Agent Firewall: every `before_tool_call` POSTs to Lumin's `/v1/policy/decide` endpoint and translates the response into OpenClaw's typed-hook return contract — `block`, `rewrite`, or `requireApproval`. Set `enforce: false` to fall back to observation-only.
 
 [![npm](https://img.shields.io/npm/v/@lumin-io/openclaw-diagnostics.svg?style=flat-square)](https://www.npmjs.com/package/@lumin-io/openclaw-diagnostics)
