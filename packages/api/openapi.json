@@ -2660,6 +2660,17 @@
             ],
             "default": "custom",
             "title": "Type"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
           }
         },
         "required": [
@@ -3381,7 +3392,7 @@
   "info": {
     "description": "Local-first AI agent observability \u2014 ingest and query API",
     "title": "Lumin API",
-    "version": "0.6.0"
+    "version": "0.6.1"
   },
   "openapi": "3.1.0",
   "paths": {

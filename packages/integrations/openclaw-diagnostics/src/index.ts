@@ -735,6 +735,7 @@ function buildSpanFromPair(
   output: LlmOutputEvent,
   cfg: LuminDiagnosticsConfig,
   hookCtx: HookContext | undefined,
+  userId?: string,
 ): Record<string, unknown> {
   const maxLen = cfg.maxContentChars ?? DEFAULT_MAX_CONTENT_CHARS;
   const trace = hookCtx?.trace || pending.trace;
@@ -776,6 +777,13 @@ function buildSpanFromPair(
     input: pending.input,
     output: outputText ? stringify(outputText, maxLen) : undefined,
     session_id: output.sessionId || hookCtx?.sessionId,
+    // Slice 6A.3 (v0.6.1) — propagate user_id into the trace row via
+    // the span body. Without this the cross-session vault detector
+    // sees user_id='' on every Slack/Telegram trace and treats it
+    // as anonymous, never flagging cross-user leaks. Caller passes
+    // the per-session-resolved user_id (richer than ctx alone since
+    // ctx often loses senderId on later turns).
+    user_id: userId ?? resolveUserIdFromCtx(hookCtx),
     metadata: {
       "openclaw.runId": runId,
       "openclaw.harnessId": output.harnessId,
@@ -813,6 +821,7 @@ function buildSpanFromToolCall(
   after: AfterToolCallEvent,
   cfg: LuminDiagnosticsConfig,
   hookCtx: HookContext | undefined,
+  userId?: string,
 ): Record<string, unknown> {
   const maxLen = cfg.maxContentChars ?? DEFAULT_MAX_CONTENT_CHARS;
   const trace = hookCtx?.trace || before.trace;
@@ -851,6 +860,7 @@ function buildSpanFromToolCall(
     input: stringify(before.params ?? after.params ?? {}, maxLen),
     output: after.result !== undefined ? stringify(after.result, maxLen) : undefined,
     session_id: hookCtx?.sessionId,
+    user_id: userId ?? resolveUserIdFromCtx(hookCtx),
     duration_ms: after.durationMs,
     metadata: {
       "openclaw.runId": runId,
@@ -858,6 +868,23 @@ function buildSpanFromToolCall(
       "openclaw.toolName": after.toolName,
     },
   };
+}
+
+
+/**
+ * Module-level resolver used by the span builders (which run BEFORE
+ * the per-plugin closure and therefore can't reference the
+ * sessionToSender map). Returns whatever ``user_id`` signal we can
+ * pull from the hook context. The richer per-session lookup
+ * (sessionToSender) lives inside the closure below; this module-
+ * level function is the conservative fallback.
+ */
+function resolveUserIdFromCtx(
+  hookCtx: HookContext | undefined,
+): string | undefined {
+  if (!hookCtx) return undefined;
+  const ctxAny = hookCtx as unknown as { senderId?: string; userId?: string };
+  return ctxAny.senderId || ctxAny.userId || undefined;
 }
 
 
@@ -1145,6 +1172,12 @@ export default definePluginEntry({
         const event = rawEvent as LlmOutputEvent;
         const ctx = rawCtx as HookContext | undefined;
         const entry = pending.take(event.runId);
+        // v0.6.1 — resolve sender identity for the trace row's
+        // user_id. Uses the same per-session lookup as fw.decide()
+        // so a turn N message reuses the senderId we recorded on
+        // turn 1 even if ctx no longer carries it.
+        const userId = resolveUserId(undefined, ctx);
+
         if (!entry) {
           // No matching llm_input. Either the input hook dropped
           // (e.g. raw model run path) or this is a fresh restart
@@ -1155,11 +1188,11 @@ export default definePluginEntry({
             startedAtMs: Date.now(),
             trace: ctx?.trace,
           };
-          const span = buildSpanFromPair(event.runId, fallback, event, cfg, ctx);
+          const span = buildSpanFromPair(event.runId, fallback, event, cfg, ctx, userId);
           void client.send(span).catch(() => {});
           return;
         }
-        const span = buildSpanFromPair(event.runId, entry, event, cfg, ctx);
+        const span = buildSpanFromPair(event.runId, entry, event, cfg, ctx, userId);
         void client.send(span).catch(() => {});
       } catch (err) {
         log?.warn?.(`lumin-diagnostics: llm_output handler failed: ${(err as Error).message}`);
@@ -1252,7 +1285,8 @@ export default definePluginEntry({
           trace: ctx?.trace,
           runId: event.runId,
         };
-        const span = buildSpanFromToolCall(entry, event, cfg, ctx);
+        const userId = resolveUserId(undefined, ctx);
+        const span = buildSpanFromToolCall(entry, event, cfg, ctx, userId);
         void client.send(span).catch(() => {});
       } catch (err) {
         log?.warn?.(`lumin-diagnostics: after_tool_call handler failed: ${(err as Error).message}`);
@@ -1556,6 +1590,10 @@ export default definePluginEntry({
               input: stringify(userMessage, cfg.maxContentChars ?? DEFAULT_MAX_CONTENT_CHARS),
               output: text,
               session_id: sessionKey,
+              // v0.6.1 — propagate sender identity into the trace
+              // row so the cross-session vault detector can record
+              // facts from the takeover's user input.
+              user_id: resolveUserId({ senderId, sessionKey }, undefined),
               metadata: {
                 // Keeps chat-shape detection happy — without one of
                 // these the dashboard would route this trace to the

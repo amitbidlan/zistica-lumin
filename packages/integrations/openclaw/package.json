@@ -1,6 +1,6 @@
 {
   "name": "@lumin-io/openclaw",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Lumin exporter for OpenClaw agents \u2014 local-first observability with zero cloud dependency.",
   "license": "Apache-2.0",
   "repository": {
