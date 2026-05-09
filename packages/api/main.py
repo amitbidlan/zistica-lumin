@@ -7,6 +7,7 @@ from typing import AsyncIterator
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 import policy_runtime
+from auth import BearerAuthMiddleware, auth_enabled
 from db import Database, get_db
 from routers import agents, evals, firewall, otlp, policy, proxy, sessions, spans, traces
 from ws import manager as ws_manager
@@ -278,6 +279,16 @@ app = FastAPI(
     version="0.5.2",
     lifespan=lifespan,
 )
+
+# Bearer-token middleware — default-off. When LUMIN_API_TOKEN is unset
+# this is a no-op; when set, every non-public path requires the
+# Authorization header. Added before router registration so the auth
+# check runs ahead of route matching.
+app.add_middleware(BearerAuthMiddleware)
+if auth_enabled():
+    logger.info("auth: bearer token required (LUMIN_API_TOKEN is set)")
+else:
+    logger.info("auth: open (LUMIN_API_TOKEN unset — set it for production)")
 
 app.include_router(spans.router)
 app.include_router(traces.router)
