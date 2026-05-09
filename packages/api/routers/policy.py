@@ -452,6 +452,80 @@ def policy_audit(
     return PolicyAuditResponse(entries=entries, total=total)
 
 
+# ---- /v1/policies/{name}/versions  (Slice 6C, §10.5) ---------------------
+
+
+@router.get("/v1/policies/{name}/versions")
+def list_policy_versions(
+    name: str,
+    limit: int = Query(100, ge=1, le=500),
+    db: Database = Depends(get_db),
+) -> dict:
+    """Version snapshots — every create / update / rollback writes
+    a row to ``policy_versions``. The dashboard's history tab
+    renders this as a timeline with one-click rollback."""
+    if policy_store.get_policy(db, name) is None:
+        raise HTTPException(status_code=404, detail=f"policy {name!r} not found")
+    versions = policy_store.list_versions(db, name, limit=limit)
+    return {"policy_name": name, "versions": versions}
+
+
+@router.get("/v1/policies/{name}/versions/{version_number}")
+def get_policy_version(
+    name: str,
+    version_number: int,
+    db: Database = Depends(get_db),
+) -> dict:
+    """Fetch a specific historical version (full YAML snapshot)."""
+    snap = policy_store.get_version(db, name, version_number)
+    if snap is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"policy {name!r} version {version_number} not found",
+        )
+    return snap
+
+
+@router.post("/v1/policies/{name}/rollback")
+def rollback_policy(
+    name: str,
+    payload: dict,
+    request: Request,
+    db: Database = Depends(get_db),
+) -> dict:
+    """Restore a policy to an earlier version snapshot.
+
+    Body: ``{"version_number": N}``. Operator-attributed via the
+    standard X-Lumin-Actor header so the rollback itself appears in
+    the audit log."""
+    version_number = payload.get("version_number")
+    if not isinstance(version_number, int):
+        raise HTTPException(
+            status_code=400,
+            detail="version_number must be an integer",
+        )
+    actor = request.headers.get("X-Lumin-Actor") or "rollback"
+    try:
+        restored = policy_store.rollback_to_version(
+            db, name, version_number, actor=actor,
+        )
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Reload the in-memory engine so the rollback is reflected in
+    # the next decide() call without operators having to wait for
+    # the watcher's tick.
+    policy_runtime.maybe_reload_on_db_token_change()
+
+    return {
+        "rolled_back": name,
+        "to_version": version_number,
+        "current": _policy_to_out(restored, source="db", version=1).model_dump(),
+    }
+
+
 # ---- helpers --------------------------------------------------------------
 
 
