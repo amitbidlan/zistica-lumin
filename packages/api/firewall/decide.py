@@ -929,6 +929,7 @@ def _record_decision(
     """
     decision_id = "dec_" + uuid.uuid4().hex[:24]
     policy_name = policy.name if policy else "_engine_"
+    severity = getattr(policy, "severity", None) if policy is not None else None
     try:
         db.execute(
             """
@@ -958,17 +959,43 @@ def _record_decision(
     except Exception:
         logger.exception("firewall.decide: failed to insert decision row")
 
-    if decision in {"block", "require_approval", "rewrite"} and trace_id:
-        _mirror_decision_as_violation(
-            db,
-            policy=policy,
-            policy_name=policy_name,
-            decision=decision,
-            mode_at_decision=mode_at_decision,
-            reason=reason,
-            trace_id=trace_id,
-            span_id=span_id,
-        )
+    # Block-class decisions trigger two side effects: legacy
+    # violations mirroring (PR #82, so the /violations page surfaces
+    # firewall actions) and outbound webhook dispatch (this PR, so
+    # operators get pinged on Slack/PagerDuty/etc.). Both are
+    # fire-and-forget per Rule 7 — neither must delay the firewall
+    # response.
+    if decision in {"block", "require_approval", "rewrite"}:
+        if trace_id:
+            _mirror_decision_as_violation(
+                db,
+                policy=policy,
+                policy_name=policy_name,
+                decision=decision,
+                mode_at_decision=mode_at_decision,
+                reason=reason,
+                trace_id=trace_id,
+                span_id=span_id,
+            )
+        try:
+            from firewall import webhooks as fw_webhooks
+            fw_webhooks.fire_for_decision(
+                db,
+                decision_id=decision_id,
+                decision=decision,
+                severity=severity,
+                policy_name=policy_name,
+                project=project,
+                reason=reason,
+                trace_id=trace_id,
+                mode_at_decision=mode_at_decision,
+            )
+        except Exception:
+            logger.exception(
+                "firewall.decide: webhook dispatch failed for decision %s",
+                decision_id,
+            )
+
     return decision_id
 
 

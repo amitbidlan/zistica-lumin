@@ -138,6 +138,18 @@ class Database:
         self._lock = threading.Lock()
         self._init_schema()
 
+    # Read-only path accessors for code (e.g. background webhook
+    # workers) that needs to open its own short-lived Database
+    # connection because the main one isn't safe for cross-thread
+    # use.
+    @property
+    def duckdb_path(self) -> str:
+        return self._duckdb_path
+
+    @property
+    def sqlite_path(self) -> str:
+        return self._sqlite_path
+
     def _init_schema(self) -> None:
         with self._lock:
             for stmt in DUCKDB_SCHEMA.strip().split(";"):

@@ -1156,3 +1156,83 @@ def import_library_pack_endpoint(
         "failed": result.failed,
         "skipped_names": result.skipped_names,
     }
+
+
+# ----- Webhooks (§9.10) + Notifications (§9.11) -------------------------
+#
+# Outbound destinations operators wire to the firewall: Slack /
+# Discord / PagerDuty / generic POST + HMAC / email. Decisions in
+# {block, require_approval, rewrite} that pass severity_min trigger
+# the dispatcher. Configuration lives in firewall_webhooks; failed
+# deliveries land in firewall_webhook_failures (DLQ) after 3 retries.
+
+
+class WebhookCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1)
+    kind: str = Field(..., description="slack | discord | pagerduty | generic | email")
+    config: Dict[str, Any] = Field(default_factory=dict)
+    severity_min: str = Field(default="medium")
+    project_filter: Optional[str] = None
+
+
+@router.get("/v1/firewall/webhooks")
+def list_firewall_webhooks_endpoint(
+    db: Database = Depends(get_db),
+) -> Dict[str, Any]:
+    """List configured webhook destinations. Secret config fields
+    (tokens, HMAC keys) are masked in the response — operators see
+    enough to identify the row but not exfiltrate the secret."""
+    from firewall import webhooks as fw_webhooks
+    return {"webhooks": fw_webhooks.list_webhooks(db)}
+
+
+@router.post("/v1/firewall/webhooks")
+def create_firewall_webhook_endpoint(
+    payload: WebhookCreateRequest,
+    db: Database = Depends(get_db),
+) -> Dict[str, Any]:
+    """Create a new webhook destination. Returns the row id; the
+    secret config field comes back masked on subsequent GETs."""
+    from firewall import webhooks as fw_webhooks
+    try:
+        wh = fw_webhooks.create_webhook(
+            db,
+            name=payload.name,
+            kind=payload.kind,
+            config=payload.config,
+            severity_min=payload.severity_min,
+            project_filter=payload.project_filter,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {
+        "id": wh.id,
+        "name": wh.name,
+        "kind": wh.kind,
+        "severity_min": wh.severity_min,
+        "project_filter": wh.project_filter,
+        "active": wh.active,
+    }
+
+
+@router.delete("/v1/firewall/webhooks/{webhook_id}")
+def delete_firewall_webhook_endpoint(
+    webhook_id: str,
+    db: Database = Depends(get_db),
+) -> Dict[str, Any]:
+    from firewall import webhooks as fw_webhooks
+    deleted = fw_webhooks.delete_webhook(db, webhook_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"webhook not found: {webhook_id}")
+    return {"id": webhook_id, "deleted": True}
+
+
+@router.get("/v1/firewall/webhooks/failures")
+def list_webhook_failures_endpoint(
+    limit: int = Query(100, ge=1, le=500),
+    db: Database = Depends(get_db),
+) -> Dict[str, Any]:
+    """Webhook DLQ — deliveries that exhausted retries. Operators
+    inspect this when a Slack / PagerDuty channel goes dark."""
+    from firewall import webhooks as fw_webhooks
+    return {"failures": fw_webhooks.list_failures(db, limit=limit)}
