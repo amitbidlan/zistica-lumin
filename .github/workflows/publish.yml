@@ -237,18 +237,29 @@ jobs:
       - name: Publish to ClawHub
         env:
           CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
-        # `clawhub package publish` reads the package metadata from the
-        # working directory (or via positional arg). The CLI authenticates
-        # via CLAWHUB_TOKEN env var; no separate `clawhub login` needed
-        # in CI. `--from-npm` would be cleaner if supported by the CLI;
-        # falling back to the standard publish form.
+        # `clawhub package publish` requires a positional <source>
+        # argument: a folder path, GitHub repo, or URL. Fix
+        # (2026-05-10): the previous form omitted source entirely
+        # ("missing required argument 'source'") and the fallback
+        # pointed at lumin-io/lumin-diagnostics which doesn't exist
+        # — the actual repo is the monorepo. Use the local folder
+        # path so the CLI uploads from the checkout, with a
+        # GitHub-source fallback that uses the right repo + ref +
+        # subpath.
         run: |
           set -e
-          cd packages/integrations/openclaw-diagnostics
-          clawhub package publish --version "${GITHUB_REF_NAME#v}" || {
-            # Some clawhub CLI versions accept the package spec as
-            # positional. Retry that form before giving up.
-            clawhub package publish "lumin-io/lumin-diagnostics@v${GITHUB_REF_NAME#v}"
+          if [ -z "$CLAWHUB_TOKEN" ]; then
+            echo "::error::CLAWHUB_TOKEN secret is not set on this repo"
+            exit 1
+          fi
+          PKG_DIR="packages/integrations/openclaw-diagnostics"
+          # Primary: publish from the local checkout.
+          clawhub package publish "$PKG_DIR" --version "${GITHUB_REF_NAME#v}" || {
+            # Fallback: have ClawHub fetch from the monorepo at the
+            # tagged ref + subpath.
+            clawhub package publish "${GITHUB_REPOSITORY}@${GITHUB_REF_NAME}" \
+              --source-path "$PKG_DIR" \
+              --version "${GITHUB_REF_NAME#v}"
           }
 
       - name: Summary
