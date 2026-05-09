@@ -62,6 +62,14 @@ RUN chmod +x /app/start.sh
 WORKDIR /app
 EXPOSE 3000 8000
 
+# Container-level health probe. /health is on the API, which start.sh
+# brings up before the dashboard, so this hits true once the engine
+# is fully ready. start_period: 30s tolerates slow image boots on
+# small VPSes (DuckDB schema migrations + classifier loading add
+# ~5-15s on a 2-vCPU host).
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD curl -sf http://127.0.0.1:8000/health || exit 1
+
 # tini reaps zombies + forwards signals; start.sh manages both processes
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["/app/start.sh"]
