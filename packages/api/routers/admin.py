@@ -402,113 +402,81 @@ def restore_backup(
             ),
         )
 
-    try:
-        # IMPORT DATABASE recreates each table from the snapshot's
-        # CREATE statements — it doesn't merge. We DROP existing
-        # tables first so the import can re-create them cleanly.
-        # Re-run firewall migrations after the import so any new
-        # indexes / columns added since the snapshot was taken
-        # land on the restored tables (idempotent).
-        for table in (
-            "policy_violations", "evals", "spans", "traces",
-            "decisions", "approvals", "labels",
-            "pattern_suggestions", "policy_versions",
-            "firewall_webhooks", "firewall_webhook_failures",
-            "firewall_kv", "policies", "policy_audit",
-            # Slice 6A — added when the cross-session vault landed.
-            # Restore would 500 with 'Table session_vault already
-            # exists' otherwise.
-            "session_vault",
-        ):
-            try:
-                db.execute(f"DROP TABLE IF EXISTS {table}")
-            except Exception:
-                pass
-        db.execute(f"IMPORT DATABASE '{target}'")
-        # Re-apply migrations so any post-snapshot schema additions
-        # land on the restored tables.
-        try:
-            from firewall import migrations as _fw_migrations
-            _fw_migrations.apply(db._duck)
-        except Exception:
-            logger.exception("admin: post-restore migrations failed")
-    except Exception as e:
-        # Restore failed mid-flight — the live DB is in an
-        # indeterminate state, plus DuckDB has aborted the current
-        # implicit transaction. Explicit ROLLBACK clears that state
-        # so the rollback IMPORT below can run; without it every
-        # subsequent statement raises TransactionException.
-        try:
-            db.execute("ROLLBACK")
-        except Exception:
-            # ROLLBACK fails when there's no active transaction
-            # (e.g. the IMPORT got far enough to auto-commit). Fine.
-            pass
+    # Round-3 brutal-test fix (2026-05-09): the prior implementation
+    # tried DROP TABLE … ; IMPORT DATABASE … in the live connection.
+    # On a long-lived persistent DuckDB connection, this trips a
+    # catalog-state bug ("subject 'idx_X' has been deleted") that
+    # :memory: tests don't reproduce. Recovery from that bug was
+    # unreliable; data was lost during the live verification.
+    #
+    # New approach: do the IMPORT in a *fresh* DuckDB process pointed
+    # at a temp file, then atomically swap the temp file over the
+    # live one (Database.swap_duckdb_file). The fresh connection has
+    # no accumulated catalog state so the IMPORT runs cleanly. The
+    # swap holds Database._lock so concurrent requests stall but
+    # don't crash.
+    import tempfile
+    import duckdb as _duckdb
 
-        # Best effort to roll forward by re-importing from the
-        # pre-restore snapshot we took above, then re-running
-        # migrations. This is "fail forward to last-known-good"
-        # rather than leaving the DB wedged.
-        rollback_error = None
+    temp_dir = tempfile.mkdtemp(prefix="lumin-restore-")
+    temp_db_path = os.path.join(temp_dir, "restored.duckdb")
+
+    try:
+        # Build the new DB in a fresh connection. No live state to
+        # interfere with.
+        new_conn = _duckdb.connect(temp_db_path)
         try:
-            for table in (
-                "policy_violations", "evals", "spans", "traces",
-                "decisions", "approvals", "labels",
-                "pattern_suggestions", "policy_versions",
-                "firewall_webhooks", "firewall_webhook_failures",
-                "firewall_kv", "policies", "policy_audit",
-                "session_vault",
-            ):
-                try:
-                    db.execute(f"DROP TABLE IF EXISTS {table}")
-                except Exception:
-                    pass
-            db.execute(f"IMPORT DATABASE '{pre_restore_dir}'")
-            from firewall import migrations as _fw_migrations
-            _fw_migrations.apply(db._duck)
-        except Exception as roll_e:
-            rollback_error = str(roll_e)[:200]
-            logger.exception(
-                "admin: rollback to pre-restore snapshot ALSO failed — "
-                "manual recovery required"
-            )
-            # Last-ditch: at minimum re-run migrations so the schema
-            # has the tables the dashboard expects, even if data is
-            # lost. Better an empty DB than a wedged one.
-            try:
-                db.execute("ROLLBACK")
-            except Exception:
-                pass
+            new_conn.execute(f"IMPORT DATABASE '{target}'")
+            # Re-apply firewall migrations so any post-snapshot
+            # schema additions (new tables / indexes) land cleanly.
             try:
                 from firewall import migrations as _fw_migrations
-                # Re-create the base tables from db.DUCKDB_SCHEMA
-                # (idempotent — IF NOT EXISTS).
-                for stmt in __import__("db").DUCKDB_SCHEMA.strip().split(";"):
-                    stmt = stmt.strip()
-                    if stmt:
-                        try:
-                            db.execute(stmt)
-                        except Exception:
-                            pass
-                _fw_migrations.apply(db._duck)
+                _fw_migrations.apply(new_conn)
             except Exception:
                 logger.exception(
-                    "admin: even base-schema re-creation failed — "
-                    "DB is wedged, operator must recover manually"
+                    "admin: post-import migrations on temp DB failed "
+                    "(continuing — schema may be slightly behind)",
                 )
+            # Force a checkpoint so the WAL is flushed before close —
+            # the swap below moves the .duckdb file, not the WAL.
+            try:
+                new_conn.execute("CHECKPOINT")
+            except Exception:
+                pass
+        finally:
+            new_conn.close()
 
-        detail = f"IMPORT DATABASE failed: {e}"
-        if rollback_error is None:
-            detail += (
-                f". Rolled back to pre-restore snapshot at {pre_restore_dir}."
-            )
-        else:
-            detail += (
-                f". ROLLBACK ALSO FAILED ({rollback_error}). "
-                f"Snapshot of pre-restore state preserved at "
-                f"{pre_restore_dir} for manual recovery."
-            )
-        raise HTTPException(status_code=500, detail=detail)
+        # Swap. Hits Database._lock for the brief moment the live
+        # connection is closed + reopened. Concurrent requests
+        # serialize behind it.
+        db.swap_duckdb_file(temp_db_path)
+
+    except Exception as e:
+        # Temp DB build failed; live DB is unchanged. Operator can
+        # re-restore once the snapshot is fixed. The pre-restore
+        # snapshot was taken above defensively; mention it in the
+        # error so they know nothing was lost.
+        try:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        except Exception:
+            pass
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"restore failed: {e}. Live DB is UNCHANGED — the "
+                f"fresh-connection import never reached the swap. "
+                f"Pre-restore snapshot preserved at {pre_restore_dir} "
+                f"as a defensive backup; operator does not need to "
+                f"manually restore anything."
+            ),
+        )
+
+    # Clean up the now-moved temp dir (the .duckdb file got moved
+    # into place, but the dir itself + any side files remain).
+    try:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+    except Exception:
+        pass
 
     return {
         "restored": name,

@@ -137,13 +137,17 @@ def test_corrupted_snapshot_does_not_wedge_db(
     # Restore is expected to fail because the snapshot is corrupted
     assert resp.status_code == 500, resp.text
     body = resp.json()
-    assert "IMPORT DATABASE failed" in body["detail"]
-    # New behavior: the response mentions the pre-restore snapshot
-    # so the operator knows where to recover from.
-    assert "pre-restore" in body["detail"].lower() or "pre_restore" in body["detail"]
+    # New defensive-restore semantics: the import happens in a fresh
+    # temp DuckDB. If THAT fails, the live DB is never touched. The
+    # error message mentions the pre-restore snapshot for operator
+    # confidence even though it shouldn't have been needed.
+    detail = body["detail"].lower()
+    assert "restore failed" in detail or "import database failed" in detail
+    assert "pre-restore" in detail or "pre_restore" in detail
 
     # CRITICAL ASSERTION: the live DB must still have the original
-    # data (rolled forward to pre-restore state) — NOT half-restored.
+    # data. With the fresh-connection swap, the live DB is never
+    # touched on import failure — the temp DB just gets discarded.
     final = db.fetchone("SELECT COUNT(*) FROM traces")
     assert final is not None, "DB is wedged — traces table is gone"
     assert final[0] == 5, (
@@ -165,3 +169,78 @@ def test_restore_unknown_snapshot_doesnt_create_pre_restore(
     backups_after = client.get("/v1/admin/backups").json()["backups"]
     # Same number — no pre_restore snapshot created.
     assert len(backups_after) == len(backups_before)
+
+
+# ----- Persistent-DB regression test ---------------------------------------
+
+
+def test_restore_works_on_persistent_disk_db_after_heavy_use(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """The bug that motivated PR (round-3): live brutal testing
+    found that restore against a persistent on-disk DuckDB hit
+    'subject idx_X has been deleted' after the connection had
+    accumulated catalog state from many earlier queries.
+
+    This test reproduces the live conditions: a persistent DB,
+    many intermediate operations to build catalog state, THEN the
+    restore. With the fresh-connection swap, it should work.
+    """
+    duck_path = tmp_path / "persist.duckdb"
+    sqlite_path = tmp_path / "persist.sqlite"
+    db = Database(duckdb_path=str(duck_path), sqlite_path=str(sqlite_path))
+    monkeypatch.setenv("LUMIN_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("LUMIN_BACKUP_DIR", str(tmp_path / "backups"))
+
+    main.app.dependency_overrides[main.get_db] = lambda: db
+    try:
+        client = TestClient(main.app)
+
+        # Seed real data. Then do MANY ops that build catalog state.
+        _seed(db, 50)
+        # Insert spans, decisions, vault entries — exercise the
+        # whole table set so DROP+IMPORT would have to deal with
+        # all the indexes.
+        for i in range(20):
+            db.execute(
+                "INSERT INTO spans (id, trace_id, started_at, type) "
+                "VALUES (?, ?, ?, ?)",
+                [f"sp-{i}", f"orig-{i}", "2026-01-01 00:00:00", "llm"],
+            )
+            db.execute(
+                """
+                INSERT INTO decisions (
+                    id, policy_id, policy_name, lifecycle, decision,
+                    mode_at_decision, decision_at, duration_ms
+                ) VALUES (?, 'p', 'p', 'before_proxy_call', 'block',
+                          'enforce', ?, 1)
+                """,
+                [f"dec-{i}", "2026-01-01 00:00:00"],
+            )
+
+        # Snapshot
+        create = client.post("/v1/admin/backups", json={"name": "snap"})
+        assert create.status_code == 200, create.text
+
+        # Mutate
+        db.execute(
+            "INSERT INTO traces (id, name, started_at) "
+            "VALUES ('post', 'NEW', '2026-01-02 00:00:00')",
+        )
+
+        # Restore — this is the path that wedged in the original bug
+        resp = client.post(
+            "/v1/admin/backups/snap/restore", json={"confirm": True},
+        )
+        assert resp.status_code == 200, resp.text
+
+        # After the swap, read via the live API. If the swap worked
+        # the live db connection points at the restored file.
+        resp_traces = client.get("/v1/traces?limit=100")
+        assert resp_traces.status_code == 200
+        ids = {t["id"] for t in resp_traces.json()}
+        assert "post" not in ids
+        assert any(i.startswith("orig-") for i in ids)
+    finally:
+        main.app.dependency_overrides.clear()
+        db.close()
