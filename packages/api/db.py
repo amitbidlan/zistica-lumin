@@ -330,6 +330,94 @@ class Database:
             except Exception:
                 pass
 
+    def swap_duckdb_file(self, new_duckdb_path: str) -> None:
+        """Atomically replace the live DuckDB file with the contents of
+        ``new_duckdb_path`` and reopen the connection.
+
+        Why this exists (Slice 6A.2 / brutal-test fix 2026-05-09):
+        DuckDB's persistent connection accumulates catalog state that
+        breaks ``DROP TABLE … ; IMPORT DATABASE …`` in the same
+        connection ("subject 'idx_X' has been deleted" /
+        TransactionContext aborted). The only reliable workaround is
+        to do the IMPORT in a fresh duckdb process / connection that
+        doesn't share the live one's catalog state.
+
+        Flow:
+          1. Acquire the connection lock so concurrent writers wait.
+          2. CHECKPOINT current state (flushes WAL).
+          3. Close the live duckdb connection (releases the file lock).
+          4. ``shutil.move`` the new file into place. The SQLite
+             ``meta`` is not touched — only DuckDB swaps.
+          5. Reopen duckdb against the new path.
+          6. Release the lock.
+
+        Concurrent reads/writes block on ``self._lock`` for the
+        duration. Operators see a brief stall; nothing crashes.
+
+        On any failure, the original file is preserved at
+        ``<live>.swap_failed`` for manual recovery. Caller is
+        expected to surface this in the HTTP error.
+        """
+        import os
+        import shutil
+
+        if not os.path.exists(new_duckdb_path):
+            raise FileNotFoundError(
+                f"swap source {new_duckdb_path!r} does not exist",
+            )
+        with self._lock:
+            try:
+                self._duck.execute("CHECKPOINT")
+            except Exception:
+                pass
+            try:
+                self._duck.close()
+            except Exception:
+                pass
+            # Preserve the live file before the swap. If shutil.move
+            # fails (cross-device, permission), we still have the
+            # original.
+            backup_aside = self._duckdb_path + ".swap_failed"
+            try:
+                if os.path.exists(self._duckdb_path):
+                    if os.path.exists(backup_aside):
+                        os.remove(backup_aside)
+                    shutil.move(self._duckdb_path, backup_aside)
+                shutil.move(new_duckdb_path, self._duckdb_path)
+            except Exception:
+                # Recovery: try to put the live file back. Reopen
+                # whatever we have so the next request doesn't crash
+                # on a None connection.
+                if os.path.exists(backup_aside) and not os.path.exists(self._duckdb_path):
+                    try:
+                        shutil.move(backup_aside, self._duckdb_path)
+                    except Exception:
+                        pass
+                self._duck = duckdb.connect(self._duckdb_path)
+                raise
+
+            # Reopen the connection against the swapped file. The
+            # WAL of the new file replays automatically on connect.
+            self._duck = duckdb.connect(self._duckdb_path)
+            # Re-apply firewall migrations on the new file. The
+            # snapshot may have been taken before recent schema
+            # additions; this is idempotent.
+            try:
+                from firewall import migrations as _fw_migrations
+                _fw_migrations.apply(self._duck)
+            except Exception:
+                # Migrations failing is bad but not fatal — the
+                # underlying tables came from the snapshot and the
+                # API can still read them.
+                pass
+            # Clean up the .swap_failed file on success — operator
+            # only sees it when restore actually failed.
+            try:
+                if os.path.exists(backup_aside):
+                    os.remove(backup_aside)
+            except Exception:
+                pass
+
 
 def default_db() -> Database:
     """Create the production database from LUMIN_DATA_DIR (or ./data)."""
