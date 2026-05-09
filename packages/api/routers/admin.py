@@ -386,6 +386,10 @@ def restore_backup(
             "pattern_suggestions", "policy_versions",
             "firewall_webhooks", "firewall_webhook_failures",
             "firewall_kv", "policies", "policy_audit",
+            # Slice 6A — added when the cross-session vault landed.
+            # Restore would 500 with 'Table session_vault already
+            # exists' otherwise.
+            "session_vault",
         ):
             try:
                 db.execute(f"DROP TABLE IF EXISTS {table}")

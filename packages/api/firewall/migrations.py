@@ -153,6 +153,37 @@ CREATE TABLE IF NOT EXISTS firewall_kv (
 );
 """
 
+# Session vault (Slice 6A) — records sensitive facts at write-time
+# tagged with which user / session said them. The cross-session
+# leak detector queries this on every after_proxy_call to catch the
+# textbook attack: user A volunteers their account number, user B
+# in a different session asks the bot to repeat it.
+#
+# id        deterministic from (session_id, fact_hash) so re-ingest
+#           of the same trace doesn't double-record
+# user_id   sourced from the trace row at write time. Empty string
+#           when the operator didn't tag the trace; the detector
+#           treats empty as "any anonymous", same-as-current-user.
+# fact_hash sha256(normalized fact)[:16] — short for index size,
+#           collision space still ~10^19
+# fact_kind Presidio entity type (EMAIL_ADDRESS, PHONE_NUMBER, etc.)
+# fact_excerpt first 64 chars of the matched text. Truncated so a
+#           DB compromise leaks "###-##-####" instead of the actual
+#           SSN; useful for explaining the block to an operator
+#           without re-exposing the data.
+_CREATE_SESSION_VAULT = """
+CREATE TABLE IF NOT EXISTS session_vault (
+    id VARCHAR PRIMARY KEY,
+    session_id VARCHAR NOT NULL,
+    user_id VARCHAR DEFAULT '',
+    project VARCHAR,
+    fact_hash VARCHAR NOT NULL,
+    fact_kind VARCHAR,
+    fact_excerpt VARCHAR,
+    recorded_at TIMESTAMP NOT NULL
+);
+"""
+
 # Outbound webhooks (§9.10) and notification channels (§9.11).
 # One row per configured destination. Operators add via the dashboard
 # or POST /v1/firewall/webhooks; the dispatcher reads on each block-
@@ -268,10 +299,17 @@ def apply(conn) -> None:
         _CREATE_PATTERN_SUGGESTIONS,
         _CREATE_POLICY_VERSIONS,
         _CREATE_FIREWALL_KV,
+        _CREATE_SESSION_VAULT,
         _CREATE_FIREWALL_WEBHOOKS,
         _CREATE_FIREWALL_WEBHOOK_FAILURES,
         *_POLICY_EXTENSIONS,
         *_INDEXES,
+        # Session vault indexes — leak detector queries by fact_hash
+        # on every after_proxy_call, so this is hot. The user_id
+        # secondary index supports the dashboard's per-user view.
+        "CREATE INDEX IF NOT EXISTS idx_session_vault_fact_hash ON session_vault(fact_hash)",
+        "CREATE INDEX IF NOT EXISTS idx_session_vault_user_id ON session_vault(user_id)",
+        "CREATE INDEX IF NOT EXISTS idx_session_vault_session_id ON session_vault(session_id)",
         # Webhook indexes — dashboard query patterns
         "CREATE INDEX IF NOT EXISTS idx_webhooks_active ON firewall_webhooks(active)",
         "CREATE INDEX IF NOT EXISTS idx_webhook_failures_webhook ON firewall_webhook_failures(webhook_id)",
