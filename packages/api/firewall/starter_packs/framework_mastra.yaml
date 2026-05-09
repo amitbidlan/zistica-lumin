@@ -1,0 +1,74 @@
+# Framework: Mastra — Lumin starter pack
+#
+# Defaults for agents built on Mastra. Mastra exposes typed tool
+# calls via `agent.callTool` and surfaces hooks at
+# `agent.beforeToolCall` / `agent.afterToolCall`. The Lumin
+# Mastra integration (@lumin-io/mastra) wires those hooks to
+# /v1/policy/decide; this pack is the corresponding rule set.
+#
+# Conservative defaults — promote per deployment.
+
+version: 1
+
+policies:
+
+  # Tool-name hygiene — Mastra workflows often have a few highly
+  # destructive tools (deploy, migrate, transfer). Default-approve
+  # them so the operator sees one before the first prod use.
+  - name: mastra_workflow_destructive_step_approval
+    description: Require approval on Mastra workflow steps named deploy / migrate / transfer / promote / publish.
+    lifecycle: before_tool_call
+    mode: shadow
+    priority: 80
+    trigger: span_end
+    condition: regex_match(tool_name, "(?i)^(deploy|migrate|transfer|promote|publish)(_|\\.)|workflow_step_(deploy|migrate|destroy)")
+    action: require_approval
+    severity: high
+
+  # Mastra agents commonly use `web_fetch` / `http_request` —
+  # block requests to internal hosts (link-local, RFC1918, IMDS)
+  - name: mastra_web_fetch_internal
+    description: Block Mastra web-fetch / http-request tool calls targeting internal addresses or cloud metadata.
+    lifecycle: before_tool_call
+    mode: shadow
+    priority: 88
+    trigger: span_end
+    condition: is_web_fetch_tool(tool_name) and is_internal_url(str(Input.params.get("url", "") or Input.params.get("href", "")))
+    action: block
+    severity: high
+
+  # Mastra workflow-state mutation — flag direct edits to workflow
+  # state outside the canonical step sequence. Drift signal.
+  - name: mastra_workflow_state_direct_mutation
+    description: Flag direct mutations to Mastra workflow state outside canonical steps.
+    lifecycle: before_tool_call
+    mode: shadow
+    priority: 60
+    trigger: span_end
+    condition: regex_match(tool_name, "(?i)(workflow|run)_state_(set|update|patch|put)")
+    action: flag
+    severity: medium
+
+  # Memory writes on Mastra — apply the agentic memory-poisoning
+  # rule with a Mastra-tool-name regex
+  - name: mastra_memory_poisoning
+    description: Block prompt-injection content reaching Mastra memory tools.
+    lifecycle: before_tool_call
+    mode: shadow
+    priority: 90
+    trigger: span_end
+    condition: regex_match(tool_name, "(?i)(memory|store|kv_set|vector_(add|insert|upsert))") and (has_ascii_smuggling(str(Input.params.get("content", "") or Input.params.get("value", "") or Input.params.get("text", ""))) or contains_any(str(Input.params.get("content", "") or Input.params.get("value", "")), ["ignore previous instructions", "ignore the above"]))
+    action: block
+    severity: high
+
+  # Mastra tool audit log — flag any tool whose name signals
+  # human-impact (refund, charge, send-email)
+  - name: mastra_human_impact_audit
+    description: Flag (audit) tool calls that affect external humans — payments, emails, broadcasts.
+    lifecycle: before_tool_call
+    mode: shadow
+    priority: 50
+    trigger: span_end
+    condition: regex_match(tool_name, "(?i)(refund|charge|payment|send_email|notify|broadcast|sms_send)")
+    action: flag
+    severity: low

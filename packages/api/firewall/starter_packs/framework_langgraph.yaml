@@ -1,0 +1,89 @@
+# Framework: LangGraph — Lumin starter pack
+#
+# Defaults for LangGraph multi-node agent flows. LangGraph
+# exposes `interrupt()` for human-in-the-loop gating, which the
+# Lumin LangGraph integration uses to hold execution while a
+# require_approval decision is pending.
+#
+# Common LangGraph patterns this pack guards:
+#   - Tool-using nodes that call external APIs (web fetch, DB)
+#   - State-mutation nodes that write to checkpointer storage
+#   - Recursive graph runs that exceed a depth budget
+
+version: 1
+
+policies:
+
+  # Recursion limit — flag when LangGraph is approaching the
+  # default 25-iteration recursion budget (signal of a loop bug
+  # or jailbreak that's stuck the graph in a cycle).
+  - name: langgraph_recursion_warning
+    description: Flag when a LangGraph run's session token usage suggests recursion / loop (>500k tokens single session).
+    lifecycle: before_proxy_call
+    mode: shadow
+    priority: 65
+    trigger: span_end
+    condition: session_total_tokens(str(Input.session_id or "")) > 500000
+    action: flag
+    severity: medium
+
+  # Tool nodes — same web-fetch internal-block as Mastra
+  - name: langgraph_tool_web_fetch_internal
+    description: Block LangGraph tool nodes that fetch internal URLs (SSRF defense).
+    lifecycle: before_tool_call
+    mode: shadow
+    priority: 88
+    trigger: span_end
+    condition: is_web_fetch_tool(tool_name) and is_internal_url(str(Input.params.get("url", "") or Input.params.get("href", "")))
+    action: block
+    severity: high
+
+  # Checkpointer writes — flag when a node attempts to write to
+  # the checkpointer outside the canonical flow (signal of state
+  # tampering or memory poisoning)
+  - name: langgraph_checkpointer_write
+    description: Flag direct writes to LangGraph checkpointer outside the canonical State update path.
+    lifecycle: before_tool_call
+    mode: shadow
+    priority: 60
+    trigger: span_end
+    condition: regex_match(tool_name, "(?i)(checkpoint|graph_state)_(set|put|update|write)")
+    action: flag
+    severity: medium
+
+  # Subgraph execution — when the agent dynamically invokes a
+  # subgraph via tool name, require approval (graph composition
+  # at runtime is a privilege-escalation vector)
+  - name: langgraph_dynamic_subgraph
+    description: Require approval when the agent dynamically invokes a subgraph at runtime.
+    lifecycle: before_tool_call
+    mode: shadow
+    priority: 75
+    trigger: span_end
+    condition: regex_match(tool_name, "(?i)(invoke_subgraph|run_subgraph|dispatch_graph|graph\\.invoke)")
+    action: require_approval
+    severity: medium
+
+  # Long-running nodes — flag when a single tool call exceeds 30s
+  # wall time (computed via existing duration tracking; the rule
+  # is a reminder for ops to investigate hung steps)
+  - name: langgraph_node_runtime_anomaly
+    description: Flag interrupt() / human_input() nodes pending longer than 1 hour (stale approval signal).
+    lifecycle: before_tool_call
+    mode: shadow
+    priority: 40
+    trigger: span_end
+    condition: regex_match(tool_name, "(?i)(human_(input|approval)|interrupt_node)")
+    action: flag
+    severity: low
+
+  # Memory-poisoning floor for LangGraph
+  - name: langgraph_memory_poisoning
+    description: Block prompt-injection reaching LangGraph state-update or memory tools.
+    lifecycle: before_tool_call
+    mode: shadow
+    priority: 90
+    trigger: span_end
+    condition: regex_match(tool_name, "(?i)(memory|state_update|graph_set_state)") and (has_ascii_smuggling(str(Input.params.get("content", "") or Input.params.get("value", "") or Input.params.get("text", ""))) or contains_any(str(Input.params.get("content", "") or Input.params.get("value", "")), ["ignore previous instructions", "ignore the above"]))
+    action: block
+    severity: high

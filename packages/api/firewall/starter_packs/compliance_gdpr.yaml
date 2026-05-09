@@ -1,0 +1,83 @@
+# GDPR compliance — Lumin starter pack
+#
+# Aligned to GDPR Art. 5 (lawfulness, fairness, transparency,
+# data minimisation) and Art. 9 (special categories of personal
+# data). All rules ship in advisory shadow mode — GDPR
+# enforcement is a legal posture, not a technical one, and false
+# positives must not block legitimate processing.
+#
+# Operators promote per their controllership / processor role.
+# This pack does NOT make a deployment GDPR-compliant on its own
+# — it surfaces the patterns that warrant DPO review.
+
+version: 1
+
+policies:
+
+  # Art. 9 special categories — health data in input or output
+  - name: gdpr_art9_health_data
+    description: Flag content containing health / medical data per GDPR Art. 9(1) special categories.
+    lifecycle: after_proxy_call
+    mode: shadow
+    priority: 80
+    trigger: span_end
+    condition: contains_any(Output.text, ["diagnosis", "diagnosed with", "blood type", "HIV", "AIDS", "cancer", "tumor", "chronic illness", "medical record", "prescription", "mental health diagnosis"])
+    action: flag
+    severity: high
+
+  # Art. 9 — racial / ethnic origin
+  - name: gdpr_art9_racial_ethnic
+    description: Flag content containing racial or ethnic origin references per GDPR Art. 9.
+    lifecycle: after_proxy_call
+    mode: shadow
+    priority: 75
+    trigger: span_end
+    condition: regex_match(Output.text, "(?i)\\b(race[:=]|ethnicity[:=]|skin\\s+color[:=]|national\\s+origin[:=])")
+    action: flag
+    severity: medium
+
+  # EU PII — IBAN
+  - name: gdpr_iban_in_output
+    description: Rewrite (redact) European IBAN account numbers in assistant output.
+    lifecycle: after_proxy_call
+    mode: shadow
+    priority: 85
+    trigger: span_end
+    condition: regex_match(Output.text, "\\b[A-Z]{2}\\d{2}[A-Z0-9]{4}\\d{7}([A-Z0-9]?){0,16}\\b")
+    action: rewrite
+    severity: high
+
+  # EU PII — German Personalausweis / French INSEE / similar
+  - name: gdpr_national_id
+    description: Flag content containing what looks like an EU national identification number (heuristic).
+    lifecycle: after_proxy_call
+    mode: shadow
+    priority: 80
+    trigger: span_end
+    condition: regex_match(Output.text, "\\b[12]\\s?\\d{2}\\s?\\d{2}\\s?\\d{2}\\s?\\d{3}\\s?\\d{3}\\s?\\d{2}\\b") or regex_match(Output.text, "\\b\\d{10,11}\\b")
+    action: flag
+    severity: medium
+
+  # Profile / behavioral profiling without lawful basis annotation
+  - name: gdpr_profiling_without_basis
+    description: Flag tool calls that build user profiles when no lawful_basis tag is present in metadata.
+    lifecycle: before_tool_call
+    mode: shadow
+    priority: 65
+    trigger: span_end
+    condition: regex_match(tool_name, "(?i)(build_profile|score_user|risk_assess|behavioral_predict|recommendation_engine)")
+    action: flag
+    severity: medium
+
+  # Right-to-erasure markers — operator should be alerted when a
+  # user invokes their Art. 17 rights via a chat surface so it
+  # gets routed to a human DPO process.
+  - name: gdpr_right_to_erasure_request
+    description: Flag inputs invoking GDPR Art. 17 right-to-erasure / right-to-be-forgotten.
+    lifecycle: post_ingest
+    mode: shadow
+    priority: 70
+    trigger: span_end
+    condition: contains_any(Input.last_user_msg, ["delete my data", "right to erasure", "right to be forgotten", "GDPR Article 17", "remove all my information", "purge my account"])
+    action: flag
+    severity: medium

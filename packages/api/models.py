@@ -88,6 +88,16 @@ class Trace(BaseModel):
     # without an N+1 query per row.
     violation_count: int = 0
 
+    # Agent Firewall — summary of firewall decisions linked to this
+    # trace. Surfaces in the dashboard as a red "Lumin blocked"
+    # badge when ``firewall_blocked == True``. Populated from the
+    # decisions table; defaults to a no-op shape when the firewall
+    # has never fired against this trace.
+    firewall_decision_count: int = 0
+    firewall_blocked: bool = False
+    firewall_top_policy: Optional[str] = None
+    firewall_top_verb: Optional[str] = None  # block / require_approval / rewrite
+
 
 class Span(BaseModel):
     id: str

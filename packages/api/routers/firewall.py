@@ -1097,6 +1097,67 @@ def list_classifier_models_endpoint(
     return {"models": lc_det.list_models(db)}
 
 
+# ----- Starter pack library (§13) ---------------------------------------
+#
+# Operators discover and import canned policy bundles via these
+# endpoints. The library walks ``firewall/starter_packs/`` at request
+# time so a community-contributed YAML drop-in becomes visible on the
+# next call without an API restart.
+
+
+@router.get("/v1/firewall/library")
+def list_library_packs_endpoint() -> Dict[str, Any]:
+    """List every starter pack available for import. Returns one
+    object per pack: pack_id, display name, category, policy count,
+    short description, lifecycle list, auto-installed flag.
+
+    The dashboard's /firewall/library page renders this verbatim;
+    operators get a one-click install per pack.
+    """
+    from firewall import library as fw_library
+    return {"packs": fw_library.list_packs()}
+
+
+@router.get("/v1/firewall/library/{pack_id}")
+def preview_library_pack_endpoint(pack_id: str) -> Dict[str, Any]:
+    """Preview a pack's policies without writing anything. Used by
+    the import-confirmation modal so operators see what they're
+    about to install.
+    """
+    from firewall import library as fw_library
+    try:
+        return fw_library.preview_pack(pack_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"pack not found: {pack_id}")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/v1/firewall/library/{pack_id}/import")
+def import_library_pack_endpoint(
+    pack_id: str,
+    db: Database = Depends(get_db),
+) -> Dict[str, Any]:
+    """Import every policy in a pack into the DB. Idempotent —
+    duplicate policy names are SKIPPED (operator's existing rule
+    wins). All imported policies land in mode=shadow per §10.1.
+    """
+    from firewall import library as fw_library
+    try:
+        result = fw_library.import_pack(db, pack_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"pack not found: {pack_id}")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {
+        "pack_id": result.pack_id,
+        "imported": result.imported,
+        "skipped_duplicates": result.skipped_duplicates,
+        "failed": result.failed,
+        "skipped_names": result.skipped_names,
+    }
+
+
 # ----- Webhooks (§9.10) + Notifications (§9.11) -------------------------
 #
 # Outbound destinations operators wire to the firewall: Slack /
