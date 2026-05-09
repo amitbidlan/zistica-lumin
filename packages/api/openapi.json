@@ -3381,7 +3381,7 @@
   "info": {
     "description": "Local-first AI agent observability \u2014 ingest and query API",
     "title": "Lumin API",
-    "version": "0.5.2"
+    "version": "0.6.0"
   },
   "openapi": "3.1.0",
   "paths": {
