@@ -254,13 +254,39 @@ def upsert_trace(payload: TraceCreate, db: Database = Depends(get_db)) -> Trace:
 def list_traces(
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
+    project: Optional[str] = Query(
+        None,
+        description=(
+            "Multi-tenant scope. When set, returns only traces tagged "
+            "with this project. Use 'default' for the un-tagged bucket. "
+            "Omit to see all projects (operator view)."
+        ),
+    ),
     db: Database = Depends(get_db),
 ) -> List[Trace]:
+    where, params = _project_filter(project, table_alias="t")
     rows = db.fetchall_dict(
-        _TRACE_WITH_AGGREGATES + " ORDER BY t.started_at DESC LIMIT ? OFFSET ?",
-        [limit, offset],
+        _TRACE_WITH_AGGREGATES + where + " ORDER BY t.started_at DESC LIMIT ? OFFSET ?",
+        [*params, limit, offset],
     )
     return [_row_to_trace(r) for r in rows]
+
+
+def _project_filter(
+    project: Optional[str], *, table_alias: str = "t",
+) -> tuple[str, list]:
+    """Multi-tenant scope helper. Returns ('', []) when no project
+    filter requested; otherwise (' WHERE project = ?', [project])
+    with one twist: 'default' also matches NULL / empty so traces
+    that landed without an X-Lumin-Project header still surface in
+    the default bucket.
+    """
+    if not project:
+        return "", []
+    col = f"{table_alias}.project" if table_alias else "project"
+    if project == "default":
+        return f" WHERE COALESCE({col}, '') IN ('', 'default')", []
+    return f" WHERE {col} = ?", [project]
 
 
 @router.get("/v1/traces/{trace_id}", response_model=TraceDetail)

@@ -76,18 +76,31 @@ _BASE_AGG = """
 def list_sessions(
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
+    project: Optional[str] = Query(
+        None,
+        description="Multi-tenant scope. Same semantics as /v1/traces.",
+    ),
     db: Database = Depends(get_db),
 ) -> List[Session]:
+    extra: list = ["session_id IS NOT NULL", "session_id != ''"]
+    params: list = []
+    if project:
+        if project == "default":
+            extra.append("COALESCE(project, '') IN ('', 'default')")
+        else:
+            extra.append("project = ?")
+            params.append(project)
+    where_clause = "WHERE " + " AND ".join(extra)
     rows = db.fetchall_dict(
         f"""
         SELECT {_BASE_AGG}
         FROM traces
-        WHERE session_id IS NOT NULL AND session_id != ''
+        {where_clause}
         GROUP BY session_id
         ORDER BY last_seen DESC NULLS LAST
         LIMIT ? OFFSET ?
         """,
-        [limit, offset],
+        [*params, limit, offset],
     )
     return [_row_to_session(r) for r in rows]
 
