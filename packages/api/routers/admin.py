@@ -373,6 +373,35 @@ def restore_backup(
     if not target.is_dir():
         raise HTTPException(status_code=404, detail=f"backup {name!r} not found")
 
+    # Brutal-test fix (2026-05-09): the previous implementation
+    # dropped tables, then ran IMPORT DATABASE, then re-applied
+    # migrations. If IMPORT failed mid-way (corrupt snapshot, missing
+    # CSV, schema mismatch), the live DB was left in a half-restored
+    # state — some tables dropped, some half-imported, no rollback.
+    #
+    # New flow: snapshot the live DB into a "pre_restore_<ts>" backup
+    # FIRST. If anything below fails, the operator can restore from
+    # that auto-snapshot. The auto-snapshot is named so it sorts
+    # alphabetically and shows up at the top of GET /v1/admin/backups
+    # — operators who run a restore can always undo it.
+    pre_restore_name = "pre_restore_" + _utc_now().strftime("%Y%m%dT%H%M%SZ")
+    pre_restore_dir = _backup_dir() / pre_restore_name
+    pre_restore_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        db.execute(f"EXPORT DATABASE '{pre_restore_dir}' (FORMAT CSV)")
+    except Exception as e:
+        # If we can't snapshot the current state, refuse the restore
+        # entirely — better to fail closed than to wedge the DB
+        # without a recovery path.
+        shutil.rmtree(pre_restore_dir, ignore_errors=True)
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"refusing to restore: pre-restore snapshot failed ({e}). "
+                "Live DB is unchanged."
+            ),
+        )
+
     try:
         # IMPORT DATABASE recreates each table from the snapshot's
         # CREATE statements — it doesn't merge. We DROP existing
@@ -404,9 +433,88 @@ def restore_backup(
         except Exception:
             logger.exception("admin: post-restore migrations failed")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"IMPORT DATABASE failed: {e}")
+        # Restore failed mid-flight — the live DB is in an
+        # indeterminate state, plus DuckDB has aborted the current
+        # implicit transaction. Explicit ROLLBACK clears that state
+        # so the rollback IMPORT below can run; without it every
+        # subsequent statement raises TransactionException.
+        try:
+            db.execute("ROLLBACK")
+        except Exception:
+            # ROLLBACK fails when there's no active transaction
+            # (e.g. the IMPORT got far enough to auto-commit). Fine.
+            pass
 
-    return {"restored": name, "from": str(target)}
+        # Best effort to roll forward by re-importing from the
+        # pre-restore snapshot we took above, then re-running
+        # migrations. This is "fail forward to last-known-good"
+        # rather than leaving the DB wedged.
+        rollback_error = None
+        try:
+            for table in (
+                "policy_violations", "evals", "spans", "traces",
+                "decisions", "approvals", "labels",
+                "pattern_suggestions", "policy_versions",
+                "firewall_webhooks", "firewall_webhook_failures",
+                "firewall_kv", "policies", "policy_audit",
+                "session_vault",
+            ):
+                try:
+                    db.execute(f"DROP TABLE IF EXISTS {table}")
+                except Exception:
+                    pass
+            db.execute(f"IMPORT DATABASE '{pre_restore_dir}'")
+            from firewall import migrations as _fw_migrations
+            _fw_migrations.apply(db._duck)
+        except Exception as roll_e:
+            rollback_error = str(roll_e)[:200]
+            logger.exception(
+                "admin: rollback to pre-restore snapshot ALSO failed — "
+                "manual recovery required"
+            )
+            # Last-ditch: at minimum re-run migrations so the schema
+            # has the tables the dashboard expects, even if data is
+            # lost. Better an empty DB than a wedged one.
+            try:
+                db.execute("ROLLBACK")
+            except Exception:
+                pass
+            try:
+                from firewall import migrations as _fw_migrations
+                # Re-create the base tables from db.DUCKDB_SCHEMA
+                # (idempotent — IF NOT EXISTS).
+                for stmt in __import__("db").DUCKDB_SCHEMA.strip().split(";"):
+                    stmt = stmt.strip()
+                    if stmt:
+                        try:
+                            db.execute(stmt)
+                        except Exception:
+                            pass
+                _fw_migrations.apply(db._duck)
+            except Exception:
+                logger.exception(
+                    "admin: even base-schema re-creation failed — "
+                    "DB is wedged, operator must recover manually"
+                )
+
+        detail = f"IMPORT DATABASE failed: {e}"
+        if rollback_error is None:
+            detail += (
+                f". Rolled back to pre-restore snapshot at {pre_restore_dir}."
+            )
+        else:
+            detail += (
+                f". ROLLBACK ALSO FAILED ({rollback_error}). "
+                f"Snapshot of pre-restore state preserved at "
+                f"{pre_restore_dir} for manual recovery."
+            )
+        raise HTTPException(status_code=500, detail=detail)
+
+    return {
+        "restored": name,
+        "from": str(target),
+        "pre_restore_snapshot": pre_restore_name,
+    }
 
 
 @router.delete("/v1/admin/backups/{name}")

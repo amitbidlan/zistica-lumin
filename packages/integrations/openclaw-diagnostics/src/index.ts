@@ -414,6 +414,11 @@ interface DecideRequestBody {
   trace_id?: string;
   span_id?: string;
   session_id?: string;
+  // Slice 6A — sender identity for cross-session vault matching.
+  // Plugin maps OpenClaw's ``senderId`` (e.g. ``telegram:5706…``)
+  // to this field so the leak detector can distinguish whose
+  // request this is.
+  user_id?: string;
   agent?: string;
   project?: string;
   model?: string;
@@ -1036,6 +1041,38 @@ export default definePluginEntry({
       return adminSenders.has(senderId.toLowerCase().trim());
     }
 
+    /**
+     * Resolve the sender identity to use as Lumin's ``user_id`` on
+     * decide() calls. Without this, the cross-session vault detector
+     * (Slice 6A) can't tell which user is asking — every cross-user
+     * leak attempt evaluates as "no signal" and slips through.
+     *
+     * Lookup order:
+     *   1. event.senderId (when the hook event surfaces it directly)
+     *   2. ctx.senderId (rare, but sometimes populated)
+     *   3. sessionToSender map (recorded by inbound_claim /
+     *      before_dispatch on earlier turns of the same session)
+     *
+     * Returns undefined when the plugin has no signal — the firewall
+     * treats that as "anonymous" per Rule 7 (vault detector no-ops
+     * rather than false-flag).
+     */
+    function resolveUserId(
+      event?: { senderId?: string; sessionKey?: string } | undefined,
+      ctx?: { senderId?: string; sessionId?: string; sessionKey?: string } | undefined,
+    ): string | undefined {
+      const fromEvent = event?.senderId;
+      if (fromEvent) return fromEvent;
+      const fromCtx = ctx?.senderId;
+      if (fromCtx) return fromCtx;
+      const sessionKey = event?.sessionKey ?? ctx?.sessionKey ?? ctx?.sessionId;
+      if (sessionKey) {
+        const cached = sessionToSender.get(sessionKey);
+        if (cached) return cached;
+      }
+      return undefined;
+    }
+
     function recordRecentBlock(sessionKey: string | undefined): void {
       if (!sessionKey) return;
       sessionRecentBlock.set(sessionKey, Date.now());
@@ -1165,6 +1202,9 @@ export default definePluginEntry({
             ? asUuid(ctx.trace.spanId, `${event.runId ?? "_"}:tool`)
             : undefined,
           session_id: ctx?.sessionId,
+          // Slice 6A — required for the cross-session vault detector
+          // to distinguish whose request this is.
+          user_id: resolveUserId(undefined, ctx),
           agent: ctx?.agentId,
           project: cfg.project || DEFAULT_PROJECT,
         });
@@ -1285,6 +1325,7 @@ export default definePluginEntry({
           lifecycle: "before_proxy_call",
           messages: [{ role: "user", content: userMessage }],
           session_id: event.sessionKey,
+          user_id: resolveUserId(event, undefined),
           agent: undefined,  // ctx in inbound_claim doesn't carry agentId
           project: cfg.project || DEFAULT_PROJECT,
         });
@@ -1460,6 +1501,7 @@ export default definePluginEntry({
           lifecycle: "before_proxy_call",
           messages: [{ role: "user", content: userMessage }],
           session_id: sessionKey,
+          user_id: resolveUserId({ senderId, sessionKey }, undefined),
           trace_id: takeoverTraceId,
           project: cfg.project || DEFAULT_PROJECT,
         });
@@ -1755,6 +1797,7 @@ export default definePluginEntry({
             ? asUuid(ctx.trace.traceId, ctx?.runId ?? "_")
             : undefined,
           session_id: ctx?.sessionId,
+          user_id: resolveUserId(undefined, ctx),
           agent: ctx?.agentId,
           project: cfg.project || DEFAULT_PROJECT,
         });
@@ -1902,6 +1945,7 @@ export default definePluginEntry({
             ? asUuid(ctx.trace.traceId, ctx?.runId ?? "_")
             : undefined,
           session_id: ctx?.sessionId,
+          user_id: resolveUserId(undefined, ctx),
           agent: ctx?.agentId,
           project: cfg.project || DEFAULT_PROJECT,
         });
