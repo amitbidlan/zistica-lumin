@@ -1,6 +1,39 @@
 {
   "components": {
     "schemas": {
+      "AdminHealth": {
+        "properties": {
+          "components": {
+            "items": {
+              "$ref": "#/components/schemas/HealthComponent"
+            },
+            "title": "Components",
+            "type": "array"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "components"
+        ],
+        "title": "AdminHealth",
+        "type": "object"
+      },
       "AgentDetail": {
         "description": "Detail page payload \u2014 same metrics + recent traces + violation\nbreakdown by policy.",
         "properties": {
@@ -347,6 +380,102 @@
           "resolution"
         ],
         "title": "ApprovalResolveRequest",
+        "type": "object"
+      },
+      "BackupCreateRequest": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "title": "BackupCreateRequest",
+        "type": "object"
+      },
+      "BackupCreateResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "path",
+          "size_bytes",
+          "created_at"
+        ],
+        "title": "BackupCreateResponse",
+        "type": "object"
+      },
+      "BackupListResponse": {
+        "properties": {
+          "backup_dir": {
+            "title": "Backup Dir",
+            "type": "string"
+          },
+          "backups": {
+            "items": {
+              "$ref": "#/components/schemas/BackupSummary"
+            },
+            "title": "Backups",
+            "type": "array"
+          }
+        },
+        "required": [
+          "backup_dir",
+          "backups"
+        ],
+        "title": "BackupListResponse",
+        "type": "object"
+      },
+      "BackupSummary": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "path",
+          "created_at",
+          "size_bytes"
+        ],
+        "title": "BackupSummary",
         "type": "object"
       },
       "ClassifierTrainRequest": {
@@ -783,6 +912,35 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthComponent": {
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "status"
+        ],
+        "title": "HealthComponent",
         "type": "object"
       },
       "IngestRequest": {
@@ -1778,6 +1936,82 @@
         "title": "ReplayRequest",
         "type": "object"
       },
+      "RestoreRequest": {
+        "properties": {
+          "confirm": {
+            "description": "MUST be true. Required acknowledgement that restore overwrites the live database.",
+            "title": "Confirm",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "confirm"
+        ],
+        "title": "RestoreRequest",
+        "type": "object"
+      },
+      "RetentionCleanupRequest": {
+        "properties": {
+          "days": {
+            "maximum": 3650.0,
+            "minimum": 0.0,
+            "title": "Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "days"
+        ],
+        "title": "RetentionCleanupRequest",
+        "type": "object"
+      },
+      "RetentionCleanupResponse": {
+        "properties": {
+          "cutoff": {
+            "format": "date-time",
+            "title": "Cutoff",
+            "type": "string"
+          },
+          "deleted_traces": {
+            "title": "Deleted Traces",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "deleted_traces",
+          "cutoff"
+        ],
+        "title": "RetentionCleanupResponse",
+        "type": "object"
+      },
+      "RetentionConfig": {
+        "properties": {
+          "backup_dir": {
+            "title": "Backup Dir",
+            "type": "string"
+          },
+          "cleanup_enabled": {
+            "title": "Cleanup Enabled",
+            "type": "boolean"
+          },
+          "cleanup_interval_hours": {
+            "title": "Cleanup Interval Hours",
+            "type": "integer"
+          },
+          "days": {
+            "title": "Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "days",
+          "cleanup_enabled",
+          "cleanup_interval_hours",
+          "backup_dir"
+        ],
+        "title": "RetentionConfig",
+        "type": "object"
+      },
       "Session": {
         "properties": {
           "first_seen": {
@@ -2516,6 +2750,38 @@
             ],
             "title": "Ended At"
           },
+          "firewall_blocked": {
+            "default": false,
+            "title": "Firewall Blocked",
+            "type": "boolean"
+          },
+          "firewall_decision_count": {
+            "default": 0,
+            "title": "Firewall Decision Count",
+            "type": "integer"
+          },
+          "firewall_top_policy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Firewall Top Policy"
+          },
+          "firewall_top_verb": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Firewall Top Verb"
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -2821,6 +3087,38 @@
             ],
             "title": "Ended At"
           },
+          "firewall_blocked": {
+            "default": false,
+            "title": "Firewall Blocked",
+            "type": "boolean"
+          },
+          "firewall_decision_count": {
+            "default": 0,
+            "title": "Firewall Decision Count",
+            "type": "integer"
+          },
+          "firewall_top_policy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Firewall Top Policy"
+          },
+          "firewall_top_verb": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Firewall Top Verb"
+          },
           "has_violations": {
             "default": false,
             "title": "Has Violations",
@@ -3025,13 +3323,54 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      },
+      "WebhookCreateRequest": {
+        "properties": {
+          "config": {
+            "additionalProperties": true,
+            "title": "Config",
+            "type": "object"
+          },
+          "kind": {
+            "description": "slack | discord | pagerduty | generic | email",
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "project_filter": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Filter"
+          },
+          "severity_min": {
+            "default": "medium",
+            "title": "Severity Min",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "kind"
+        ],
+        "title": "WebhookCreateRequest",
+        "type": "object"
       }
     }
   },
   "info": {
     "description": "Local-first AI agent observability \u2014 ingest and query API",
     "title": "Lumin API",
-    "version": "0.5.0"
+    "version": "0.5.2"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -3053,6 +3392,230 @@
           }
         },
         "summary": "Health"
+      }
+    },
+    "/v1/admin/backups": {
+      "get": {
+        "operationId": "list_backups_v1_admin_backups_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Backups"
+      },
+      "post": {
+        "description": "Snapshot the DuckDB to a named directory under LUMIN_BACKUP_DIR.\n\nDefault name is the UTC timestamp (``snap_YYYYMMDDTHHMMSSZ``)\nso unattended cron jobs don't have to think up names.",
+        "operationId": "create_backup_v1_admin_backups_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BackupCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupCreateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Backup"
+      }
+    },
+    "/v1/admin/backups/{name}": {
+      "delete": {
+        "operationId": "delete_backup_v1_admin_backups__name__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Delete Backup V1 Admin Backups  Name  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Backup"
+      }
+    },
+    "/v1/admin/backups/{name}/restore": {
+      "post": {
+        "description": "Restore the named snapshot. **Destructive** \u2014 overwrites\nevery table in the live DB.\n\nCaller must pass ``{\"confirm\": true}``. Anything else 400s so a\nmisfired curl can't accidentally roll back the database.",
+        "operationId": "restore_backup_v1_admin_backups__name__restore_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestoreRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Restore Backup V1 Admin Backups  Name  Restore Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Restore Backup"
+      }
+    },
+    "/v1/admin/health": {
+      "get": {
+        "description": "Per-component health for the dashboard's ops page.\n\nDashboard's existing ``/health`` is a 200/200 binary \u2014 useful\nfor the Docker healthcheck, useless when something is degraded\nbut technically responding. This breaks it down per subsystem.",
+        "operationId": "admin_health_v1_admin_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminHealth"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Admin Health"
+      }
+    },
+    "/v1/admin/retention": {
+      "get": {
+        "operationId": "get_retention_v1_admin_retention_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetentionConfig"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Retention"
+      }
+    },
+    "/v1/admin/retention/cleanup": {
+      "post": {
+        "description": "Run the cleanup task once with an explicit cutoff.\n\nUseful for operators who want to trim a runaway DB without\nwaiting for the next scheduled tick (default daily). The env\nvar ``LUMIN_RETENTION_DAYS`` is unaffected \u2014 this is one-shot.",
+        "operationId": "run_retention_cleanup_v1_admin_retention_cleanup_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetentionCleanupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetentionCleanupResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Retention Cleanup"
       }
     },
     "/v1/agents": {
@@ -4177,6 +4740,111 @@
         "summary": "Run Drift"
       }
     },
+    "/v1/firewall/library": {
+      "get": {
+        "description": "List every starter pack available for import. Returns one\nobject per pack: pack_id, display name, category, policy count,\nshort description, lifecycle list, auto-installed flag.\n\nThe dashboard's /firewall/library page renders this verbatim;\noperators get a one-click install per pack.",
+        "operationId": "list_library_packs_endpoint_v1_firewall_library_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Library Packs Endpoint V1 Firewall Library Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Library Packs Endpoint"
+      }
+    },
+    "/v1/firewall/library/{pack_id}": {
+      "get": {
+        "description": "Preview a pack's policies without writing anything. Used by\nthe import-confirmation modal so operators see what they're\nabout to install.",
+        "operationId": "preview_library_pack_endpoint_v1_firewall_library__pack_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pack_id",
+            "required": true,
+            "schema": {
+              "title": "Pack Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Preview Library Pack Endpoint V1 Firewall Library  Pack Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview Library Pack Endpoint"
+      }
+    },
+    "/v1/firewall/library/{pack_id}/import": {
+      "post": {
+        "description": "Import every policy in a pack into the DB. Idempotent \u2014\nduplicate policy names are SKIPPED (operator's existing rule\nwins). All imported policies land in mode=shadow per \u00a710.1.",
+        "operationId": "import_library_pack_endpoint_v1_firewall_library__pack_id__import_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pack_id",
+            "required": true,
+            "schema": {
+              "title": "Pack Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Import Library Pack Endpoint V1 Firewall Library  Pack Id  Import Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import Library Pack Endpoint"
+      }
+    },
     "/v1/firewall/miner/run": {
       "post": {
         "description": "Manual trigger \u2014 kicks the frequent-pattern miner on demand.\nSame scan + emit logic as the background loop. Returns a summary\nof what it did. Useful for ad-hoc operator-driven scans\n(\"refresh suggestions now\").",
@@ -4569,6 +5237,292 @@
           }
         },
         "summary": "Replay Endpoint"
+      }
+    },
+    "/v1/firewall/vault": {
+      "get": {
+        "description": "List session-vault entries (the cross-session leak detector's\nDB). Filter by user_id / session_id; default 100 most recent.\n\nThe full fact value was never stored \u2014 operators see only the\ntruncated excerpt + metadata so a vault dump can't re-leak the\nsensitive data it was protecting.",
+        "operationId": "list_vault_entries_endpoint_v1_firewall_vault_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "user_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "User Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "session_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Session Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Vault Entries Endpoint V1 Firewall Vault Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Vault Entries Endpoint"
+      }
+    },
+    "/v1/firewall/vault/stats": {
+      "get": {
+        "description": "Aggregate counts for the dashboard's vault overview card \u2014\ntotal entries, breakdown by fact_kind, top-20 user_ids by\nentry count.",
+        "operationId": "vault_stats_endpoint_v1_firewall_vault_stats_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Vault Stats Endpoint V1 Firewall Vault Stats Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Vault Stats Endpoint"
+      }
+    },
+    "/v1/firewall/vault/{entry_id}": {
+      "delete": {
+        "description": "Erase a single vault entry. Useful for right-to-erasure\n(GDPR Art. 17) and for cleaning up false-positive recordings\nthat would noise up the leak detector.",
+        "operationId": "delete_vault_entry_endpoint_v1_firewall_vault__entry_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "title": "Entry Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Delete Vault Entry Endpoint V1 Firewall Vault  Entry Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Vault Entry Endpoint"
+      }
+    },
+    "/v1/firewall/webhooks": {
+      "get": {
+        "description": "List configured webhook destinations. Secret config fields\n(tokens, HMAC keys) are masked in the response \u2014 operators see\nenough to identify the row but not exfiltrate the secret.",
+        "operationId": "list_firewall_webhooks_endpoint_v1_firewall_webhooks_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Firewall Webhooks Endpoint V1 Firewall Webhooks Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Firewall Webhooks Endpoint"
+      },
+      "post": {
+        "description": "Create a new webhook destination. Returns the row id; the\nsecret config field comes back masked on subsequent GETs.",
+        "operationId": "create_firewall_webhook_endpoint_v1_firewall_webhooks_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Firewall Webhook Endpoint V1 Firewall Webhooks Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Firewall Webhook Endpoint"
+      }
+    },
+    "/v1/firewall/webhooks/failures": {
+      "get": {
+        "description": "Webhook DLQ \u2014 deliveries that exhausted retries. Operators\ninspect this when a Slack / PagerDuty channel goes dark.",
+        "operationId": "list_webhook_failures_endpoint_v1_firewall_webhooks_failures_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Webhook Failures Endpoint V1 Firewall Webhooks Failures Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Webhook Failures Endpoint"
+      }
+    },
+    "/v1/firewall/webhooks/{webhook_id}": {
+      "delete": {
+        "operationId": "delete_firewall_webhook_endpoint_v1_firewall_webhooks__webhook_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "webhook_id",
+            "required": true,
+            "schema": {
+              "title": "Webhook Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Delete Firewall Webhook Endpoint V1 Firewall Webhooks  Webhook Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Firewall Webhook Endpoint"
       }
     },
     "/v1/labels": {
@@ -5253,6 +6207,165 @@
         "summary": "Set Policy Mode"
       }
     },
+    "/v1/policies/{name}/rollback": {
+      "post": {
+        "description": "Restore a policy to an earlier version snapshot.\n\nBody: ``{\"version_number\": N}``. Operator-attributed via the\nstandard X-Lumin-Actor header so the rollback itself appears in\nthe audit log.",
+        "operationId": "rollback_policy_v1_policies__name__rollback_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Payload",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Rollback Policy V1 Policies  Name  Rollback Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rollback Policy"
+      }
+    },
+    "/v1/policies/{name}/versions": {
+      "get": {
+        "description": "Version snapshots \u2014 every create / update / rollback writes\na row to ``policy_versions``. The dashboard's history tab\nrenders this as a timeline with one-click rollback.",
+        "operationId": "list_policy_versions_v1_policies__name__versions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Policy Versions V1 Policies  Name  Versions Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Policy Versions"
+      }
+    },
+    "/v1/policies/{name}/versions/{version_number}": {
+      "get": {
+        "description": "Fetch a specific historical version (full YAML snapshot).",
+        "operationId": "get_policy_version_v1_policies__name__versions__version_number__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version_number",
+            "required": true,
+            "schema": {
+              "title": "Version Number",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Policy Version V1 Policies  Name  Versions  Version Number  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Policy Version"
+      }
+    },
     "/v1/policy/decide": {
       "post": {
         "description": "Synchronous decision endpoint. Never raises \u2014 Rule 7.",
@@ -5361,6 +6474,24 @@
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
+            }
+          },
+          {
+            "description": "Multi-tenant scope. Same semantics as /v1/traces.",
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Multi-tenant scope. Same semantics as /v1/traces.",
+              "title": "Project"
             }
           }
         ],
@@ -5514,6 +6645,24 @@
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
+            }
+          },
+          {
+            "description": "Multi-tenant scope. When set, returns only traces tagged with this project. Use 'default' for the un-tagged bucket. Omit to see all projects (operator view).",
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Multi-tenant scope. When set, returns only traces tagged with this project. Use 'default' for the un-tagged bucket. Omit to see all projects (operator view).",
+              "title": "Project"
             }
           }
         ],
@@ -5715,6 +6864,24 @@
                 }
               ],
               "title": "Policy Name"
+            }
+          },
+          {
+            "description": "Multi-tenant scope \u2014 JOINs through traces.project.",
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Multi-tenant scope \u2014 JOINs through traces.project.",
+              "title": "Project"
             }
           },
           {
