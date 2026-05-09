@@ -71,6 +71,14 @@ _SSRF_BLOCKED_HOSTS = {
     # GCP / Azure metadata service
     "metadata.google.internal",
     "metadata.azure.com",
+    # Loopback hostnames (RFC 6761 requires these resolve to 127.0.0.1
+    # but we'd rather fail-closed than rely on the resolver). Catches
+    # webhook URLs pointed at the same Lumin instance, which would
+    # otherwise be a reflection/SSRF amplifier when LUMIN_API_TOKEN
+    # is unset.
+    "localhost",
+    "ip6-localhost",
+    "ip6-loopback",
 }
 
 

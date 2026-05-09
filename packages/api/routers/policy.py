@@ -625,6 +625,10 @@ _ALLOWED_NAMES = frozenset({
     # firewall vocab.
     "Input", "Output",
     "tool_name", "params", "text",
+    # Slice 6A — bare ``user_id`` is bound by ``_build_namespace`` so
+    # cross-session-leak rules can reference it without an Input.
+    # prefix.
+    "user_id",
 })
 _ALLOWED_FUNCTIONS = frozenset({
     "len", "str", "int", "float", "abs",
@@ -667,6 +671,9 @@ _ALLOWED_FUNCTIONS = frozenset({
     # Local fine-tuned classifier (Slice 3 PR S — §6.8 / §11.6;
     # opt-in via sklearn install + dashboard "Retrain classifier")
     "org_classifier_score", "org_classifier_predict",
+    # Cross-session vault (Slice 6A — DB-bound, looks up
+    # session_vault for foreign-user fact matches)
+    "cross_session_leak", "cross_session_leak_details",
 })
 
 

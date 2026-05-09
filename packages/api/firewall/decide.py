@@ -406,6 +406,7 @@ def decide(
     trace_id: Optional[str] = None,
     span_id: Optional[str] = None,
     session_id: Optional[str] = None,
+    user_id: Optional[str] = None,
     agent: Optional[str] = None,
     project: Optional[str] = None,
     model: Optional[str] = None,
@@ -498,6 +499,7 @@ def decide(
         trace_id=trace_id,
         span_id=span_id,
         session_id=session_id,
+        user_id=user_id,
         agent=agent,
         project=project,
         model=model,
@@ -803,7 +805,23 @@ def _build_namespace(**req: Any) -> Dict[str, Any]:
                 for blk in content:
                     if isinstance(blk, dict) and blk.get("type") == "text":
                         last_user_msg = blk.get("text", "")
-    output_text = req.get("output") if isinstance(req.get("output"), str) else ""
+    # Output text extraction. Three shapes seen in production:
+    #   - raw string                         "Hello, Alice"
+    #   - {text: "..."}                      OpenAI-compatible after_proxy_call
+    #   - {result: "..."}                    after_tool_call shape
+    # Brutal-test fix (2026-05-09): the previous code only extracted
+    # the raw-string variant. When integrations sent {"text": "..."}
+    # (the standard shape) Output.text was empty — every after_proxy_call
+    # rule that referenced Output.text fired against "" and silently
+    # never matched.
+    raw_output = req.get("output")
+    if isinstance(raw_output, str):
+        output_text = raw_output
+    elif isinstance(raw_output, dict):
+        candidate = raw_output.get("text") or raw_output.get("result")
+        output_text = candidate if isinstance(candidate, str) else ""
+    else:
+        output_text = ""
 
     return {
         "Input": _NS({
@@ -818,6 +836,10 @@ def _build_namespace(**req: Any) -> Dict[str, Any]:
             "session_id": req.get("session_id"),
             "trace_id": req.get("trace_id"),
             "span_id": req.get("span_id"),
+            # Slice 6A — required by the cross_session_leak builtin.
+            # When the integration doesn't pass user_id (single-tenant
+            # agents), the leak detector no-ops per Rule 7.
+            "user_id": req.get("user_id"),
         }),
         "Output": _NS({
             "text": output_text,
@@ -829,6 +851,9 @@ def _build_namespace(**req: Any) -> Dict[str, Any]:
         "text": " ".join(parts) if parts else (output_text or last_user_msg),
         "tool_name": req.get("tool_name"),
         "params": params,
+        # Bare ``user_id`` — exposed at top level so cross-session-leak
+        # rules can reference it without an Input. prefix.
+        "user_id": req.get("user_id"),
     }
 
 
