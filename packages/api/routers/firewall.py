@@ -53,6 +53,11 @@ class DecideRequest(BaseModel):
     trace_id: Optional[str] = None
     span_id: Optional[str] = None
     session_id: Optional[str] = None
+    # Slice 6A — required for cross-session-leak rules to know whose
+    # request this is. Optional because not every integration has the
+    # concept (single-tenant agents leave it None and the leak
+    # detector gracefully no-ops per Rule 7).
+    user_id: Optional[str] = None
     agent: Optional[str] = None
     project: Optional[str] = None
     model: Optional[str] = None
@@ -93,6 +98,7 @@ def decide_endpoint(
             trace_id=payload.trace_id,
             span_id=payload.span_id,
             session_id=payload.session_id,
+            user_id=payload.user_id,
             agent=payload.agent,
             project=payload.project,
             model=payload.model,

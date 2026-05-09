@@ -221,8 +221,19 @@ def _mask_value(v: str) -> str:
 
 
 def _validate_kind_config(kind: str, config: Dict[str, Any]) -> None:
-    """Per-kind required fields. Errors here surface as 400 from
-    the create endpoint."""
+    """Per-kind required fields + URL safety. Errors here surface as
+    400 from the create endpoint.
+
+    SSRF guard (Slice 6A.1 / brutal-test fix): every URL-shaped
+    config field is validated against ``policy_runtime._webhook_url_safe``
+    which rejects:
+      - non-http(s) schemes (file://, gopher://, ftp://, etc.)
+      - loopback / private / link-local / reserved IPs
+      - AWS instance metadata host + IP variants
+    Without this check, an operator (or anyone with write access to
+    /v1/firewall/webhooks) could exfiltrate cloud creds by pointing
+    a webhook at 169.254.169.254 and triggering any block decision.
+    """
     required: Dict[str, List[str]] = {
         "slack": ["webhook_url"],
         "discord": ["webhook_url"],
@@ -236,6 +247,20 @@ def _validate_kind_config(kind: str, config: Dict[str, Any]) -> None:
         raise ValueError(
             f"webhook kind={kind!r} requires config keys: {missing}"
         )
+
+    # URL-safety check — reuses the validator that already protects
+    # the legacy policy_violations.webhook_url field.
+    from policy_runtime import _webhook_url_safe
+    url_keys = ("webhook_url", "url")
+    for key in url_keys:
+        url = config.get(key)
+        if not isinstance(url, str) or not url:
+            continue
+        if not _webhook_url_safe(url):
+            raise ValueError(
+                f"webhook url rejected by SSRF guard "
+                f"(blocked scheme / private host / cloud metadata): {url!r}"
+            )
 
 
 # ---- dispatch on decision -------------------------------------------------
