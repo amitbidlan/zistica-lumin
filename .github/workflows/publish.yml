@@ -137,7 +137,11 @@ jobs:
   npm:
     name: Publish ${{ matrix.package }} to npm
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
+    # Run on tag-push AND on manual workflow_dispatch. The original
+    # ``== 'push'`` guard silently SKIPPED this whole matrix when an
+    # operator re-ran the workflow manually (e.g. to retry ClawHub
+    # after fixing a secret). Caught 2026-05-10 — see PR/run #25605688207.
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     needs: publish  # docker first; if image fails, npm shouldn't ship either
     permissions:
       contents: read
@@ -211,7 +215,8 @@ jobs:
   clawhub:
     name: Publish lumin-diagnostics to ClawHub
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
+    # Same fix as the npm job above — accept manual re-runs.
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     needs: npm
     steps:
       - uses: actions/checkout@v4
