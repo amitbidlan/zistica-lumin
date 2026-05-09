@@ -61,6 +61,10 @@ def _row_to_trace(row: dict) -> Trace:
         metadata=metadata,
         ingest_at=row.get("ingest_at"),
         violation_count=int(row.get("violation_count") or 0),
+        firewall_decision_count=int(row.get("firewall_decision_count") or 0),
+        firewall_blocked=bool(row.get("firewall_blocked") or False),
+        firewall_top_policy=row.get("firewall_top_policy"),
+        firewall_top_verb=row.get("firewall_top_verb"),
     )
 
 
@@ -85,7 +89,51 @@ SELECT
     COALESCE(
         (SELECT COUNT(*) FROM policy_violations WHERE trace_id = t.id),
         0
-    ) AS violation_count
+    ) AS violation_count,
+    -- Agent Firewall summary. Counts decisions linked to this trace
+    -- and surfaces a single "top" verb + policy name for the
+    -- dashboard badge. ``firewall_blocked`` is true when any of the
+    -- block-class verbs (block / require_approval / rewrite) fired
+    -- in enforce mode against this trace. Subqueries are bounded by
+    -- decision retention so the cost stays linear.
+    COALESCE(
+        (SELECT COUNT(*) FROM decisions WHERE trace_id = t.id),
+        0
+    ) AS firewall_decision_count,
+    EXISTS (
+        SELECT 1 FROM decisions
+        WHERE trace_id = t.id
+          AND decision IN ('block', 'require_approval', 'rewrite')
+          AND mode_at_decision = 'enforce'
+    ) AS firewall_blocked,
+    (
+        SELECT policy_name FROM decisions
+        WHERE trace_id = t.id
+          AND decision IN ('block', 'require_approval', 'rewrite')
+        ORDER BY
+            CASE decision
+                WHEN 'block' THEN 0
+                WHEN 'require_approval' THEN 1
+                WHEN 'rewrite' THEN 2
+                ELSE 3
+            END,
+            decision_at ASC
+        LIMIT 1
+    ) AS firewall_top_policy,
+    (
+        SELECT decision FROM decisions
+        WHERE trace_id = t.id
+          AND decision IN ('block', 'require_approval', 'rewrite')
+        ORDER BY
+            CASE decision
+                WHEN 'block' THEN 0
+                WHEN 'require_approval' THEN 1
+                WHEN 'rewrite' THEN 2
+                ELSE 3
+            END,
+            decision_at ASC
+        LIMIT 1
+    ) AS firewall_top_verb
 FROM traces t
 """
 

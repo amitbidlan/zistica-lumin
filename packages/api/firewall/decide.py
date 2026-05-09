@@ -919,8 +919,17 @@ def _record_decision(
 ) -> str:
     """Insert a row in `decisions`. Returns the decision_id even when
     insert fails — caller still wants something to put in the response.
+
+    For block-class decisions (block / require_approval / rewrite) we
+    *also* mirror to ``policy_violations`` so the legacy violations
+    page (and ``trace.violation_count`` aggregate) surfaces firewall
+    actions naturally. Without this bridge operators look at
+    /violations to find "what did Lumin catch?" and see zeros while
+    /decisions has rows — the two views had silently diverged.
     """
     decision_id = "dec_" + uuid.uuid4().hex[:24]
+    policy_name = policy.name if policy else "_engine_"
+    severity = getattr(policy, "severity", None) if policy is not None else None
     try:
         db.execute(
             """
@@ -934,8 +943,8 @@ def _record_decision(
             """,
             [
                 decision_id,
-                policy.name if policy else "_engine_",
-                policy.name if policy else "_engine_",
+                policy_name,
+                policy_name,
                 lifecycle,
                 decision,
                 mode_at_decision,
@@ -949,7 +958,122 @@ def _record_decision(
         )
     except Exception:
         logger.exception("firewall.decide: failed to insert decision row")
+
+    # Block-class decisions trigger two side effects: legacy
+    # violations mirroring (PR #82, so the /violations page surfaces
+    # firewall actions) and outbound webhook dispatch (this PR, so
+    # operators get pinged on Slack/PagerDuty/etc.). Both are
+    # fire-and-forget per Rule 7 — neither must delay the firewall
+    # response.
+    if decision in {"block", "require_approval", "rewrite"}:
+        if trace_id:
+            _mirror_decision_as_violation(
+                db,
+                policy=policy,
+                policy_name=policy_name,
+                decision=decision,
+                mode_at_decision=mode_at_decision,
+                reason=reason,
+                trace_id=trace_id,
+                span_id=span_id,
+            )
+        try:
+            from firewall import webhooks as fw_webhooks
+            fw_webhooks.fire_for_decision(
+                db,
+                decision_id=decision_id,
+                decision=decision,
+                severity=severity,
+                policy_name=policy_name,
+                project=project,
+                reason=reason,
+                trace_id=trace_id,
+                mode_at_decision=mode_at_decision,
+            )
+        except Exception:
+            logger.exception(
+                "firewall.decide: webhook dispatch failed for decision %s",
+                decision_id,
+            )
+
     return decision_id
+
+
+# Severity defaults when the policy doesn't carry a severity field.
+# Tuned so the dashboard's /violations page doesn't get drowned in
+# 'critical' rows just because the firewall is in enforce mode.
+_DECISION_SEVERITY_DEFAULTS = {
+    "block": "high",
+    "require_approval": "medium",
+    "rewrite": "low",
+}
+
+
+def _mirror_decision_as_violation(
+    db: Database,
+    *,
+    policy: Optional[Policy],
+    policy_name: str,
+    decision: str,
+    mode_at_decision: str,
+    reason: str,
+    trace_id: str,
+    span_id: Optional[str],
+) -> None:
+    """Mirror a firewall decision to the ``policy_violations`` table.
+
+    Idempotent: id is derived from (policy_name, trace_id, span_id) so
+    re-runs of the same decision context dedupe automatically (matches
+    the SDK ingest endpoint's id scheme — both can write to the same
+    row without conflict).
+    """
+    try:
+        from policy_runtime import _violation_id  # local import: avoids circular deps
+        vid = _violation_id(policy_name, trace_id, span_id)
+        severity = (
+            getattr(policy, "severity", None)
+            if policy is not None
+            else None
+        ) or _DECISION_SEVERITY_DEFAULTS.get(decision, "medium")
+        # action_taken includes the mode so the operator can spot
+        # shadow-mode rows on the violations page (they look ghostly).
+        action_taken = (
+            f"{decision}:{mode_at_decision}"
+            if mode_at_decision and mode_at_decision != "enforce"
+            else decision
+        )
+        condition_text = (reason or "")[:500] or None
+        db.execute(
+            """
+            INSERT INTO policy_violations (
+                id, policy_name, policy_description, span_id, trace_id,
+                condition_text, action_taken, severity, actual_value,
+                webhook_fired, webhook_url
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (id) DO NOTHING
+            """,
+            [
+                vid,
+                policy_name,
+                getattr(policy, "description", None) if policy else None,
+                span_id,
+                trace_id,
+                condition_text,
+                action_taken,
+                severity,
+                None,
+                False,
+                None,
+            ],
+        )
+    except Exception:
+        # Rule 7: never let a violations-mirror failure bubble up and
+        # break the firewall response. Log and move on.
+        logger.exception(
+            "firewall.decide: failed to mirror decision %s/%s to policy_violations",
+            policy_name,
+            decision,
+        )
 
 
 def _create_approval(

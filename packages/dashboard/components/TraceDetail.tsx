@@ -19,6 +19,7 @@ import { useTraceStream, WSMessage } from '@/lib/websocket';
 import { isChatShapedTrace } from '@/lib/chat-shape';
 import ChatView from './ChatView';
 import SpanTimeline from './SpanTimeline';
+import { LuminFirewallBanner } from './LuminFirewallBadge';
 
 export default function TraceDetail({ id }: { id: string }) {
   const traceKey = `/v1/traces/${id}`;
@@ -145,6 +146,8 @@ export default function TraceDetail({ id }: { id: string }) {
           {wsState === 'connected' ? 'live' : 'polling'}
         </span>
       </div>
+
+      <LuminFirewallBanner trace={trace} />
 
       <header className="border border-[var(--border)] rounded p-4">
         <h1 className="font-mono text-base mb-1">{trace.name ?? trace.id}</h1>

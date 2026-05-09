@@ -1,0 +1,95 @@
+# Dev environment safety — Lumin starter pack
+#
+# Conservative defaults for any agent that runs on a developer's
+# machine and has shell + filesystem tool access. Catches the
+# hold-my-beer commands ('rm -rf', 'dd if=', 'mkfs', writes to
+# /etc) before they fire.
+#
+# Companion to OWASP LLM Top 10. The owasp_destructive_shell rule
+# in that pack covers the broad strokes; this pack adds the
+# dev-machine-specific surfaces (.git, package managers, SSH keys,
+# cloud credentials).
+#
+# Ships shadow. Operator promotes after watching the
+# EnforcementTimeline for a day.
+
+version: 1
+
+policies:
+
+  # rm -rf with breadth quantifier
+  - name: dev_safety_rm_rf_broad
+    description: Block 'rm -rf' targeting root, $HOME, or wildcard patterns ('rm -rf /' / 'rm -rf ~/' / 'rm -rf *').
+    lifecycle: before_tool_call
+    mode: shadow
+    priority: 95
+    trigger: span_end
+    condition: is_shell_tool(tool_name) and regex_match(str(Input.params.get("command", "")), "(?i)rm\\s+-[rfRF]+\\s+(/|~/|\\*\\s|\\$HOME|\\$\\{HOME\\})")
+    action: block
+    severity: critical
+
+  # Disk-level destruction
+  - name: dev_safety_disk_destructive
+    description: Block disk-wipe commands (dd if=, mkfs, fdisk, parted) regardless of args.
+    lifecycle: before_tool_call
+    mode: shadow
+    priority: 95
+    trigger: span_end
+    condition: is_shell_tool(tool_name) and regex_match(str(Input.params.get("command", "")), "(?i)\\b(dd\\s+if=|mkfs(\\.[a-z0-9]+)?|fdisk\\s|parted\\s|wipefs)\\b")
+    action: block
+    severity: critical
+
+  # Reading SSH / cloud credentials
+  - name: dev_safety_credential_read
+    description: Block reads of SSH keys, AWS credentials, GCP credentials, kubeconfig, .env files.
+    lifecycle: before_tool_call
+    mode: shadow
+    priority: 90
+    trigger: span_end
+    condition: (is_shell_tool(tool_name) or is_filesystem_tool(tool_name)) and regex_match(str(Input.params.get("command", "") or Input.params.get("path", "") or Input.params.get("file", "")), "(?i)(\\.ssh/(id_|authorized|known_hosts)|\\.aws/credentials|\\.gcp/credentials|\\.kube/config|\\.npmrc|\\.netrc|\\.env(\\.|$)|gcloud/application_default)")
+    action: block
+    severity: high
+
+  # Git force-push to protected branches
+  - name: dev_safety_git_force_push_protected
+    description: Block 'git push --force' to main / master / production / release branches.
+    lifecycle: before_tool_call
+    mode: shadow
+    priority: 88
+    trigger: span_end
+    condition: is_shell_tool(tool_name) and regex_match(str(Input.params.get("command", "")), "(?i)git\\s+push\\s+(.*\\s+)?(--force|-f)\\b") and regex_match(str(Input.params.get("command", "")), "(?i)\\b(main|master|production|prod|release)\\b")
+    action: require_approval
+    severity: high
+
+  # Package manager — auditless install of arbitrary packages
+  - name: dev_safety_npm_install_unscoped
+    description: Flag 'npm install' / 'pip install' / 'gem install' from outside an allowlist of registries.
+    lifecycle: before_tool_call
+    mode: shadow
+    priority: 70
+    trigger: span_end
+    condition: is_shell_tool(tool_name) and regex_match(str(Input.params.get("command", "")), "(?i)(npm|pnpm|yarn)\\s+(install|add|i)\\b") and regex_match(str(Input.params.get("command", "")), "(?i)--registry\\s+http") and not contains_any(str(Input.params.get("command", "")), ["registry.npmjs.org", "registry.yarnpkg.com"])
+    action: flag
+    severity: medium
+
+  # Curl piped to shell
+  - name: dev_safety_curl_pipe_shell
+    description: Block 'curl ... | sh' / 'wget ... | bash' patterns — classic remote-code-execution shape.
+    lifecycle: before_tool_call
+    mode: shadow
+    priority: 92
+    trigger: span_end
+    condition: is_shell_tool(tool_name) and regex_match(str(Input.params.get("command", "")), "(?i)(curl|wget|fetch)\\b.*\\|\\s*(ba)?sh\\b")
+    action: block
+    severity: critical
+
+  # Writes to system paths
+  - name: dev_safety_system_path_write
+    description: Block writes to /etc, /var, /usr, /System, /Library, %SystemRoot%.
+    lifecycle: before_tool_call
+    mode: shadow
+    priority: 88
+    trigger: span_end
+    condition: (is_shell_tool(tool_name) or is_filesystem_tool(tool_name)) and regex_match(str(Input.params.get("command", "") or Input.params.get("path", "") or Input.params.get("destination", "")), "(?i)(>|tee|cp|mv|install|chmod|chown)\\s.*?(/etc/|/var/|/usr/(?!local)|/System/|/Library/(?!Caches)|%SystemRoot%|C:\\\\Windows)")
+    action: block
+    severity: high

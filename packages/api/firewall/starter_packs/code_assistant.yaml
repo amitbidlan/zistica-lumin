@@ -1,0 +1,94 @@
+# Code-assistant — Lumin starter pack
+#
+# For agents that write or modify code (Cursor / Aider / Claude
+# Code / Devin / similar). Threats specific to this surface:
+#
+#   1. Suggesting eval() / exec() / unsafe deserialization.
+#   2. Writing to system paths or .git internals.
+#   3. Adding dependencies from arbitrary registries (supply-chain).
+#   4. Hardcoding secrets into committed code.
+#
+# Ships shadow. Most rules here are flag rather than block — code
+# review catches false positives, and aggressive blocking breaks
+# the agent's flow.
+
+version: 1
+
+policies:
+
+  # Suggesting eval() in user-facing code
+  - name: code_assistant_eval_suggestion
+    description: Flag agent output that introduces eval() / exec() / Function() / new Function in suggested code.
+    lifecycle: after_proxy_call
+    mode: shadow
+    priority: 85
+    trigger: span_end
+    condition: regex_match(Output.text, "(?<![a-zA-Z_])(eval|exec|new\\s+Function)\\s*\\(") or regex_match(Output.text, "(?i)setTimeout\\s*\\(\\s*[\"']")
+    action: flag
+    severity: high
+
+  # Unsafe deserialization
+  - name: code_assistant_unsafe_deserialization
+    description: Flag suggestions involving pickle.loads / yaml.load / json with eval-like deserializers.
+    lifecycle: after_proxy_call
+    mode: shadow
+    priority: 85
+    trigger: span_end
+    condition: regex_match(Output.text, "(?i)pickle\\.loads\\(") or regex_match(Output.text, "(?i)yaml\\.(unsafe_)?load\\s*\\(") or regex_match(Output.text, "(?i)marshal\\.loads\\(")
+    action: flag
+    severity: high
+
+  # Writes to .git or .github
+  - name: code_assistant_git_internals_write
+    description: Block tool calls writing into .git/ internals or .github/workflows (CI hijack surface).
+    lifecycle: before_tool_call
+    mode: shadow
+    priority: 90
+    trigger: span_end
+    condition: (is_shell_tool(tool_name) or is_filesystem_tool(tool_name)) and regex_match(str(Input.params.get("command", "") or Input.params.get("path", "") or Input.params.get("file", "")), "(?i)(\\.git/(?!hooks/sample)|\\.github/workflows/)")
+    action: block
+    severity: high
+
+  # Adding deps from arbitrary registries
+  - name: code_assistant_supply_chain_registry
+    description: Flag dependency adds that point at non-allowlisted registries (typo-squat / supply-chain risk).
+    lifecycle: before_tool_call
+    mode: shadow
+    priority: 70
+    trigger: span_end
+    condition: is_shell_tool(tool_name) and (regex_match(str(Input.params.get("command", "")), "(?i)pip\\s+install.*--index-url\\s") or regex_match(str(Input.params.get("command", "")), "(?i)npm\\s+(install|add).*--registry\\s") or regex_match(str(Input.params.get("command", "")), "(?i)(github|gitlab|bitbucket)\\.com/[^/]+/[^/\\s]+\\.git\\s"))
+    action: flag
+    severity: medium
+
+  # Hardcoded secrets in suggested code
+  - name: code_assistant_hardcoded_secret
+    description: Block suggestions that hardcode API keys / OAuth tokens / private keys into source.
+    lifecycle: after_proxy_call
+    mode: shadow
+    priority: 92
+    trigger: span_end
+    condition: regex_match(Output.text, "(sk-[A-Za-z0-9]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|ghp_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN (RSA |OPENSSH |EC |DSA )?PRIVATE KEY-----)")
+    action: block
+    severity: critical
+
+  # Suggesting `chmod 777` on directories
+  - name: code_assistant_chmod_world_writable
+    description: Flag suggestions that introduce 'chmod 777' or world-writable file modes.
+    lifecycle: after_proxy_call
+    mode: shadow
+    priority: 70
+    trigger: span_end
+    condition: regex_match(Output.text, "(?i)chmod\\s+(-R\\s+)?(777|a\\+rwx|o\\+w)\\b")
+    action: flag
+    severity: medium
+
+  # Disabling TLS verification in suggested code
+  - name: code_assistant_tls_disable
+    description: Flag suggestions that disable TLS / SSL verification (verify=False, rejectUnauthorized=false).
+    lifecycle: after_proxy_call
+    mode: shadow
+    priority: 80
+    trigger: span_end
+    condition: regex_match(Output.text, "(?i)(verify\\s*=\\s*False|rejectUnauthorized\\s*:\\s*false|--insecure\\s|InsecureSkipVerify\\s*[:=]\\s*true)")
+    action: flag
+    severity: medium

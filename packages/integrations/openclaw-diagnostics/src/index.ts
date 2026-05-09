@@ -101,11 +101,45 @@ interface LuminDiagnosticsConfig {
    * for ultra-locked-down deployments where ALL surfaces should
    * route admin context through the dashboard rather than chat. */
   adminSeesFullResponse?: boolean;
+
+  // ----- Firewall reply takeover (v0.5.3 — Slice 4) -------------------
+  /** When true (default), Lumin REPLACES the LLM's reply on input-side
+   * firewall blocks (block / require_approval at before_proxy_call).
+   * The LLM still runs (OpenClaw doesn't expose a hook that can cancel
+   * the call), but its output is discarded — the user sees Lumin's
+   * canned ``userInputBlockedMessage`` (or ``userBlockedMessage`` as
+   * fallback) instead.
+   *
+   * Why default on: LLM-generated refusals leak rule names ("I can't
+   * because the system prompt says..."), invent fake /approve syntax,
+   * and produce inconsistent UX. A canned reply gives the attacker
+   * no information and stays auditable.
+   *
+   * Set to false only when you specifically want to see what the LLM
+   * would have replied (shadow-mode debugging, A/B comparisons). The
+   * existing rule modes (shadow / flag) already cover the
+   * observation-only path without needing this flag. */
+  replyOnInputBlock?: boolean;
+
+  /** Canned message shown when the firewall blocks at the input
+   * (before_proxy_call) lifecycle. Optional — falls back to
+   * ``userBlockedMessage`` when unset, so single-message deployments
+   * just configure one field.
+   *
+   * The default is wording that fits a flagged user message
+   * specifically: "Your message could not be processed..." reads
+   * better than ``userBlockedMessage``'s "perform that action"
+   * phrasing when the user just typed adversarial text. */
+  userInputBlockedMessage?: string;
 }
 
 const DEFAULT_USER_BLOCKED_MESSAGE =
   "I'm unable to perform that action due to security policy. " +
   "Please contact your administrator if you need assistance.";
+
+const DEFAULT_USER_INPUT_BLOCKED_MESSAGE =
+  "Your message could not be processed due to security policy. " +
+  "Please rephrase or contact an administrator if you believe this is in error.";
 
 const DEFAULT_HOST = "http://localhost:8000";
 const DEFAULT_PROJECT = "openclaw";
@@ -609,6 +643,74 @@ class PendingToolCallRegistry {
 }
 
 
+// ----- input-side firewall block registry (v0.5.3) ------------------------
+//
+// Bridges ``before_prompt_build`` (where input-side firewall decisions
+// fire) → ``before_agent_reply`` (where the LLM's output is replaced).
+// On a block-class verb (``block`` / ``require_approval``) at
+// before_prompt_build we record a marker keyed by ``runId``; the reply
+// hook later consumes it and short-circuits with the operator's canned
+// message INSTEAD of letting the LLM's reply through.
+//
+// Why a registry rather than per-call closure: the two hooks are
+// independent subscriptions and don't share scope. A run-keyed map is
+// the cleanest correlation surface. Same TTL pattern as the LLM and
+// tool-call registries — process-local, bounded by concurrent runs,
+// auto-evicted at PENDING_TTL_MS so an orphaned marker can't leak.
+
+interface InputBlockedMarker {
+  recordedAtMs: number;
+  policyName?: string;
+  reason?: string;
+  decisionId?: string;
+  // The decision verb at the time of marking. ``block`` and
+  // ``require_approval`` both trip the marker; we keep the verb so
+  // the reply hook can include it in observability output.
+  decisionVerb: "block" | "require_approval";
+}
+
+class InputBlockedRunsRegistry {
+  private byRunId = new Map<string, InputBlockedMarker>();
+  private cleanupHandle: ReturnType<typeof setTimeout> | undefined;
+
+  set(runId: string, marker: InputBlockedMarker): void {
+    this.byRunId.set(runId, marker);
+    this.scheduleSweep();
+  }
+
+  take(runId: string): InputBlockedMarker | undefined {
+    const v = this.byRunId.get(runId);
+    if (v) this.byRunId.delete(runId);
+    return v;
+  }
+
+  /** Test-only — peek without consuming. Production code should
+   * always use ``take`` so markers don't double-fire. */
+  peek(runId: string): InputBlockedMarker | undefined {
+    return this.byRunId.get(runId);
+  }
+
+  size(): number {
+    return this.byRunId.size;
+  }
+
+  private scheduleSweep(): void {
+    if (this.cleanupHandle) return;
+    this.cleanupHandle = setTimeout(() => {
+      this.cleanupHandle = undefined;
+      const now = Date.now();
+      for (const [k, v] of this.byRunId) {
+        if (now - v.recordedAtMs > PENDING_TTL_MS) this.byRunId.delete(k);
+      }
+      if (this.byRunId.size > 0) this.scheduleSweep();
+    }, PENDING_TTL_MS);
+    if (typeof this.cleanupHandle === "object" && this.cleanupHandle && "unref" in this.cleanupHandle) {
+      (this.cleanupHandle as { unref?: () => void }).unref?.();
+    }
+  }
+}
+
+
 function toolCallKey(runId: string | undefined, toolCallId: string | undefined, toolName: string): string {
   // Prefer toolCallId — it's the host's canonical identifier and
   // doesn't collide across concurrent same-tool calls within a run.
@@ -902,6 +1004,11 @@ export default definePluginEntry({
     const enforceEnabled = cfg.enforce !== false;
     const pending = new PendingLlmRegistry();
     const toolPending = new PendingToolCallRegistry();
+    // v0.5.3 — input-side firewall block markers, consumed by
+    // before_agent_reply to take over the reply when the firewall
+    // blocked the user's prompt.
+    const inputBlocked = new InputBlockedRunsRegistry();
+    const replyOnInputBlock = cfg.replyOnInputBlock !== false;
     const log = apiAny.logger;
 
     // ----- Admin separation tracking (v0.4.0 — Slice 2 Tier 1.0/1.0b) ---
@@ -1119,21 +1226,118 @@ export default definePluginEntry({
     // admin (who sees the LLM's full response, including any policy
     // detail) or a regular user (who gets a canned message after a
     // recent block).
-    apiAny.on("inbound_claim", (rawEvent: unknown, _rawCtx: unknown) => {
+    apiAny.on("inbound_claim", async (rawEvent: unknown, _rawCtx: unknown) => {
       try {
         const event = rawEvent as {
           sessionKey?: string;
           senderId?: string;
           channelId?: string;
+          content?: string;
+          body?: string;
+          bodyForAgent?: string;
+          conversationId?: string;
         };
+        log?.info?.(
+          `lumin-diagnostics: inbound_claim fired ` +
+          `(sessionKey=${event.sessionKey ?? "?"} ` +
+          `senderId=${event.senderId ?? "?"} ` +
+          `contentLen=${(event.bodyForAgent ?? event.body ?? event.content ?? "").length})`,
+        );
         if (event.sessionKey && event.senderId) {
           // Canonical form matches what operators put in
           // adminSenders config. We stash the raw value; matching is
           // case-insensitive at lookup time.
           sessionToSender.set(event.sessionKey, event.senderId);
         }
+
+        // ----- v0.5.3 — pre-LLM firewall takeover (the user's vision) -
+        //
+        // If the firewall decides to block the user's input here, we
+        // can return { handled: true, reply: { text } } from inbound_claim
+        // and OpenClaw uses our canned message as the final reply —
+        // the LLM never runs. Result: ONE message reaches the user
+        // (Lumin's), no double-message / no leak / no model-vs-firewall
+        // contradiction.
+        //
+        // This is THE only hook in OpenClaw 2026.5.x that fires for the
+        // Telegram channel AND can short-circuit the dispatch with a
+        // synchronous reply. Discovered after exhaustively testing
+        // before_prompt_build (mutation only), before_message_write
+        // (history only), before_agent_reply (wrong order), message_sending
+        // and before_dispatch (don't fire on Telegram path).
+        if (!enforceEnabled) return undefined;
+        if (!replyOnInputBlock) {
+          // Operators who want to see the LLM's actual reply on
+          // flagged input opt out via replyOnInputBlock=false. We
+          // skip the takeover but the firewall decision is still
+          // recorded by before_prompt_build.
+          return undefined;
+        }
+
+        const userMessage =
+          event.bodyForAgent
+          ?? event.body
+          ?? event.content
+          ?? "";
+        if (!userMessage) return undefined;
+
+        const decision = await fw.decide({
+          lifecycle: "before_proxy_call",
+          messages: [{ role: "user", content: userMessage }],
+          session_id: event.sessionKey,
+          agent: undefined,  // ctx in inbound_claim doesn't carry agentId
+          project: cfg.project || DEFAULT_PROJECT,
+        });
+
+        if (
+          decision &&
+          (decision.decision === "block" || decision.decision === "require_approval")
+        ) {
+          const senderIsAdmin = isAdminSender(event.senderId);
+          const adminBypass = senderIsAdmin && adminSeesFullResponse;
+          if (adminBypass) {
+            // Admin: let OpenClaw / LLM proceed normally. Decision
+            // is recorded; admins see what would have been blocked.
+            return undefined;
+          }
+          if (event.sessionKey) recordRecentBlock(event.sessionKey);
+          const text =
+            cfg.userInputBlockedMessage
+            ?? cfg.userBlockedMessage
+            ?? DEFAULT_USER_INPUT_BLOCKED_MESSAGE;
+          log?.info?.(
+            `lumin-diagnostics: inbound_claim takeover ` +
+            `(sessionKey=${event.sessionKey ?? "?"} ` +
+            `senderId=${event.senderId ?? "?"} ` +
+            `policy=${decision.policy_name ?? "?"} ` +
+            `verb=${decision.decision} ` +
+            `decision_id=${decision.decision_id ?? "?"})`,
+          );
+          return {
+            handled: true,
+            reply: { text },
+          };
+        }
+
+        return undefined;
       } catch (err) {
         log?.warn?.(`lumin-diagnostics: inbound_claim handler failed: ${(err as Error).message}`);
+        // Rule 7: never fail-closed on plugin handler errors unless
+        // operator explicitly chose deny. inbound_claim is a critical
+        // path; if our decide call crashes, the user shouldn't be
+        // unable to reach the bot.
+        if ((cfg.onFirewallError ?? "allow") === "deny") {
+          return {
+            handled: true,
+            reply: {
+              text:
+                cfg.userInputBlockedMessage
+                ?? cfg.userBlockedMessage
+                ?? DEFAULT_USER_INPUT_BLOCKED_MESSAGE,
+            },
+          };
+        }
+        return undefined;
       }
     });
 
@@ -1148,10 +1352,351 @@ export default definePluginEntry({
     // Admin senders pass through with the full LLM response intact
     // (unless ``adminSeesFullResponse: false``) so they retain
     // visibility into what the firewall blocked and why.
+    // ---- message_sending (v0.5.3 — channel dispatch interceptor) ------
+    //
+    // This is the canonical takeover hook. ``before_message_write``
+    // affects the agent's WRITTEN HISTORY (returns AgentMessage to
+    // substitute in the conversation log) but does NOT replace the
+    // text sent to the user — discovered the hard way during v0.5.3
+    // dogfood. ``message_sending`` is the one that fires on the
+    // outbound channel dispatch path (Telegram, Slack, etc.) and
+    // returns ``{ content?: string, cancel?: boolean }`` which
+    // actually rewrites what the user sees.
+    //
+    // Contract:
+    //   - On firewall-input-block marker present: replace content
+    //     with userInputBlockedMessage
+    //   - On recent block + non-admin: replace with userBlockedMessage
+    //     (mirrors the legacy before_message_write behavior, which
+    //     was wrong-hook but right-intent)
+    //   - Otherwise: pass through (no return)
+    // ---- before_dispatch (v0.5.3 — THE canonical reply takeover hook) -
+    //
+    // Iteratively discovered through dogfood (May 2026):
+    //   - before_message_write: writes to history, doesn't replace user
+    //     reply (proven — takeover ran but user still saw LLM text)
+    //   - message_sending: doesn't fire on Telegram path
+    //   - before_agent_reply: fires but with runId=undefined and at
+    //     wrong order in the lifecycle
+    //   - before_dispatch: fires on outbound channel dispatch with
+    //     `content` field and accepts `{handled: true, text}` return
+    //     to substitute. This is the one.
+    apiAny.on("before_dispatch", async (rawEvent: unknown, rawCtx: unknown) => {
+      // v0.5.3 takeover: this is the hook that actually fires for the
+      // Telegram channel AND can short-circuit the dispatch with a
+      // synchronous reply via { handled: true, text }. Discovered after
+      // exhaustively eliminating before_message_write (history only),
+      // before_agent_reply (wrong order, runId undefined), inbound_claim
+      // (doesn't fire on Telegram path), and message_sending (also
+      // doesn't fire on Telegram).
+      //
+      // Strategy: call /v1/policy/decide FROM here with the user's
+      // inbound content (event.content) — same payload as before_prompt_build,
+      // but BEFORE the LLM is invoked. If block / require_approval,
+      // return { handled: true, text: cannedMessage }. OpenClaw uses
+      // that as the final reply; LLM never runs. ONE message reaches
+      // the user. The user's vision realized.
+      if (!enforceEnabled) return undefined;
+      try {
+        const event = rawEvent as {
+          content?: string;
+          body?: string;
+          channel?: string;
+          sessionKey?: string;
+          senderId?: string;
+        };
+        const ctx = rawCtx as {
+          sessionKey?: string;
+          senderId?: string;
+          channelId?: string;
+        } | undefined;
+        const sessionKey = event.sessionKey ?? ctx?.sessionKey;
+        const senderId = event.senderId ?? ctx?.senderId;
+        const userMessage = event.body ?? event.content ?? "";
+
+        log?.info?.(
+          `lumin-diagnostics: before_dispatch fired ` +
+          `(sessionKey=${sessionKey ?? "?"} senderId=${senderId ?? "?"} ` +
+          `contentLen=${userMessage.length})`,
+        );
+
+        if (!replyOnInputBlock || !userMessage) {
+          // No takeover requested or nothing to evaluate — but still
+          // honor the recent-block-driven suppression below for the
+          // tool-side case.
+          if (
+            sessionKey
+            && hasRecentBlock(sessionKey)
+            && !(isAdminSender(senderId ?? sessionToSender.get(sessionKey))
+                  && adminSeesFullResponse)
+          ) {
+            return { handled: true, text: userBlockedMessage };
+          }
+          return undefined;
+        }
+
+        // Track senderId here too — inbound_claim doesn't fire on
+        // Telegram in OpenClaw 2026.5.x, so before_dispatch is our
+        // only chance to populate sessionToSender for the
+        // before_message_write recent-block path that runs later.
+        if (sessionKey && senderId) {
+          sessionToSender.set(sessionKey, senderId);
+        }
+
+        // Derive a deterministic trace_id BEFORE calling decide() so
+        // the resulting decision row carries trace_id from the start
+        // (otherwise we'd record an orphan decision and the operator
+        // sees no badge / no chat / no banner). The fingerprint mixes
+        // sessionKey + content + a fresh timestamp so two takeovers
+        // for the same user in quick succession don't collapse onto
+        // one synthetic trace.
+        const takeoverFingerprint =
+          `${sessionKey ?? "_"}::${senderId ?? "_"}::` +
+          `${nowIso()}::${userMessage.slice(0, 64)}`;
+        const takeoverTraceId = asUuid(undefined, takeoverFingerprint);
+        const takeoverStartedAt = nowIso();
+
+        const decision = await fw.decide({
+          lifecycle: "before_proxy_call",
+          messages: [{ role: "user", content: userMessage }],
+          session_id: sessionKey,
+          trace_id: takeoverTraceId,
+          project: cfg.project || DEFAULT_PROJECT,
+        });
+
+        if (
+          decision &&
+          (decision.decision === "block" || decision.decision === "require_approval")
+        ) {
+          const senderIsAdmin = isAdminSender(senderId ?? (sessionKey ? sessionToSender.get(sessionKey) : undefined));
+          const adminBypass = senderIsAdmin && adminSeesFullResponse;
+          if (adminBypass) {
+            // Admin: let the LLM run normally so they see what would
+            // have been blocked. Decision is still recorded.
+            return undefined;
+          }
+          if (sessionKey) recordRecentBlock(sessionKey);
+          const text =
+            cfg.userInputBlockedMessage
+            ?? cfg.userBlockedMessage
+            ?? DEFAULT_USER_INPUT_BLOCKED_MESSAGE;
+          log?.info?.(
+            `lumin-diagnostics: before_dispatch takeover ` +
+            `(sessionKey=${sessionKey ?? "?"} policy=${decision.policy_name ?? "?"} ` +
+            `verb=${decision.decision} decision_id=${decision.decision_id ?? "?"})`,
+          );
+
+          // Emit a synthetic trace span so the dashboard surfaces the
+          // takeover. Without this, before_dispatch short-circuits the
+          // LLM and no llm_input/llm_output event ever fires — which
+          // means no /v1/spans POST, which means no trace materializes,
+          // which means the operator sees the decision row in
+          // /decisions but no trace badge, no chat view, no banner.
+          // The synthetic span carries metadata.lumin.firewall.takeover
+          // so future tooling can distinguish it from real LLM calls.
+          //
+          // Fire-and-forget: a span POST failure must never affect the
+          // takeover (Rule 7). The catch swallows.
+          try {
+            const synthSpan: Record<string, unknown> = {
+              id: asUuid(undefined, `${takeoverFingerprint}::span`),
+              trace_id: takeoverTraceId,
+              parent_span_id: undefined,
+              name: "openclaw",
+              type: "llm",
+              started_at: takeoverStartedAt,
+              ended_at: nowIso(),
+              status: "ok",
+              model: "lumin-firewall",
+              provider: "lumin",
+              tokens_input: 0,
+              tokens_output: 0,
+              input: stringify(userMessage, cfg.maxContentChars ?? DEFAULT_MAX_CONTENT_CHARS),
+              output: text,
+              session_id: sessionKey,
+              metadata: {
+                // Keeps chat-shape detection happy — without one of
+                // these the dashboard would route this trace to the
+                // task-shape view and the user/Lumin bubbles wouldn't
+                // render.
+                "openclaw.history_message_count": 0,
+                "openclaw.system_message_chars": 0,
+                // Firewall provenance so the dashboard (and future
+                // analytics) know this turn was a takeover rather
+                // than a normal LLM call.
+                "lumin.firewall.takeover": true,
+                "lumin.firewall.lifecycle": "before_proxy_call",
+                "lumin.firewall.verb": decision.decision,
+                "lumin.firewall.policy_name": decision.policy_name ?? null,
+                "lumin.firewall.policy_id": decision.policy_id ?? null,
+                "lumin.firewall.decision_id": decision.decision_id ?? null,
+                "lumin.firewall.mode_at_decision": decision.mode_at_decision ?? null,
+                "lumin.firewall.reason": decision.reason ?? null,
+                "openclaw.sender": senderId ?? null,
+              },
+            };
+            // Don't await — Rule 7 plus we don't want to delay the
+            // user-facing reply waiting on a Lumin write.
+            void client.send(synthSpan);
+          } catch (synthErr) {
+            log?.warn?.(
+              `lumin-diagnostics: failed to emit synthetic takeover span: ${(synthErr as Error).message}`,
+            );
+          }
+
+          return { handled: true, text };
+        }
+
+        // Recent-block path (tool-side blocks may have flagged this
+        // session in a prior turn).
+        if (sessionKey && hasRecentBlock(sessionKey)) {
+          const sIsAdmin = isAdminSender(senderId ?? sessionToSender.get(sessionKey));
+          if (!(sIsAdmin && adminSeesFullResponse)) {
+            log?.info?.(
+              `lumin-diagnostics: before_dispatch recent-block suppression ` +
+              `(sessionKey=${sessionKey} senderIsAdmin=${sIsAdmin})`,
+            );
+            return { handled: true, text: userBlockedMessage };
+          }
+        }
+
+        return undefined;
+      } catch (err) {
+        log?.warn?.(
+          `lumin-diagnostics: before_dispatch handler failed: ${(err as Error).message}`,
+        );
+        if ((cfg.onFirewallError ?? "allow") === "deny") {
+          return {
+            handled: true,
+            text:
+              cfg.userInputBlockedMessage
+              ?? cfg.userBlockedMessage
+              ?? DEFAULT_USER_INPUT_BLOCKED_MESSAGE,
+          };
+        }
+        return undefined;
+      }
+    });
+
+    apiAny.on("message_sending", (rawEvent: unknown, rawCtx: unknown) => {
+      try {
+        const ctx = rawCtx as {
+          sessionKey?: string;
+          runId?: string;
+          senderId?: string;
+        } | undefined;
+        const sessionKey = ctx?.sessionKey;
+        const runId = ctx?.runId;
+
+        // ----- input-block takeover (highest priority) ---------------
+        // Marker is keyed by sessionKey (preferred) with runId
+        // fallback. The Telegram channel's message_sending ctx
+        // populates sessionKey but leaves runId undefined.
+        const markerKey = sessionKey || runId;
+        if (markerKey && replyOnInputBlock) {
+          const marker = inputBlocked.take(markerKey);
+          if (marker) {
+            const senderId = ctx?.senderId
+              ?? (sessionKey ? sessionToSender.get(sessionKey) : undefined);
+            const senderIsAdmin = isAdminSender(senderId);
+            const adminBypass = senderIsAdmin && adminSeesFullResponse;
+            if (!adminBypass) {
+              if (sessionKey) recordRecentBlock(sessionKey);
+              const text =
+                cfg.userInputBlockedMessage
+                ?? cfg.userBlockedMessage
+                ?? DEFAULT_USER_INPUT_BLOCKED_MESSAGE;
+              log?.info?.(
+                `lumin-diagnostics: message_sending input-blocked takeover ` +
+                `(markerKey=${markerKey} policy=${marker.policyName ?? "?"} ` +
+                `verb=${marker.decisionVerb} decision_id=${marker.decisionId ?? "?"})`,
+              );
+              return { content: text };
+            }
+            // Admin bypass — fall through to recent-block path
+          }
+        }
+
+        // ----- recent-block (tool-side / output-side suppression) ----
+        if (!sessionKey) return undefined;
+        if (!hasRecentBlock(sessionKey)) return undefined;
+
+        const senderId = ctx?.senderId ?? sessionToSender.get(sessionKey);
+        const isAdmin = isAdminSender(senderId);
+        if (isAdmin && adminSeesFullResponse) return undefined;
+
+        log?.info?.(
+          `lumin-diagnostics: message_sending recent-block suppression ` +
+          `(sessionKey=${sessionKey} senderIsAdmin=${isAdmin})`,
+        );
+        return { content: userBlockedMessage };
+      } catch (err) {
+        log?.warn?.(
+          `lumin-diagnostics: message_sending handler failed: ${(err as Error).message}`,
+        );
+        return undefined;
+      }
+    });
+
     apiAny.on("before_message_write", (rawEvent: unknown, rawCtx: unknown) => {
       try {
-        const ctx = rawCtx as { sessionKey?: string } | undefined;
+        const ctx = rawCtx as { sessionKey?: string; runId?: string } | undefined;
         const sessionKey = ctx?.sessionKey;
+        const runId = ctx?.runId;
+
+        // v0.5.3 debug — temporary diagnostic until takeover is
+        // confirmed working in production.
+        log?.info?.(
+          `lumin-diagnostics: before_message_write fired ` +
+          `(sessionKey=${sessionKey ?? "?"} runId=${runId ?? "?"} ` +
+          `recentBlock=${sessionKey ? hasRecentBlock(sessionKey) : false} ` +
+          `inputMarker=${runId ? !!inputBlocked.peek(runId) : false})`,
+        );
+
+        // ----- v0.5.3 takeover path (input-side block) ----------------
+        // Check the input-blocked marker FIRST — it's set by
+        // before_prompt_build when the user's prompt was firewall-
+        // blocked. before_agent_reply doesn't fire on the Telegram
+        // dispatch path in OpenClaw 2026.5.x; before_message_write
+        // does, so we route the takeover here. Marker is consumed
+        // (take()) so subsequent message writes in the same run pass
+        // through unchanged.
+        const beforeMessageMarkerKey = sessionKey || runId;
+        if (beforeMessageMarkerKey && replyOnInputBlock) {
+          const marker = inputBlocked.take(beforeMessageMarkerKey);
+          if (marker) {
+            const senderId = sessionKey ? sessionToSender.get(sessionKey) : undefined;
+            const senderIsAdmin = isAdminSender(senderId);
+            const adminBypass = senderIsAdmin && adminSeesFullResponse;
+            if (!adminBypass) {
+              if (sessionKey) recordRecentBlock(sessionKey);
+              const text =
+                cfg.userInputBlockedMessage
+                ?? cfg.userBlockedMessage
+                ?? DEFAULT_USER_INPUT_BLOCKED_MESSAGE;
+              log?.info?.(
+                `lumin-diagnostics: input-blocked reply takeover ` +
+                `(runId=${runId} policy=${marker.policyName ?? "?"} ` +
+                `verb=${marker.decisionVerb} decision_id=${marker.decisionId ?? "?"})`,
+              );
+              return {
+                message: {
+                  role: "assistant" as const,
+                  content: [{ type: "text" as const, text }],
+                } as never,
+              };
+            }
+            // Admin bypass — fall through to the existing
+            // recent-block path below (which also bypasses for
+            // admins, so the LLM's actual reply gets through).
+          }
+        }
+
+        // ----- existing recent-block suppression path -----------------
+        // Tool-side / output-side blocks (recorded via
+        // recordRecentBlock from before_tool_call,
+        // before_agent_reply, etc.) suppress the LLM's interim
+        // reasoning for non-admin senders.
         if (!sessionKey) return undefined;
         if (!hasRecentBlock(sessionKey)) return undefined;
 
@@ -1223,14 +1768,49 @@ export default definePluginEntry({
           decision &&
           (decision.decision === "block" || decision.decision === "require_approval")
         ) {
-          // Inject a security directive instructing the model to
-          // refuse. This is "soft block" — relies on model
-          // alignment, but the decision is recorded regardless so
-          // operators see the rule fire even if the model
-          // ultimately complies. Belt-and-braces: also injected as
-          // ``prependSystemContext`` so it lands in the cached
-          // portion of the prompt (zero per-turn token cost on
-          // providers that support prompt caching).
+          // v0.5.3 takeover: record a marker keyed by runId so the
+          // before_agent_reply hook can replace the LLM's eventual
+          // output with the operator's canned input-block message.
+          // This is the HARD enforcement leg — the LLM still runs
+          // (OpenClaw doesn't expose a hook that can cancel a model
+          // call) but its output is discarded before reaching the
+          // user. Costs a wasted LLM round-trip; pays back in:
+          //   - no rule-name leak in the model's refusal
+          //   - no /approve hallucination (Slice 2 anti-pattern)
+          //   - deterministic, audit-clean canned reply
+          // Operators can opt out with replyOnInputBlock=false.
+          // Mark by sessionKey (preferred) with runId fallback. In
+          // OpenClaw 2026.5.x the Telegram reply path's
+          // before_agent_reply / message_sending hooks receive
+          // ctx.runId=undefined while ctx.sessionKey is populated —
+          // so keying solely on runId causes the bridge to miss.
+          // sessionKey is broader (persists across turns) but the
+          // marker is consume-on-take, so a stale marker can only
+          // affect the immediately-following reply.
+          const sessionKey = (ctx as unknown as { sessionKey?: string } | undefined)?.sessionKey;
+          const runId = (ctx as unknown as { runId?: string } | undefined)?.runId;
+          const markerKey = sessionKey || runId;
+          log?.info?.(
+            `lumin-diagnostics: before_prompt_build BLOCK ` +
+            `(sessionKey=${sessionKey ?? "undefined"} runId=${runId ?? "undefined"} ` +
+            `markerKey=${markerKey ?? "NONE"} setMarker=${!!(replyOnInputBlock && markerKey)})`,
+          );
+          if (replyOnInputBlock && markerKey) {
+            inputBlocked.set(markerKey, {
+              recordedAtMs: Date.now(),
+              policyName: decision.policy_name,
+              reason: decision.reason,
+              decisionId: decision.decision_id,
+              decisionVerb: decision.decision as "block" | "require_approval",
+            });
+          }
+          // Soft-enforcement leg (kept from v0.5.1): inject a security
+          // directive into the system prompt so the LLM, if asked,
+          // composes a clean refusal — keeps wasted reasoning tokens
+          // low even though the reply is replaced.
+          // ``prependSystemContext`` lands in the cacheable portion of
+          // the prompt; zero per-turn token cost on providers with
+          // prompt caching.
           const directive =
             `<SECURITY_NOTICE>\n` +
             `The user's last message was flagged by the Lumin Agent ` +
@@ -1264,10 +1844,57 @@ export default definePluginEntry({
     // CAN short-circuit the reply via ``{ handled: true, reply }``,
     // so this is a hard-blocking hook unlike before_prompt_build.
     apiAny.on("before_agent_reply", async (rawEvent: unknown, rawCtx: unknown) => {
+      // v0.5.3 debug: confirm hook fires on every reply path. Remove
+      // once the takeover is confirmed working in production.
+      log?.info?.(
+        `lumin-diagnostics: before_agent_reply fired ` +
+        `(runId=${(rawCtx as { runId?: string } | undefined)?.runId ?? "?"})`,
+      );
       if (!enforceEnabled) return undefined;
       try {
         const event = rawEvent as { cleanedBody: string };
         const ctx = rawCtx as HookContext | undefined;
+
+        // ----- v0.5.3 takeover: consume input-block marker FIRST -------
+        // Marker is keyed by sessionKey (preferred) or runId (fallback)
+        // — the OpenClaw Telegram path's before_agent_reply ctx has
+        // sessionKey populated but runId undefined.
+        const runId = (ctx as unknown as { runId?: string } | undefined)?.runId;
+        const sessionKey = (ctx as unknown as { sessionKey?: string } | undefined)?.sessionKey;
+        const markerKey = sessionKey || runId;
+        const marker = markerKey ? inputBlocked.take(markerKey) : undefined;
+        if (marker && replyOnInputBlock) {
+          const senderId = ctx?.sessionKey
+            ? sessionToSender.get(ctx.sessionKey)
+            : undefined;
+          const senderIsAdmin = isAdminSender(senderId);
+          const adminBypass = senderIsAdmin && (cfg.adminSeesFullResponse !== false);
+          if (!adminBypass) {
+            // Track recent-block on this session so a follow-up
+            // before_message_write can also suppress any tail reply
+            // (defense in depth).
+            recordRecentBlock(ctx?.sessionKey);
+            const text =
+              cfg.userInputBlockedMessage
+              ?? cfg.userBlockedMessage
+              ?? DEFAULT_USER_INPUT_BLOCKED_MESSAGE;
+            log?.info?.(
+              `lumin-diagnostics: input-blocked reply takeover ` +
+              `(runId=${runId} policy=${marker.policyName ?? "?"} ` +
+              `verb=${marker.decisionVerb} decision_id=${marker.decisionId ?? "?"})`,
+            );
+            return {
+              handled: true,
+              reply: { text },
+              reason: `firewall_input_blocked:${marker.policyName ?? marker.decisionVerb}`,
+            };
+          }
+          // Admin bypass — fall through to the after_proxy_call decide
+          // path (admin sees actual LLM reply, possibly subject to
+          // post-output rules like PII redaction).
+        }
+
+        // ----- standard after_proxy_call path -------------------------
         const decision = await fw.decide({
           lifecycle: "after_proxy_call",
           output: { text: typeof event.cleanedBody === "string" ? event.cleanedBody : "" },
@@ -1325,7 +1952,7 @@ export default definePluginEntry({
     });
 
     log?.info?.(
-      `lumin-diagnostics: subscribed to llm_input + llm_output + before_prompt_build + before_agent_reply + before_tool_call + after_tool_call + inbound_claim + before_message_write → ${cfg.host || DEFAULT_HOST}/v1/spans (project=${cfg.project || DEFAULT_PROJECT}, firewall=${enforceEnabled ? "enforce" : "observe-only"}, fail=${cfg.onFirewallError ?? "allow"}, admins=${adminSenders.size})`,
+      `lumin-diagnostics: subscribed to llm_input + llm_output + before_prompt_build + before_agent_reply + before_tool_call + after_tool_call + inbound_claim + before_message_write + message_sending → ${cfg.host || DEFAULT_HOST}/v1/spans (project=${cfg.project || DEFAULT_PROJECT}, firewall=${enforceEnabled ? "enforce" : "observe-only"}, fail=${cfg.onFirewallError ?? "allow"}, admins=${adminSenders.size})`,
     );
   },
 });

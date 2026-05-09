@@ -25,6 +25,12 @@ export type Trace = {
   violation_count: number;
   policy_violations?: TraceViolationSummary[];
   has_violations?: boolean;
+  // Agent Firewall — populated by the joined decisions query.
+  // ``firewall_blocked`` lights up the red Lumin badge in the UI.
+  firewall_decision_count?: number;
+  firewall_blocked?: boolean;
+  firewall_top_policy?: string | null;
+  firewall_top_verb?: 'block' | 'require_approval' | 'rewrite' | null;
 };
 
 export type TraceViolationSummary = {
