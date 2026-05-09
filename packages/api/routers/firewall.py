@@ -90,7 +90,7 @@ def decide_endpoint(
 ) -> Dict[str, Any]:
     """Synchronous decision endpoint. Never raises — Rule 7."""
     try:
-        return fw_decide.decide(
+        result = fw_decide.decide(
             db,
             lifecycle=payload.lifecycle,
             tool_name=payload.tool_name,
@@ -105,6 +105,21 @@ def decide_endpoint(
             messages=payload.messages,
             output=payload.output,
         )
+        # Record latency into policy_metrics so /v1/admin/metrics can
+        # surface p50/p99/max. Brutal-test fix (2026-05-09): before
+        # this, the metrics endpoint always reported null latency
+        # because the firewall decide path wasn't plumbed into the
+        # metrics module's ring buffer.
+        try:
+            import policy_metrics
+            policy_metrics.record_eval(
+                trigger=f"decide:{payload.lifecycle}",
+                duration_ms=float(result.get("duration_ms", 0) or 0),
+                violations_fired=1 if result.get("decision") not in ("allow", None) else 0,
+            )
+        except Exception:
+            pass  # Metrics never block the firewall response (Rule 7).
+        return result
     except Exception:
         logger.exception("firewall: /v1/policy/decide crashed")
         return {

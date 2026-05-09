@@ -94,15 +94,21 @@ def admin_metrics(db: Database = Depends(get_db)) -> Dict[str, Any]:
     }
 
     # ---- decide latency (in-process ring buffer) ---------------------------
-    decide_latency: Dict[str, Any] = {"p50_ms": None, "p95_ms": None, "p99_ms": None}
+    # Reads from policy_metrics, which firewall.decide writes to via
+    # record_eval() at the end of every decide call. The snapshot's
+    # actual keys are eval_latency_ms_p50 / _p99 / _max — not the
+    # _p95 / _p99_ms shorthand the original code looked for. Brutal-
+    # test fix (2026-05-09).
+    decide_latency: Dict[str, Any] = {
+        "p50_ms": None, "p99_ms": None, "max_ms": None, "samples": 0,
+    }
     try:
         import policy_metrics as _metrics
         snap = _metrics.snapshot().to_dict()
-        # Existing snapshot exposes p50 / p99 — use what's there, fall
-        # through to None for fields the engine hasn't surfaced yet.
-        decide_latency["p50_ms"] = snap.get("eval_p50_ms") or snap.get("p50_ms")
-        decide_latency["p95_ms"] = snap.get("eval_p95_ms") or snap.get("p95_ms")
-        decide_latency["p99_ms"] = snap.get("eval_p99_ms") or snap.get("p99_ms")
+        decide_latency["p50_ms"] = snap.get("eval_latency_ms_p50")
+        decide_latency["p99_ms"] = snap.get("eval_latency_ms_p99")
+        decide_latency["max_ms"] = snap.get("eval_latency_ms_max")
+        decide_latency["samples"] = snap.get("eval_latency_samples", 0)
     except Exception:
         pass
 
