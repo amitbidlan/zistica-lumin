@@ -34,6 +34,12 @@ class SpanInput(BaseModel):
     metadata: Optional[dict] = None
     # Session grouping — propagates to the trace row when a root span lands
     session_id: Optional[str] = None
+    # Slice 6A.3 (v0.6.1) — sender identity. Propagates to the trace
+    # row on root span ingest so the cross-session vault detector can
+    # tell which user said what. Plugin maps OpenClaw's senderId
+    # (e.g. ``slack:U09CMSPA2QY``) into this field via the same
+    # resolveUserId() helper used for fw.decide() calls.
+    user_id: Optional[str] = None
     # Claude extended-thinking support: span_subtype is "thinking" |
     # "response" | null. thinking_tokens estimates tokens spent in the
     # thinking phase (output_tokens in Anthropic usage rolls up everything,

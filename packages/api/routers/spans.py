@@ -207,6 +207,12 @@ def _upsert_trace_from_span(db: Database, span: SpanInput, project: Optional[str
     pre_existing = db.fetchone("SELECT 1 FROM traces WHERE id = ?", [trace_id])
     is_new_trace = pre_existing is None
 
+    # Slice 6A.3 (v0.6.1) — propagate user_id from span → trace row so
+    # the cross-session vault detector can tell which user the trace
+    # belongs to. Empty string means "anonymous"; the vault treats it
+    # as no-signal per Rule 7.
+    span_user_id = (span.user_id or "")
+
     if span.parent_span_id is None:
         # Apply the same fold as _insert_span so trace.name and
         # span.name stay aligned (the dashboard groups agents by
@@ -216,9 +222,9 @@ def _upsert_trace_from_span(db: Database, span: SpanInput, project: Optional[str
             """
             INSERT INTO traces (
                 id, name, input, output, started_at, ended_at, session_id,
-                ingest_at, project
+                user_id, ingest_at, project
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (id) DO UPDATE SET
                 name = EXCLUDED.name,
                 input = EXCLUDED.input,
@@ -226,14 +232,39 @@ def _upsert_trace_from_span(db: Database, span: SpanInput, project: Optional[str
                 started_at = EXCLUDED.started_at,
                 ended_at = EXCLUDED.ended_at,
                 session_id = COALESCE(EXCLUDED.session_id, traces.session_id),
+                user_id = CASE
+                    WHEN EXCLUDED.user_id IS NOT NULL AND EXCLUDED.user_id != ''
+                    THEN EXCLUDED.user_id
+                    ELSE traces.user_id
+                END,
                 ingest_at = EXCLUDED.ingest_at,
                 project = COALESCE(EXCLUDED.project, traces.project)
             """,
             [
                 trace_id, folded_name, span.input, span.output,
-                started_at, ended_at, span.session_id, ingest_at, project,
+                started_at, ended_at, span.session_id,
+                span_user_id, ingest_at, project,
             ],
         )
+
+        # Slice 6A.3 — record facts in the vault from the trace input.
+        # This was previously only happening on the explicit
+        # POST /v1/traces path (routers/traces.py), which OpenClaw and
+        # other span-only integrations don't use. Without this hook
+        # the vault was silently empty for every Slack / Telegram /
+        # other-channel trace, even when user_id was populated.
+        if span_user_id and span.session_id and span.input:
+            try:
+                from firewall import vault as fw_vault
+                fw_vault.record_facts(
+                    db,
+                    session_id=span.session_id,
+                    user_id=span_user_id,
+                    project=project,
+                    text=span.input,
+                )
+            except Exception:
+                pass  # Rule 7 — vault failure never blocks ingest.
     else:
         # Stub upsert from a non-root span. Don't overwrite the trace if it
         # exists — but DO populate session_id + project on the stub so
@@ -241,13 +272,19 @@ def _upsert_trace_from_span(db: Database, span: SpanInput, project: Optional[str
         # (the eventual root span will COALESCE the same values).
         db.execute(
             """
-            INSERT INTO traces (id, started_at, session_id, ingest_at, project)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO traces (id, started_at, session_id, user_id, ingest_at, project)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT (id) DO UPDATE SET
                 session_id = COALESCE(traces.session_id, EXCLUDED.session_id),
+                user_id = CASE
+                    WHEN EXCLUDED.user_id IS NOT NULL AND EXCLUDED.user_id != ''
+                         AND (traces.user_id IS NULL OR traces.user_id = '')
+                    THEN EXCLUDED.user_id
+                    ELSE traces.user_id
+                END,
                 project = COALESCE(traces.project, EXCLUDED.project)
             """,
-            [trace_id, started_at, span.session_id, ingest_at, project],
+            [trace_id, started_at, span.session_id, span_user_id, ingest_at, project],
         )
 
     return is_new_trace

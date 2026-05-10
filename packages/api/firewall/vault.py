@@ -265,60 +265,133 @@ def vault_stats(db: Database) -> Dict[str, Any]:
 
 
 # Account / order / customer-id regex — looks for ALPHA-NUMERIC
-# codes 6+ chars, optionally hyphenated. Matches "ABC-12345",
-# "ORD12345", "C-44128", "CUST-2026-001". Excludes pure digits
-# under 6 chars to avoid catching every random number.
+# codes, optionally hyphenated. Matches "ABC-12345", "ORD12345",
+# "C-44128", "CUST-2026-001", "BANANA-44221", "CUSTOMER-12345",
+# "INVOICE-99887". Excludes pure digits under 6 chars to avoid
+# catching every random number.
+#
+# Brutal-test fix (v0.6.1, 2026-05-10): the prior cap of {1,5}
+# letters silently dropped real-world IDs with longer prefixes
+# (BANANA-44221, CUSTOMER-12345, ACCOUNT-12345). Bumped to {1,15}
+# which covers every common business prefix while still requiring
+# a digit run so plain words like "POLICY" or "ACCOUNT" alone
+# don't trigger.
+# Hyphen character class includes ASCII '-' plus the typographic
+# dashes an LLM may emit (non-breaking hyphen, en-dash, em-dash,
+# minus sign). Without this the extractor silently misses
+# "BANANA‑44221" (U+2011) because the model substituted a
+# typographic dash for the ASCII one.
+_HYPHEN_CLASS = r"[-_‐‑‒–—―−]"
 _GENERIC_ID_PATTERN = re.compile(
-    r"\b[A-Z]{1,5}[-_]?\d{4,12}\b"
-    r"|"
-    r"\b\d{6,16}\b"
+    rf"\b[A-Z]{{1,15}}{_HYPHEN_CLASS}?\d{{4,12}}\b"
+    rf"|"
+    rf"\b\d{{6,16}}\b"
+)
+
+# Email pattern — RFC-5322 simplified. Catches the high-value
+# tenant signal: ``priya@northstar-logistics.com`` style addresses
+# uniquely identify a tenant and are rarely-shared between
+# tenants. Cross-tenant leak detector treats foreign emails as
+# secrets. Added 2026-05-10 after live test showed L3 missed
+# customer-contact emails (only structural-ID detector active).
+_EMAIL_PATTERN = re.compile(
+    r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9](?:[A-Za-z0-9\-]{0,62}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9\-]{0,62}[A-Za-z0-9])?)+\b"
 )
 
 
-def _extract_facts(text: str) -> List[Tuple[str, str]]:
-    """Return [(kind, value), ...]."""
+def _extract_facts(
+    text: str,
+    *,
+    use_presidio: bool = True,
+    use_structural: bool = True,
+) -> List[Tuple[str, str]]:
+    """Return [(kind, value), ...].
+
+    Detector toggles (Slice 3): operators can disable specific
+    tracks for a given call. ``use_presidio=False`` skips the
+    Presidio NER pass (cheaper, useful in size-constrained
+    deployments without Presidio installed). ``use_structural=False``
+    skips the regex tracks (GENERIC_ID + EMAIL).
+
+    Both default to True, preserving prior behaviour.
+    """
     facts: List[Tuple[str, str]] = []
 
     # Track 1: Presidio
-    try:
-        from firewall.detectors import presidio as _presidio
-        entities = _presidio.presidio_pii_entities(text)
-        for ent in entities:
-            kind = (ent.get("entity_type") or "").upper()
-            value = ent.get("text") or ""
-            if not value or not kind:
-                continue
-            # Skip generic types Presidio uses as catch-all that
-            # would over-flag.
-            if kind in ("DATE_TIME", "URL", "NRP"):
-                continue
-            facts.append((kind, value))
-    except Exception:
-        # Presidio not installed or failed — silently fall through
-        # to the regex track.
-        pass
+    if use_presidio:
+        try:
+            from firewall.detectors import presidio as _presidio
+            entities = _presidio.presidio_pii_entities(text)
+            for ent in entities:
+                kind = (ent.get("entity_type") or "").upper()
+                value = ent.get("text") or ""
+                if not value or not kind:
+                    continue
+                # Skip generic types Presidio uses as catch-all that
+                # would over-flag.
+                if kind in ("DATE_TIME", "URL", "NRP"):
+                    continue
+                facts.append((kind, value))
+        except Exception:
+            # Presidio not installed or failed — silently fall through
+            # to the regex track.
+            pass
 
     # Track 2: regex fallback / supplement for non-PII codes
-    seen_values = {v.lower() for _, v in facts}
-    for m in _GENERIC_ID_PATTERN.finditer(text):
-        value = m.group(0)
-        if value.lower() in seen_values:
-            continue
-        # Skip values that overlap with a Presidio entity (e.g.
-        # phone-number-like digits). This is a coarse heuristic —
-        # if the digits are inside any already-extracted Presidio
-        # span, skip.
-        if any(value in pv for _, pv in facts):
-            continue
-        facts.append(("GENERIC_ID", value))
+    if use_structural:
+        seen_values = {v.lower() for _, v in facts}
+        for m in _GENERIC_ID_PATTERN.finditer(text):
+            value = m.group(0)
+            if value.lower() in seen_values:
+                continue
+            # Skip values that overlap with a Presidio entity (e.g.
+            # phone-number-like digits). This is a coarse heuristic —
+            # if the digits are inside any already-extracted Presidio
+            # span, skip.
+            if any(value in pv for _, pv in facts):
+                continue
+            facts.append(("GENERIC_ID", value))
+
+        # Track 3: email — high-value tenant signal, low false-positive
+        # rate (the @ + TLD shape is hard to misfire on). Skipped if
+        # Presidio already returned the same value as EMAIL_ADDRESS.
+        seen_values = {v.lower() for _, v in facts}
+        for m in _EMAIL_PATTERN.finditer(text):
+            value = m.group(0)
+            if value.lower() in seen_values:
+                continue
+            facts.append(("EMAIL", value))
 
     return facts
 
 
 def _normalize(value: str) -> str:
-    """Normalise whitespace + case for hashing. Two facts that
-    differ only by spacing or case should hash to the same key."""
-    return re.sub(r"\s+", "", value).lower()
+    """Normalise whitespace, case, and unicode-variant punctuation
+    for hashing. Two facts that differ only by spacing, case, or by
+    a model substituting a typographic dash for an ASCII hyphen
+    should hash to the same key.
+
+    Brutal-test fix (v0.6.1, 2026-05-10): live testing caught the
+    LLM emitting BANANA‑44221 (U+2011 non-breaking hyphen) instead
+    of BANANA-44221 (U+002D hyphen-minus) in some replies — the
+    cross-session detector silently missed the leak because the
+    SHA-256 of the raw bytes differed. Map the common visual
+    equivalents to the ASCII hyphen + a couple of dash siblings
+    before hashing so a stylistic substitution can't bypass the
+    vault.
+    """
+    return _DASH_VARIANTS_RX.sub(
+        "-",
+        re.sub(r"\s+", "", value).lower(),
+    )
+
+
+# All Unicode dashes/hyphens that an LLM (or copy-paste) might emit
+# in place of a plain ASCII hyphen. Hashing is over a normalized
+# form so any of these collapse into the same fact.
+_DASH_VARIANTS_RX = re.compile(
+    "[‐‑‒–—―−]"
+)
 
 
 __all__ = [

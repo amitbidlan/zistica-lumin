@@ -36,7 +36,7 @@ export const metadata: Metadata = {
   ],
 };
 
-const VERSION = '0.6.0';
+const VERSION = '0.7.0';
 
 export default function RootLayout({
   children,
@@ -78,6 +78,7 @@ export default function RootLayout({
               <NavLink href="/decisions">Decisions</NavLink>
               <ApprovalsNavLink />
               <ViolationsNavLink />
+              <NavLink href="/settings/firewall">Firewall</NavLink>
               <span className="opacity-30 mx-1">·</span>
               <a
                 href="/api/docs"

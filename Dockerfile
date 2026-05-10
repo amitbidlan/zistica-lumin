@@ -36,6 +36,25 @@ RUN apt-get update \
 COPY packages/api/requirements.txt /tmp/api-requirements.txt
 RUN pip install --no-cache-dir -r /tmp/api-requirements.txt
 
+# Presidio NER model. The presidio-analyzer package itself doesn't
+# bundle a spaCy model — its AnalyzerEngine() init fails if no model
+# is downloaded. We default to ``en_core_web_lg`` (Presidio-
+# recommended) for highest NER accuracy on names / organizations /
+# locations. Pulled at build time so the first request after
+# container start doesn't trigger a multi-minute download.
+#
+# Image-size cost: ``_lg`` ~750MB. Smaller alternatives:
+#   _md  ~40MB,  ~95% accuracy
+#   _sm  ~12MB,  ~90% accuracy
+#
+# Override via build arg:
+#   docker compose build --build-arg LUMIN_PRESIDIO_MODEL=en_core_web_md
+# Then set the matching runtime env var on the container so the
+# Presidio detector wires the right model name (see presidio.py).
+ARG LUMIN_PRESIDIO_MODEL=en_core_web_lg
+ENV LUMIN_PRESIDIO_MODEL=${LUMIN_PRESIDIO_MODEL}
+RUN python -m spacy download ${LUMIN_PRESIDIO_MODEL}
+
 # Install the SDK (so users can `pip install` on top and `import lumin`
 # from inside the container if they want to run agents alongside).
 # Include the `anthropic` extra so the Anthropic integration is importable

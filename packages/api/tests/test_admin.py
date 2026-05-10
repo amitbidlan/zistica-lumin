@@ -181,3 +181,122 @@ def test_restore_round_trip(client: TestClient, db: Database) -> None:
     # Verify state reverted to snapshot moment
     rows = db.fetchall("SELECT id FROM traces ORDER BY id")
     assert {r[0] for r in rows} == {"t1"}
+
+
+# ----- /v1/admin/firewall/profile (Slice 5: dashboard-managed config) -------
+
+
+def test_firewall_profile_get_empty_default(client: TestClient) -> None:
+    """Brand-new install: GET returns an empty profile, not 404."""
+    resp = client.get("/v1/admin/firewall/profile?agent_id=_default")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["agent_id"] == "_default"
+    assert body["security_profile"] is None
+    assert body["overrides"] == {}
+
+
+def test_firewall_profile_put_then_get_round_trip(client: TestClient) -> None:
+    """PUT sets profile + overrides; GET returns them verbatim."""
+    payload = {
+        "security_profile": "strict",
+        "overrides": {"blockShellTools": False, "hideOtherUsersData": True},
+    }
+    resp = client.put(
+        "/v1/admin/firewall/profile?agent_id=_default", json=payload,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["security_profile"] == "strict"
+    assert body["overrides"] == payload["overrides"]
+    assert body["updated_by"] == "dashboard"
+
+    # GET re-reads the persisted row
+    resp = client.get("/v1/admin/firewall/profile?agent_id=_default")
+    assert resp.status_code == 200
+    body2 = resp.json()
+    assert body2["security_profile"] == "strict"
+    assert body2["overrides"] == payload["overrides"]
+
+
+def test_firewall_profile_put_rejects_unknown_profile(client: TestClient) -> None:
+    """Validation: typo in profile name → 400, not silent persistence."""
+    resp = client.put(
+        "/v1/admin/firewall/profile?agent_id=_default",
+        json={"security_profile": "BOGUS_PROFILE"},
+    )
+    assert resp.status_code == 400
+    assert "BOGUS_PROFILE" in resp.json()["detail"]
+
+
+def test_firewall_profile_put_drops_unknown_override_keys(client: TestClient) -> None:
+    """Defense against typo'd toggles silently being persisted."""
+    resp = client.put(
+        "/v1/admin/firewall/profile?agent_id=_default",
+        json={
+            "security_profile": "standard",
+            "overrides": {
+                "blockShellTools": True,        # known — kept
+                "blokShellToolz": False,         # typo — dropped
+                "shareInformationWithEnemy": True,  # bogus — dropped
+            },
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert "blockShellTools" in body["overrides"]
+    assert "blokShellToolz" not in body["overrides"]
+    assert "shareInformationWithEnemy" not in body["overrides"]
+
+
+def test_firewall_profile_put_is_upsert(client: TestClient) -> None:
+    """PUT replaces the row. Second PUT shouldn't pile up duplicates."""
+    for profile in ["standard", "light", "strict"]:
+        resp = client.put(
+            "/v1/admin/firewall/profile?agent_id=_default",
+            json={"security_profile": profile, "overrides": {}},
+        )
+        assert resp.status_code == 200, resp.text
+    # Final state
+    resp = client.get("/v1/admin/firewall/profile?agent_id=_default")
+    assert resp.json()["security_profile"] == "strict"
+
+
+def test_firewall_profile_per_agent_falls_back_to_default(client: TestClient) -> None:
+    """Agent without its own row reads from _default."""
+    client.put(
+        "/v1/admin/firewall/profile?agent_id=_default",
+        json={"security_profile": "strict", "overrides": {}},
+    )
+    resp = client.get("/v1/admin/firewall/profile?agent_id=customer-support-bot")
+    assert resp.status_code == 200
+    body = resp.json()
+    # Returned id is the _default row's id, profile inherited
+    assert body["security_profile"] == "strict"
+
+
+def test_firewall_profile_per_agent_overrides_default(client: TestClient) -> None:
+    """Agent-specific row beats _default."""
+    client.put(
+        "/v1/admin/firewall/profile?agent_id=_default",
+        json={"security_profile": "standard", "overrides": {}},
+    )
+    client.put(
+        "/v1/admin/firewall/profile?agent_id=hr-bot",
+        json={"security_profile": "strict", "overrides": {"hideOtherUsersData": True}},
+    )
+    resp = client.get("/v1/admin/firewall/profile?agent_id=hr-bot")
+    body = resp.json()
+    assert body["agent_id"] == "hr-bot"
+    assert body["security_profile"] == "strict"
+    assert body["overrides"]["hideOtherUsersData"] is True
+
+
+def test_firewall_profile_legacy_profile_aliases_accepted(client: TestClient) -> None:
+    """Old name aliases (balanced, permissive, observability) still work."""
+    for legacy in ["balanced", "permissive", "observability"]:
+        resp = client.put(
+            "/v1/admin/firewall/profile?agent_id=_default",
+            json={"security_profile": legacy},
+        )
+        assert resp.status_code == 200, f"legacy alias {legacy!r} rejected: {resp.text}"

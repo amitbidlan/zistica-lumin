@@ -862,6 +862,87 @@
         "title": "EvalCreate",
         "type": "object"
       },
+      "FirewallProfileResponse": {
+        "properties": {
+          "agent_id": {
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "overrides": {
+            "additionalProperties": true,
+            "title": "Overrides",
+            "type": "object"
+          },
+          "security_profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Profile"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "updated_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated By"
+          }
+        },
+        "required": [
+          "agent_id"
+        ],
+        "title": "FirewallProfileResponse",
+        "type": "object"
+      },
+      "FirewallProfileUpdate": {
+        "description": "Body for PUT /v1/admin/firewall/profile.",
+        "properties": {
+          "overrides": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overrides"
+          },
+          "security_profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Profile"
+          }
+        },
+        "title": "FirewallProfileUpdate",
+        "type": "object"
+      },
       "GenerateAttacksRequest": {
         "description": "Body for POST /v1/firewall/test/generate_attacks.",
         "properties": {
@@ -1919,6 +2000,77 @@
         "title": "PromoteSuggestionRequest",
         "type": "object"
       },
+      "RedactContextDetectors": {
+        "description": "Per-detector toggles for the L3 redactor.\n\nPlugin-side operators can disable specific detectors without\nuninstalling Presidio or removing vault data. ``None`` means\n\"use the server default (all on)\".\n\nSee TENANT_ISOLATION_SPEC \u00a72.4 detector matrix.",
+        "properties": {
+          "presidio": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Presidio"
+          },
+          "structural_pattern": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Structural Pattern"
+          },
+          "vault_exact": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vault Exact"
+          }
+        },
+        "title": "RedactContextDetectors",
+        "type": "object"
+      },
+      "RedactContextRequest": {
+        "description": "POST body for /v1/firewall/redact-context.",
+        "properties": {
+          "detectors": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RedactContextDetectors"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "texts": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Texts",
+            "type": "array"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id"
+        ],
+        "title": "RedactContextRequest",
+        "type": "object"
+      },
       "ReplayRequest": {
         "description": "Body for POST /v1/firewall/test/replay.",
         "properties": {
@@ -2660,6 +2812,17 @@
             ],
             "default": "custom",
             "title": "Type"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
           }
         },
         "required": [
@@ -3381,7 +3544,7 @@
   "info": {
     "description": "Local-first AI agent observability \u2014 ingest and query API",
     "title": "Lumin API",
-    "version": "0.6.0"
+    "version": "0.6.1"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -3551,6 +3714,96 @@
           }
         },
         "summary": "Restore Backup"
+      }
+    },
+    "/v1/admin/firewall/profile": {
+      "get": {
+        "description": "Return the active firewall profile + per-toggle overrides for\nthe given agent. Defaults to the ``_default`` row when no\nagent-specific config exists. Returned shape is what the plugin\nexpects to merge.\n\n**Auth**: gated by the global ``BearerAuthMiddleware``. When\n``LUMIN_API_TOKEN`` is set, callers must include\n``Authorization: Bearer <token>``. When unset, this endpoint is\nopen \u2014 fine for ``localhost``-bound dev, NOT for any deployment\nthat exposes the API beyond loopback.",
+        "operationId": "get_firewall_profile_v1_admin_firewall_profile_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "agent_id",
+            "required": false,
+            "schema": {
+              "default": "_default",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FirewallProfileResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Firewall Profile"
+      },
+      "put": {
+        "description": "Upsert the firewall profile + overrides. Validates the profile\nname and filters overrides to known toggle keys so a typo or\nmalicious payload can't smuggle hidden fields. Plugin picks up\nthe change on its next poll (~30s by default).",
+        "operationId": "put_firewall_profile_v1_admin_firewall_profile_put",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "agent_id",
+            "required": false,
+            "schema": {
+              "default": "_default",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FirewallProfileUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FirewallProfileResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Firewall Profile"
       }
     },
     "/v1/admin/health": {
@@ -4957,6 +5210,47 @@
         "summary": "Set Panic Disabled"
       }
     },
+    "/v1/firewall/redact-context": {
+      "post": {
+        "description": "Scrub every text in ``texts`` of structured secrets that\ndo NOT belong to ``user_id``, returning the redacted\nversions. Catches:\n\n  1. Vault entries known to belong to other users (exact\n     excerpt match \u2014 same surface as\n     ``/v1/firewall/vault/foreign-excerpts``).\n  2. Structured-ID patterns (account numbers, customer IDs)\n     present in the texts that AREN'T in the current user's\n     vault. Closes the v0.6.1 brutal-test gap where\n     ``DEMO-12345`` leaked because it was sent before\n     user_id propagation worked, so it never landed in the\n     vault under any user \u2014 yet the LLM still had it in\n     conversation history. Pattern-based defense doesn't\n     need prior recording.\n\nThe current user's OWN vault excerpts pass through\nunchanged so they can keep referring to their own\naccount number.\n\nUsed by ``@lumin-io/openclaw-diagnostics`` from\n``before_prompt_build`` to scrub the LLM's prompt + history\nbefore the model runs, so a foreign user's secret can't\nenter the model's context. This is the only architecturally\nsound point to enforce cross-session isolation \u2014 output-\nside rewriting was provably leaky on Slack\n(``chat.postMessage`` flashes the original before\n``chat.update`` redacts it).",
+        "operationId": "redact_context_endpoint_v1_firewall_redact_context_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RedactContextRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Redact Context Endpoint V1 Firewall Redact Context Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Redact Context Endpoint"
+      }
+    },
     "/v1/firewall/suggestions": {
       "get": {
         "description": "Pending pattern suggestions for the dashboard inbox.\nstate \u2208 pending | promoted | dismissed | all.",
@@ -5346,6 +5640,48 @@
           }
         },
         "summary": "List Vault Entries Endpoint"
+      }
+    },
+    "/v1/firewall/vault/foreign-excerpts": {
+      "get": {
+        "description": "Return the de-duplicated list of vault fact excerpts that\nDO NOT belong to ``user_id`` \u2014 i.e. the secrets a leak rule\nwould catch if they appeared in the LLM's outbound text for\nthis user.\n\nBrutal-test fix v0.6.1 (2026-05-10): the OpenClaw plugin\nneeds this list to client-side-redact prompts BEFORE the LLM\nruns, so a foreign user's secret never enters the model's\ncontext in the first place. Output-side rewriting was\nfundamentally leaky (Slack ``chat.update`` flashes the\noriginal to the recipient before the redaction lands), so\ncross-session isolation has to happen at the input layer\nwhere the firewall hook IS awaited and the LLM sees the\nredacted prompt directly.\n\nThe endpoint deliberately does NOT return the foreign user_id\nor session_id \u2014 only the excerpts. A plugin scrubbing\nagainst this list shouldn't need to know whose secret it is,\nonly that it must not appear.",
+        "operationId": "vault_foreign_excerpts_endpoint_v1_firewall_vault_foreign_excerpts_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Vault Foreign Excerpts Endpoint V1 Firewall Vault Foreign Excerpts Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Vault Foreign Excerpts Endpoint"
       }
     },
     "/v1/firewall/vault/stats": {

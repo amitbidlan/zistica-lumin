@@ -35,6 +35,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from collections import deque
@@ -704,7 +705,10 @@ def decide(
             }
 
         if action == "rewrite":
-            rewritten = _redact_for_rewrite(params, output)
+            rewritten = _redact_for_rewrite(
+                params, output,
+                policy=policy, db=db, user_id=user_id,
+            )
             return {
                 "decision": "rewrite",
                 "rewritten": rewritten,
@@ -1154,21 +1158,100 @@ def _truncate_params(params: Optional[Dict[str, Any]]) -> Optional[str]:
 
 
 def _redact_for_rewrite(
-    params: Optional[Dict[str, Any]], output: Any
+    params: Optional[Dict[str, Any]],
+    output: Any,
+    *,
+    policy: Optional[Policy] = None,
+    db: Optional[Database] = None,
+    user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Default rewrite: redact PII/secrets from string fields. Cheap
-    and conservative — operators who want richer rewrite logic can
-    register custom builtins later."""
+    """Default rewrite: redact PII/secrets from string fields.
+
+    Two cases for ``output``:
+      1. ``str`` — redact in place.
+      2. ``{"text": "..."}`` — the OpenClaw plugin sends this shape on
+         after_proxy_call. Unwrap, redact, return ``result`` as a
+         string the plugin can drop straight back into the reply.
+
+    When the matched ``policy`` used the ``cross_session_leak`` builtin,
+    we ALSO mask the specific foreign-user vault excerpts that appear
+    in the text. Generic PII redaction won't catch arbitrary IDs like
+    ``RIDER-77123`` or ``DEMO-12345``, but the vault knows them.
+    """
     out: Dict[str, Any] = {}
     if isinstance(params, dict):
         out["params"] = {
             k: fw_builtins.redact_pii(v) if isinstance(v, str) else v
             for k, v in params.items()
         } if params else {}
+
+    # Resolve the actual text to redact, regardless of incoming shape.
+    text: Optional[str]
     if isinstance(output, str):
-        out["result"] = fw_builtins.redact_pii(output)
-    elif output is not None:
-        out["result"] = output
+        text = output
+    elif isinstance(output, dict):
+        candidate = output.get("text")
+        if not isinstance(candidate, str):
+            candidate = output.get("result")
+        text = candidate if isinstance(candidate, str) else None
+    else:
+        text = None
+
+    if text is None:
+        if output is not None:
+            out["result"] = output
+        return out
+
+    # 1) generic PII redaction (covers emails, phones, SSNs, etc.)
+    redacted = fw_builtins.redact_pii(text)
+
+    # 2) cross-session vault leak masking — only when the rule's
+    # condition uses cross_session_leak() AND we have the context
+    # needed to resolve which excerpts to mask. Best-effort, never
+    # fails the rewrite.
+    if (
+        policy is not None
+        and db is not None
+        and user_id
+        and "cross_session_leak" in (policy.condition or "")
+    ):
+        try:
+            from firewall import vault as fw_vault
+            leaks = fw_vault.check_for_leak(
+                db, text=redacted, user_id=user_id,
+            )
+            for leak in leaks:
+                excerpt = (leak.get("fact_excerpt") or "").strip()
+                # Defend against absurd / empty excerpts that would
+                # turn the whole reply into [REDACTED].
+                if not excerpt or len(excerpt) < 3:
+                    continue
+                # Build a regex that matches the excerpt OR any of
+                # its typographic-dash variants (U+2011 non-breaking
+                # hyphen, en-dash, em-dash, minus). The ASCII '-'
+                # in the stored excerpt becomes a character class
+                # so a model emitting "BANANA‑44221" and the vault
+                # storing "BANANA-44221" still mask cleanly. One
+                # regex covers both the ASCII case and any unicode
+                # substitution that might appear in the same reply.
+                # Brutal-test fix v0.6.1, 2026-05-10: caught
+                # "BANANA‑44221" (U+2011) bypassing the redactor.
+                if "-" in excerpt:
+                    pattern = re.escape(excerpt).replace(
+                        re.escape("-"),
+                        r"[-_‐-―−]",
+                    )
+                    redacted = re.sub(pattern, "[REDACTED]", redacted)
+                elif excerpt in redacted:
+                    redacted = redacted.replace(excerpt, "[REDACTED]")
+        except Exception:
+            logger.exception(
+                "firewall.decide: cross_session_leak masking failed for "
+                "policy=%s",
+                getattr(policy, "name", "?"),
+            )
+
+    out["result"] = redacted
     return out
 
 

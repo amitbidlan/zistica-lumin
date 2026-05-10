@@ -40,6 +40,7 @@ Public API:
 from __future__ import annotations
 
 import logging
+import os
 import threading
 from typing import Any, List, Optional
 
@@ -61,8 +62,18 @@ except Exception:  # pragma: no cover — exercised at install time
 # Allow- and skip-lists. The allow list is what we expose; anything
 # returned by Presidio that isn't in here is dropped before the score
 # is computed.
+#
+# 2026-05-10 — added LOCATION to catch geographic identifiers in
+# customer-support / sales contexts (city / country / region names
+# that uniquely identify a tenant deal). Did NOT add ORGANIZATION:
+# Presidio doesn't ship a default ORG recognizer (spaCy NER emits ORG
+# but Presidio doesn't map it). Adding ORG requires a custom
+# recognizer (PatternRecognizer or registered SpacyRecognizer) —
+# tracked as a follow-up.
 _ALLOWED_ENTITIES = frozenset({
     "PERSON",
+    "LOCATION",
+    "ORGANIZATION",
     "EMAIL_ADDRESS",
     "PHONE_NUMBER",
     "US_SSN",
@@ -97,7 +108,86 @@ def _get_engine() -> Optional[Any]:
         if _engine_init_failed:
             return None
         try:
-            _engine = AnalyzerEngine()
+            # Allow operator to pick a smaller spaCy model via env var
+            # (saves ~700MB image size at modest accuracy cost). When
+            # unset, falls through to Presidio's default behaviour
+            # which uses ``en_core_web_lg``. The Dockerfile sets this
+            # env var to whatever was downloaded at build time, so
+            # the model name and the container env stay aligned.
+            _model_name = os.environ.get("LUMIN_PRESIDIO_MODEL")
+            if _model_name and _model_name != "en_core_web_lg":
+                from presidio_analyzer.nlp_engine import NlpEngineProvider  # type: ignore
+                provider = NlpEngineProvider(nlp_configuration={
+                    "nlp_engine_name": "spacy",
+                    "models": [{"lang_code": "en", "model_name": _model_name}],
+                })
+                _engine = AnalyzerEngine(nlp_engine=provider.create_engine())
+            else:
+                _engine = AnalyzerEngine()
+            # Register a custom ORGANIZATION recognizer. Presidio
+            # ships PERSON / LOCATION / EMAIL_ADDRESS / etc. but no
+            # default org recognizer — yet enterprise customer names
+            # (Northstar Logistics, GE Capital, Meridian Health
+            # Systems) are exactly the cross-tenant signal we need
+            # to redact. PatternRecognizer with a corporate-suffix
+            # regex catches the common enterprise shape (suffix-
+            # bearing names) without needing a custom NER model.
+            # 2026-05-10 — added after live test showed Northstar /
+            # Meridian / Acme / GE Capital all passed L3 unredacted.
+            try:
+                from presidio_analyzer import PatternRecognizer, Pattern  # type: ignore
+                # Capital-anchored: each prefix word MUST start with
+                # uppercase letter, suffix MUST be a known company
+                # token. Requires at least 1 prefix word so the
+                # suffix alone (e.g. "Ltd", "Health") doesn't fire
+                # an ORG hit in isolation.
+                #
+                # CRITICAL: Presidio's PatternRecognizer hardcodes
+                # ``re.IGNORECASE`` on every Pattern. Without the
+                # ``(?-i:...)`` inline flag, the prefix-word
+                # ``[A-Z]`` constraint is silently ignored and the
+                # regex matches lowercase phrases too — e.g.
+                # "am working with Bobcorp Industries Ltd" got
+                # matched as ORG because "am working with" all
+                # passed `[A-Z]` once IGNORECASE was applied. The
+                # `(?-i:[A-Z])` forces case-sensitivity locally
+                # while leaving the suffix-token group case-
+                # insensitive (so "ltd"/"LTD" still match suffixes).
+                org_pattern = Pattern(
+                    name="org_with_suffix",
+                    regex=(
+                        r"(?:(?<=^)|(?<=[\s,;:\-\(\[]))"
+                        r"(?-i:(?:[A-Z][A-Za-z0-9&.,'\-]{1,32}\s+){1,4})"
+                        r"(?:Inc\.?|Incorporated|Corp\.?|Corporation|"
+                        r"LLC|L\.L\.C\.?|Ltd\.?|Limited|"
+                        r"GmbH|AG|"
+                        r"Company|"
+                        r"Group|Holdings|Holding|"
+                        r"Capital|Partners|Ventures|"
+                        r"Logistics|Shipping|Freight|"
+                        r"Health|Healthcare|Medical|Pharma|Pharmaceuticals|"
+                        r"Systems|Solutions|Services|Industries|"
+                        r"Technologies|Technology|Software|"
+                        r"Bank|Banking|Insurance|Financial|"
+                        r"Energy|Power|Petroleum|Resources|"
+                        r"Telecom|Communications|Networks|"
+                        r"Enterprise|Enterprises|Consulting|Advisors)"
+                        r"\b"
+                    ),
+                    score=0.7,
+                )
+                org_recognizer = PatternRecognizer(
+                    supported_entity="ORGANIZATION",
+                    patterns=[org_pattern],
+                    supported_language="en",
+                )
+                _engine.registry.add_recognizer(org_recognizer)
+            except Exception:
+                logger.warning(
+                    "presidio: failed to register ORGANIZATION recognizer "
+                    "— enterprise customer names will pass L3 unredacted",
+                    exc_info=True,
+                )
         except Exception:
             # Most likely cause: missing spaCy model. Mark init as
             # failed so subsequent calls don't keep retrying — they
@@ -153,7 +243,9 @@ def presidio_pii_score(text: Optional[str]) -> float:
 
 def presidio_pii_entities(text: Optional[str]) -> List[dict]:
     """List of detected entities, each ``{entity_type, score, start,
-    end}``. Used by the dashboard's "what was detected" panel.
+    end, text}``. Used by the dashboard's "what was detected" panel
+    AND by ``vault._extract_facts`` (which reads ``text`` to build
+    the foreign-secret excerpt list for L3 redaction).
 
     Returns ``[]`` on the same conditions ``presidio_pii_score`` returns
     0.0 (no input / not installed / init failed / engine error).
@@ -178,11 +270,20 @@ def presidio_pii_entities(text: Optional[str]) -> List[dict]:
             etype = getattr(r, "entity_type", None)
             if etype not in _ALLOWED_ENTITIES:
                 continue
+            start = int(getattr(r, "start", 0))
+            end = int(getattr(r, "end", 0))
             out.append({
                 "entity_type": etype,
                 "score": float(getattr(r, "score", 0.0)),
-                "start": int(getattr(r, "start", 0)),
-                "end": int(getattr(r, "end", 0)),
+                "start": start,
+                "end": end,
+                # The actual entity substring. Without this,
+                # ``vault._extract_facts`` (which keys on ``text``)
+                # silently drops every Presidio hit — historically the
+                # reason names + orgs slipped through L3 even with
+                # Presidio installed. (Fixed 2026-05-10 alongside the
+                # Presidio enable in the Docker image.)
+                "text": text[start:end],
             })
     except Exception:
         return []
