@@ -1,7 +1,5 @@
-<!-- Banner image — replace with your assets/lumin-banner.png once uploaded -->
 <p align="center">
-   <img alt="Lumin — local-first AI agent observability + tenant-isolation firewall"
-        src="assets/dashboard-trace.png" width="100%">
+   <img src="assets/lumin-banner.svg" alt="Lumin — local-first agent observability + tenant-isolation firewall" width="100%" />
 </p>
 
 <div align="center">
@@ -52,9 +50,7 @@
 </p>
 
 <p align="center">
-   Lumin is an <strong>open-source, local-first observability + agent firewall</strong> for AI bots.<br/>
-   Drop in 2 lines to <strong>trace every step</strong>. Add the firewall to <strong>structurally block cross-session leaks</strong> in multi-user bots.<br/>
-   Self-hosted in a single Docker container — no cloud, no telemetry, no vendor lock-in.
+   Open-source. Self-hosted in a single Docker container. No cloud, no telemetry, no vendor lock-in.
 </p>
 
 <!-- 52-second walkthrough: cross-session leak attempt → all 5 layers
@@ -65,25 +61,20 @@
 <p align="center">
    <video src="https://github.com/amitbidlan/zistica-lumin/raw/main/assets/demo.mp4"
           poster="assets/demo-poster.jpg"
-          width="80%" controls muted playsinline>
+          width="100%" controls muted playsinline>
       <a href="assets/demo.mp4">
          <img alt="Lumin demo — 52-second walkthrough (click to play)"
-              src="assets/demo-poster.jpg" width="80%">
+              src="assets/demo-poster.jpg" width="100%">
       </a>
    </video>
 </p>
 <p align="center">
-   <sub>52-second walkthrough — Telegram user plants customer notes, Slack user attempts the leak, Lumin's 5 layers block every bypass route. <a href="assets/demo.mp4">Direct download</a> (2.4MB).</sub>
+   <sub>▶ 52-second walkthrough — Telegram user plants customer notes, Slack user tries to leak them, Lumin's 5 layers block every bypass route. <a href="assets/demo.mp4">Download</a> (2.4MB).</sub>
 </p>
 
 ---
 
 ## ✨ Core Features
-
-<p align="center">
-   <img alt="Lumin feature overview"
-        src="assets/dashboard-trace.png" width="100%">
-</p>
 
 - **🔍 Agent observability** — instrument any Python or TypeScript agent in 2 lines. Captures every LLM call, tool invocation, retrieval, embedding, and custom span. Real-time WebSocket push to the dashboard, no refresh.
 
@@ -173,10 +164,6 @@ docker compose build --build-arg LUMIN_PRESIDIO_MODEL=en_core_web_md
 ---
 
 ## 🔌 Integrations
-
-<p align="center">
-   <img alt="Lumin integrations" src="assets/dashboard-details.png" width="100%">
-</p>
 
 ### First-party SDKs and plugins
 
