@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 400" role="img" aria-label="Lumin — local-first AI agent observability with a tenant-isolation firewall">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0b0d10"/>
+      <stop offset="55%" stop-color="#0e1422"/>
+      <stop offset="100%" stop-color="#1a1635"/>
+    </linearGradient>
+    <radialGradient id="glow1" cx="0.18" cy="0.32" r="0.45">
+      <stop offset="0%" stop-color="#60a5fa" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#60a5fa" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glow2" cx="0.85" cy="0.78" r="0.45">
+      <stop offset="0%" stop-color="#a78bfa" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#a78bfa" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glow3" cx="0.92" cy="0.18" r="0.30">
+      <stop offset="0%" stop-color="#22d3ee" stop-opacity="0.30"/>
+      <stop offset="100%" stop-color="#22d3ee" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- background -->
+  <rect width="1600" height="400" fill="url(#bg)"/>
+  <rect width="1600" height="400" fill="url(#glow1)"/>
+  <rect width="1600" height="400" fill="url(#glow2)"/>
+  <rect width="1600" height="400" fill="url(#glow3)"/>
+
+  <!-- logo mark, scaled-up version of the favicon -->
+  <g transform="translate(140 120)">
+    <rect width="160" height="160" rx="34" fill="#0b0d10" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+    <path d="M40 80 L120 43" stroke="#475569" stroke-width="9" stroke-linecap="round"/>
+    <path d="M40 80 L120 117" stroke="#475569" stroke-width="9" stroke-linecap="round"/>
+    <circle cx="34" cy="80" r="18" fill="#60a5fa"/>
+    <circle cx="120" cy="43" r="14" fill="#a78bfa"/>
+    <circle cx="120" cy="117" r="14" fill="#22d3ee"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="360" y="180" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', system-ui, sans-serif" font-size="120" font-weight="700" fill="#e7eaee" letter-spacing="-3">Lumin</text>
+
+  <!-- tagline -->
+  <text x="360" y="232" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', system-ui, sans-serif" font-size="28" font-weight="500" fill="#94a3b8" letter-spacing="0.2">Local-first agent observability + tenant-isolation firewall</text>
+
+  <!-- pill row -->
+  <g font-family="-apple-system, BlinkMacSystemFont, 'SF Mono', 'Menlo', monospace" font-size="20" font-weight="500">
+    <g transform="translate(360 270)">
+      <rect width="200" height="44" rx="22" fill="rgba(96,165,250,0.12)" stroke="rgba(96,165,250,0.40)"/>
+      <text x="100" y="29" text-anchor="middle" fill="#93c5fd">trace every step</text>
+    </g>
+    <g transform="translate(580 270)">
+      <rect width="240" height="44" rx="22" fill="rgba(167,139,250,0.12)" stroke="rgba(167,139,250,0.40)"/>
+      <text x="120" y="29" text-anchor="middle" fill="#c4b5fd">block cross-session leaks</text>
+    </g>
+    <g transform="translate(840 270)">
+      <rect width="200" height="44" rx="22" fill="rgba(34,211,238,0.12)" stroke="rgba(34,211,238,0.40)"/>
+      <text x="100" y="29" text-anchor="middle" fill="#67e8f9">single Docker</text>
+    </g>
+  </g>
+</svg>
