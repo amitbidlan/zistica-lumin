@@ -53,23 +53,17 @@
    Open-source. Self-hosted in a single Docker container. No cloud, no telemetry, no vendor lock-in.
 </p>
 
-<!-- 52-second walkthrough: cross-session leak attempt → all 5 layers
-     blocking → dashboard trace evidence. Click the poster to play.
-     For guaranteed inline rendering on the GitHub web README, drop
-     ``assets/demo.mp4`` into a PR/issue editor (gets a stable
-     user-attachments URL) and swap the ``src`` here. -->
+<!-- Demo video hosted on YouTube — clickable thumbnail uses the
+     repo-local poster so the README never depends on YouTube's CDN
+     for the still frame. Click → opens https://youtu.be/hgTntZniuv4 -->
 <p align="center">
-   <video src="https://github.com/amitbidlan/zistica-lumin/raw/main/assets/demo.mp4"
-          poster="assets/demo-poster.jpg"
-          width="100%" controls muted playsinline>
-      <a href="assets/demo.mp4">
-         <img alt="Lumin demo — 52-second walkthrough (click to play)"
-              src="assets/demo-poster.jpg" width="100%">
-      </a>
-   </video>
+   <a href="https://youtu.be/hgTntZniuv4">
+      <img alt="▶ Lumin demo — 52-second walkthrough (click to watch on YouTube)"
+           src="assets/demo-poster.jpg" width="100%">
+   </a>
 </p>
 <p align="center">
-   <sub>▶ 52-second walkthrough — Telegram user plants customer notes, Slack user tries to leak them, Lumin's 5 layers block every bypass route. <a href="assets/demo.mp4">Download</a> (2.4MB).</sub>
+   <sub>▶ <a href="https://youtu.be/hgTntZniuv4">Watch on YouTube</a> — 52-second walkthrough — Telegram user plants customer notes, Slack user tries to leak them, Lumin's 5 layers block every bypass route.</sub>
 </p>
 
 ---
