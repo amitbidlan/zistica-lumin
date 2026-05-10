@@ -49,6 +49,25 @@
   --thinking-border:    rgba(167, 139, 250, 0.35);
   --thinking-fg:        #c4b5fd;
   --thinking-fg-soft:   #a78bfa;
+  /* Span type-badge palette. Foreground + border for each span type
+     pill (llm / tool / retrieval / memory / custom). Both modes
+     share the same hue family per type — only the contrast swaps so
+     the badges stay legible on light AND dark backgrounds. */
+  --span-llm-fg:         #c4b5fd;
+  --span-llm-border:     rgba(91, 33, 182, 0.6);
+  --span-tool-fg:        #67e8f9;
+  --span-tool-border:    rgba(14, 116, 144, 0.6);
+  --span-retrieval-fg:   #fcd34d;
+  --span-retrieval-border: rgba(146, 64, 14, 0.6);
+  --span-memory-fg:      #f9a8d4;
+  --span-memory-border:  rgba(157, 23, 77, 0.6);
+  --span-custom-fg:      #cbd5e1;
+  --span-custom-border:  rgba(71, 85, 105, 0.7);
+  --span-response-fg:    #6ee7b7;
+  --span-response-border: rgba(6, 95, 70, 0.7);
+  --span-error-fg:       #fca5a5;
+  --span-error-bg:       rgba(127, 29, 29, 0.30);
+  --span-error-border:   rgba(185, 28, 28, 0.7);
   /* Color-scheme tells the browser what tone the page is — affects
      native form controls, scrollbars on macOS, and image rendering. */
   color-scheme: dark;
@@ -84,6 +103,25 @@
   --thinking-border:    rgba(124, 58, 237, 0.30);
   --thinking-fg:        #5b21b6;
   --thinking-fg-soft:   #6d28d9;
+  /* Light-mode span-badge palette. Foreground darkened so the pill
+     reads on near-white backgrounds; border lightened so it doesn't
+     dominate. Same hue family as dark mode for cross-theme
+     recognition. */
+  --span-llm-fg:           #6d28d9;
+  --span-llm-border:       #c4b5fd;
+  --span-tool-fg:          #0e7490;
+  --span-tool-border:      #a5f3fc;
+  --span-retrieval-fg:     #b45309;
+  --span-retrieval-border: #fcd34d;
+  --span-memory-fg:        #be185d;
+  --span-memory-border:    #f9a8d4;
+  --span-custom-fg:        #475569;
+  --span-custom-border:    #cbd5e1;
+  --span-response-fg:      #047857;
+  --span-response-border:  #6ee7b7;
+  --span-error-fg:         #b91c1c;
+  --span-error-bg:         rgba(254, 226, 226, 0.7);
+  --span-error-border:     #fca5a5;
   color-scheme: light;
 }
 

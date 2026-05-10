@@ -1,14 +1,18 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { Span, formatCost, formatDuration } from '@/lib/api';
 
-const TYPE_COLORS: Record<string, string> = {
-  llm: 'text-violet-300 border-violet-800/60',
-  tool: 'text-cyan-300 border-cyan-800/60',
-  retrieval: 'text-amber-300 border-amber-800/60',
-  memory: 'text-pink-300 border-pink-800/60',
-  custom: 'text-slate-300 border-slate-700',
+// Theme-aware span-type badge colors. Backed by ``--span-<type>-*``
+// CSS vars in globals.css that flip per ``data-theme``. Pre-fix
+// these were Tailwind 300/800-weight classes that worked only in
+// dark mode and rendered as pale-on-pale in light mode.
+const TYPE_STYLES: Record<string, { fg: string; border: string }> = {
+  llm:       { fg: 'var(--span-llm-fg)',       border: 'var(--span-llm-border)' },
+  tool:      { fg: 'var(--span-tool-fg)',      border: 'var(--span-tool-border)' },
+  retrieval: { fg: 'var(--span-retrieval-fg)', border: 'var(--span-retrieval-border)' },
+  memory:    { fg: 'var(--span-memory-fg)',    border: 'var(--span-memory-border)' },
+  custom:    { fg: 'var(--span-custom-fg)',    border: 'var(--span-custom-border)' },
 };
 
 function prettyJson(s: string | null): string {
@@ -72,22 +76,44 @@ export default function SpanRow({
   // the user opts in to read it). Other rows are also collapsed by
   // default — we keep the behavior uniform.
   const [open, setOpen] = useState(false);
-  const typeClass = TYPE_COLORS[span.type ?? 'custom'] ?? TYPE_COLORS.custom;
+  const typeStyle = TYPE_STYLES[span.type ?? 'custom'] ?? TYPE_STYLES.custom;
   const isError = span.status === 'error';
 
+  // Thinking-row chrome uses ``--thinking-*`` CSS vars so it stays
+  // legible in both light and dark mode. Pre-2026-05-11 these were
+  // hardcoded ``bg-violet-950/20``-style classes — fine in dark,
+  // invisible-on-pale-violet in light. Same fix as the Field
+  // component below.
   const rowClass = isThinking
-    ? 'w-full text-left px-3 py-2 transition-colors flex items-center gap-3 bg-violet-950/20 hover:bg-violet-950/40 border-l-2 border-violet-700'
+    ? 'w-full text-left px-3 py-2 transition-colors flex items-center gap-3 border-l-2'
     : 'w-full text-left px-3 py-2 hover:bg-[var(--background-hover)] transition-colors flex items-center gap-3';
+  const rowStyle: CSSProperties | undefined = isThinking
+    ? {
+        background: 'var(--thinking-bg)',
+        borderLeftColor: 'var(--thinking-border)',
+      }
+    : undefined;
 
   const subtypeBadge = isThinking ? (
     <span
-      className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 border rounded text-violet-200 border-violet-600 bg-violet-900/40"
+      className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 border rounded"
+      style={{
+        color: 'var(--thinking-fg)',
+        borderColor: 'var(--thinking-border)',
+        background: 'var(--thinking-bg-hover)',
+      }}
       data-testid="thinking-badge"
     >
       thinking
     </span>
   ) : isResponse ? (
-    <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 border rounded text-emerald-200 border-emerald-700 bg-emerald-900/30">
+    <span
+      className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 border rounded"
+      style={{
+        color: 'var(--span-response-fg)',
+        borderColor: 'var(--span-response-border)',
+      }}
+    >
       response
     </span>
   ) : null;
@@ -97,6 +123,7 @@ export default function SpanRow({
       <button
         onClick={() => setOpen(!open)}
         className={rowClass}
+        style={rowStyle}
         aria-expanded={open}
       >
         <span
@@ -111,7 +138,8 @@ export default function SpanRow({
         </span>
         {subtypeBadge}
         <span
-          className={`text-[10px] uppercase tracking-wider px-1.5 py-0.5 border rounded ${typeClass}`}
+          className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 border rounded"
+          style={{ color: typeStyle.fg, borderColor: typeStyle.border }}
         >
           {span.type ?? 'custom'}
         </span>
@@ -122,7 +150,8 @@ export default function SpanRow({
         )}
         {isThinking && span.thinking_tokens != null ? (
           <span
-            className="text-xs text-violet-300 font-mono"
+            className="text-xs font-mono"
+            style={{ color: 'var(--thinking-fg-soft)' }}
             data-testid="thinking-tokens"
           >
             ~{span.thinking_tokens} thinking tok
@@ -143,7 +172,14 @@ export default function SpanRow({
           {formatDuration(span.duration_ms)}
         </span>
         {isError && (
-          <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 border rounded text-red-300 border-red-700 bg-red-900/30">
+          <span
+            className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 border rounded"
+            style={{
+              color: 'var(--span-error-fg)',
+              background: 'var(--span-error-bg)',
+              borderColor: 'var(--span-error-border)',
+            }}
+          >
             error
           </span>
         )}
@@ -151,8 +187,16 @@ export default function SpanRow({
       {open && (
         <div
           className={`px-4 pb-3 pt-1 text-xs space-y-3 ${
-            isThinking ? 'bg-violet-950/10 border-l-2 border-violet-800/40' : 'bg-[var(--background-raised)]'
+            isThinking ? 'border-l-2' : 'bg-[var(--background-raised)]'
           }`}
+          style={
+            isThinking
+              ? {
+                  background: 'var(--thinking-bg)',
+                  borderLeftColor: 'var(--thinking-border)',
+                }
+              : undefined
+          }
         >
           {isThinking ? (
             <Field
@@ -200,23 +244,46 @@ function Field({
   error?: boolean;
   accent?: 'thinking';
 }) {
-  const labelClass = error
-    ? 'text-red-400'
-    : accent === 'thinking'
-      ? 'text-violet-300'
-      : 'text-[var(--muted)]';
-  const preClass = error
-    ? 'text-red-300'
-    : accent === 'thinking'
-      ? 'text-violet-100 border-violet-800/60 bg-violet-950/20'
-      : '';
+  const isThinking = accent === 'thinking';
+  // Light-mode bug fix (2026-05-11): the previous version used
+  // hardcoded Tailwind violets (``text-violet-100`` on
+  // ``bg-violet-950/20``). Those work in dark mode but are
+  // invisible on a white background — pale lavender on white. Move
+  // to the same ``--thinking-*`` CSS variables ChatView uses; they
+  // flip per ``data-theme`` so reasoning is readable in both modes.
+  const labelClass = isThinking || error
+    ? '' // color via inline style below
+    : 'text-[var(--muted)]';
+  const preClass = '';
+  const labelStyle: CSSProperties | undefined = error
+    ? { color: 'var(--span-error-fg)' }
+    : isThinking
+      ? { color: 'var(--thinking-fg-soft)' }
+      : undefined;
+  const preStyle: CSSProperties | undefined = error
+    ? {
+        color: 'var(--span-error-fg)',
+        background: 'var(--span-error-bg)',
+        borderColor: 'var(--span-error-border)',
+      }
+    : isThinking
+      ? {
+          color: 'var(--thinking-fg)',
+          background: 'var(--thinking-bg)',
+          borderColor: 'var(--thinking-border)',
+        }
+      : undefined;
   return (
     <div>
-      <div className={`text-[10px] uppercase tracking-wider mb-1 ${labelClass}`}>
+      <div
+        className={`text-[10px] uppercase tracking-wider mb-1 ${labelClass}`}
+        style={labelStyle}
+      >
         {label}
       </div>
       <pre
-        className={`font-mono whitespace-pre-wrap break-all border border-[var(--border)] rounded p-2 ${preClass}`}
+        className={`font-mono whitespace-pre-wrap break-all border ${isThinking || error ? '' : 'border-[var(--border)]'} rounded p-2 ${preClass}`}
+        style={preStyle}
       >
         {value}
       </pre>

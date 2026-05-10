@@ -36,8 +36,9 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc",
-    "test": "vitest run"
+    "build": "tsc && node scripts/sync-extension.mjs",
+    "test": "vitest run",
+    "sync-extension": "node scripts/sync-extension.mjs"
   },
   "peerDependencies": {
     "openclaw": ">=2026.4.25"

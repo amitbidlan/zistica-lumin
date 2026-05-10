@@ -26,6 +26,89 @@
       "timeoutMs": {
         "type": "number",
         "description": "HTTP timeout for POST /v1/spans, milliseconds. Default 5000."
+      },
+      "enforce": { "type": "boolean" },
+      "decideTimeoutMs": { "type": "number" },
+      "onFirewallError": { "type": "string", "enum": ["allow", "deny"] },
+      "adminSenders": { "type": "array", "items": { "type": "string" } },
+      "userBlockedMessage": { "type": "string" },
+      "adminSeesFullResponse": { "type": "boolean" },
+      "replyOnInputBlock": { "type": "boolean" },
+      "userInputBlockedMessage": { "type": "string" },
+      "sharedPaths": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Paths that bypass the per-sender storage sandbox and resolve against the shared workspace root. Glob patterns relative to workspace, or absolute. Read-only — write tools targeting these are blocked."
+      },
+      "failClosedOnMissingWorkspace": {
+        "type": "boolean",
+        "description": "When true, fs tool calls without a workspaceDir in hook context are blocked instead of silently passed through. Production should set this true."
+      },
+      "workspaceDir": {
+        "type": "string",
+        "description": "Override / fallback for the agent's workspace dir, used by the per-sender sandbox when OpenClaw doesn't propagate workspaceDir on tool-call hook context (observed 2026.5.x)."
+      },
+      "deniedTools": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Tools refused outright before sandboxing. Defaults follow the active securityProfile."
+      },
+
+      "securityProfile": {
+        "type": "string",
+        "enum": ["strict", "standard", "light", "logging-only", "balanced", "permissive", "observability"],
+        "description": "One-knob shorthand. strict=healthcare/finance; standard=default; light=internal; logging-only=trace only no blocking. balanced/permissive/observability are legacy aliases."
+      },
+
+      "enableTenantIsolation": {
+        "type": "boolean",
+        "description": "Master switch. When false, plugin records traces but never blocks (equivalent to securityProfile=logging-only)."
+      },
+      "blockShellTools": {
+        "type": "boolean",
+        "description": "Block exec/shell/bash/python and similar code-execution tools. Default: on for strict and standard profiles."
+      },
+      "blockWebTools": {
+        "type": "boolean",
+        "description": "Block web_fetch/http_get/curl and similar network-egress tools. Default: on for strict and standard profiles."
+      },
+      "resetMemoryBetweenUsers": {
+        "type": "string",
+        "enum": ["between-users", "between-channels", "never"],
+        "description": "When to wipe the bot's conversation memory. between-users (default) = wipe on every sender switch. between-channels = wipe only on channel switch (same user keeps history across channels within their own scope). never = no automatic clearing (only safe with architectural per-user contexts)."
+      },
+      "hideOtherUsersData": {
+        "type": "boolean",
+        "description": "When true, the AI's prompt is scrubbed of other users' names/emails/IDs/orgs before every model call. Defense-in-depth on top of memory reset."
+      },
+      "recordSecurityEvents": {
+        "oneOf": [
+          { "type": "boolean" },
+          { "type": "number", "minimum": 0, "maximum": 1 }
+        ],
+        "description": "Whether to record blocks/redactions in the dashboard's Violations table. true = every event; false = none; number 0..1 = sampled fraction."
+      },
+
+      "l2HistoryResetMode": {
+        "type": "string",
+        "enum": ["clear-on-switch", "scope-by-channel", "off"],
+        "description": "Technical alias for resetMemoryBetweenUsers. Use the friendly toggle instead."
+      },
+      "l3Detectors": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "vault_exact":        { "type": "boolean" },
+          "structural_pattern": { "type": "boolean" },
+          "presidio":           { "type": "boolean" }
+        },
+        "description": "Per-detector toggles for the input redactor. Use hideOtherUsersData for the master switch unless you specifically want to disable Presidio (heavy)."
+      },
+      "auditSamplingRate": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1,
+        "description": "Technical alias for recordSecurityEvents (numeric form)."
       }
     }
   }

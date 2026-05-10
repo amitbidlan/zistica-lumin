@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -1153,6 +1154,241 @@ def vault_stats_endpoint(db: Database = Depends(get_db)) -> Dict[str, Any]:
     entry count."""
     from firewall import vault as fw_vault
     return fw_vault.vault_stats(db)
+
+
+@router.get("/v1/firewall/vault/foreign-excerpts")
+def vault_foreign_excerpts_endpoint(
+    user_id: str,
+    db: Database = Depends(get_db),
+) -> Dict[str, Any]:
+    """Return the de-duplicated list of vault fact excerpts that
+    DO NOT belong to ``user_id`` — i.e. the secrets a leak rule
+    would catch if they appeared in the LLM's outbound text for
+    this user.
+
+    Brutal-test fix v0.6.1 (2026-05-10): the OpenClaw plugin
+    needs this list to client-side-redact prompts BEFORE the LLM
+    runs, so a foreign user's secret never enters the model's
+    context in the first place. Output-side rewriting was
+    fundamentally leaky (Slack ``chat.update`` flashes the
+    original to the recipient before the redaction lands), so
+    cross-session isolation has to happen at the input layer
+    where the firewall hook IS awaited and the LLM sees the
+    redacted prompt directly.
+
+    The endpoint deliberately does NOT return the foreign user_id
+    or session_id — only the excerpts. A plugin scrubbing
+    against this list shouldn't need to know whose secret it is,
+    only that it must not appear.
+    """
+    if not user_id:
+        # Without a user_id we'd return EVERY excerpt (massive
+        # over-redaction). Caller must pass one.
+        raise HTTPException(
+            status_code=400,
+            detail="user_id query parameter is required",
+        )
+    rows = db.fetchall_dict(
+        """
+        SELECT DISTINCT fact_excerpt
+        FROM session_vault
+        WHERE user_id <> ?
+          AND user_id <> ''
+          AND fact_excerpt IS NOT NULL
+          AND length(fact_excerpt) >= 3
+        """,
+        [user_id],
+    )
+    excerpts = [r["fact_excerpt"] for r in rows if r.get("fact_excerpt")]
+    return {"user_id": user_id, "excerpts": excerpts, "count": len(excerpts)}
+
+
+class RedactContextDetectors(BaseModel):
+    """Per-detector toggles for the L3 redactor.
+
+    Plugin-side operators can disable specific detectors without
+    uninstalling Presidio or removing vault data. ``None`` means
+    "use the server default (all on)".
+
+    See TENANT_ISOLATION_SPEC §2.4 detector matrix.
+    """
+    vault_exact: Optional[bool] = None
+    structural_pattern: Optional[bool] = None
+    presidio: Optional[bool] = None
+
+
+class RedactContextRequest(BaseModel):
+    """POST body for /v1/firewall/redact-context."""
+    user_id: str
+    texts: List[str] = Field(default_factory=list)
+    detectors: Optional[RedactContextDetectors] = None
+
+
+@router.post("/v1/firewall/redact-context")
+def redact_context_endpoint(
+    body: RedactContextRequest,
+    db: Database = Depends(get_db),
+) -> Dict[str, Any]:
+    """Scrub every text in ``texts`` of structured secrets that
+    do NOT belong to ``user_id``, returning the redacted
+    versions. Catches:
+
+      1. Vault entries known to belong to other users (exact
+         excerpt match — same surface as
+         ``/v1/firewall/vault/foreign-excerpts``).
+      2. Structured-ID patterns (account numbers, customer IDs)
+         present in the texts that AREN'T in the current user's
+         vault. Closes the v0.6.1 brutal-test gap where
+         ``DEMO-12345`` leaked because it was sent before
+         user_id propagation worked, so it never landed in the
+         vault under any user — yet the LLM still had it in
+         conversation history. Pattern-based defense doesn't
+         need prior recording.
+
+    The current user's OWN vault excerpts pass through
+    unchanged so they can keep referring to their own
+    account number.
+
+    Used by ``@lumin-io/openclaw-diagnostics`` from
+    ``before_prompt_build`` to scrub the LLM's prompt + history
+    before the model runs, so a foreign user's secret can't
+    enter the model's context. This is the only architecturally
+    sound point to enforce cross-session isolation — output-
+    side rewriting was provably leaky on Slack
+    (``chat.postMessage`` flashes the original before
+    ``chat.update`` redacts it).
+    """
+    if not body.user_id:
+        raise HTTPException(
+            status_code=400,
+            detail="user_id is required (without it we'd over-redact)",
+        )
+    from firewall import vault as fw_vault
+
+    # ----- detector toggles (Slice 3) ----------------------------------
+    # Operators can disable specific detectors via the request body
+    # ``detectors`` field. ``None`` (omitted) means "use server default
+    # = all on". An explicit ``false`` skips the detector for this call.
+    # Lets size- or latency-constrained operators turn off Presidio
+    # without uninstalling it.
+    use_vault_exact = True
+    use_structural = True
+    use_presidio = True
+    if body.detectors is not None:
+        if body.detectors.vault_exact is not None:
+            use_vault_exact = body.detectors.vault_exact
+        if body.detectors.structural_pattern is not None:
+            use_structural = body.detectors.structural_pattern
+        if body.detectors.presidio is not None:
+            use_presidio = body.detectors.presidio
+
+    # ----- excerpts to redact (known vault entries from other users) ---
+    foreign_excerpts: set = set()
+    if use_vault_exact:
+        foreign_rows = db.fetchall_dict(
+            """
+            SELECT DISTINCT fact_excerpt FROM session_vault
+            WHERE user_id <> ? AND user_id <> ''
+              AND fact_excerpt IS NOT NULL AND length(fact_excerpt) >= 3
+            """,
+            [body.user_id],
+        )
+        foreign_excerpts = {
+            r["fact_excerpt"] for r in foreign_rows if r.get("fact_excerpt")
+        }
+
+    # ----- excerpts the current user owns (DON'T redact these) ---------
+    own_rows = db.fetchall_dict(
+        """
+        SELECT DISTINCT fact_excerpt FROM session_vault
+        WHERE user_id = ? AND fact_excerpt IS NOT NULL
+        """,
+        [body.user_id],
+    )
+    own_excerpts = {
+        r["fact_excerpt"].strip() for r in own_rows if r.get("fact_excerpt")
+    }
+
+    # ----- redact each text -------------------------------------------
+    # 1. exact-match known foreign excerpts (regex with dash-variant class)
+    # 2. pattern-match structured IDs in the text and redact any that
+    #    aren't in the current user's own vault — catches secrets that
+    #    were never recorded (because user_id was empty when ingested,
+    #    or because the channel doesn't trace into Lumin yet).
+    redacted_texts: List[str] = []
+    for text in body.texts:
+        if not text:
+            redacted_texts.append(text)
+            continue
+        out = text
+
+        # 1) Known foreign excerpts — exact match with unicode-dash variants
+        if use_vault_exact:
+            for excerpt in foreign_excerpts:
+                out = _redact_excerpt(out, excerpt)
+
+        # 2) Pattern-match every structured ID in the text. If the
+        # extracted value isn't the current user's own, redact it.
+        # This covers the ``never-vaulted-foreign-secret`` gap.
+        if use_structural or use_presidio:
+            for kind, value in fw_vault._extract_facts(
+                out,
+                use_presidio=use_presidio,
+                use_structural=use_structural,
+            ):
+                if not value or len(value) < 3:
+                    continue
+                normalized_value = value.strip()
+                if normalized_value in own_excerpts:
+                    continue  # current user's own — leave alone
+                out = _redact_excerpt(out, normalized_value)
+
+        redacted_texts.append(out)
+
+    return {
+        "user_id": body.user_id,
+        "redacted": redacted_texts,
+        "foreign_count": len(foreign_excerpts),
+        "detectors_used": {
+            "vault_exact": use_vault_exact,
+            "structural_pattern": use_structural,
+            "presidio": use_presidio,
+        },
+    }
+
+
+# Unicode dash variants the LLM may stylistically substitute for
+# the ASCII hyphen. We build PER-EXCERPT alternation (excerpt
+# with each dash variant) rather than a character class — the
+# class form trips Python's "Possible nested set" FutureWarning
+# on adjacent dash codepoints (U+2012–U+2015 forms a range when
+# the regex engine reparses the bracket contents) and silently
+# fails to match. Alternation is unambiguous.
+_DASH_VARIANTS = ("‐", "‑", "‒", "–", "—", "―", "−")
+
+
+def _redact_excerpt(text: str, excerpt: str) -> str:
+    """Replace ``excerpt`` (with any of its typographic-dash
+    variants) with ``[REDACTED]`` in ``text``. Defensive: empty /
+    too-short excerpts are skipped so we don't over-redact common
+    substrings."""
+    if not excerpt or len(excerpt) < 3 or not text:
+        return text
+    # Build the variant set — original excerpt + each dash
+    # substitution. ``re.escape`` each one so account numbers
+    # containing regex metacharacters (rare but possible) still
+    # match literally.
+    variants = {excerpt}
+    if "-" in excerpt:
+        for dash in _DASH_VARIANTS:
+            variants.add(excerpt.replace("-", dash))
+    pattern_str = "|".join(re.escape(v) for v in variants)
+    try:
+        return re.sub(pattern_str, "[REDACTED]", text)
+    except re.error:
+        # Fall back to a plain literal replace if the constructed
+        # pattern was somehow invalid.
+        return text.replace(excerpt, "[REDACTED]")
 
 
 @router.delete("/v1/firewall/vault/{entry_id}")

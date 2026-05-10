@@ -496,3 +496,145 @@ def delete_backup(name: str) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"failed to delete: {e}")
     return {"deleted": name}
+
+
+# ----- Firewall settings (Slice 5) -----------------------------------------
+#
+# Read/write the operator-managed firewall profile + toggles. The
+# lumin-diagnostics plugin polls GET on register and merges the
+# returned values into its resolved settings, overriding openclaw.json.
+# Dashboard /settings/firewall uses both endpoints.
+
+import json as _json
+
+_VALID_PROFILES = {
+    "strict", "standard", "light", "logging-only",
+    # Legacy aliases, still accepted:
+    "balanced", "permissive", "observability",
+}
+
+# Toggles the dashboard understands. Any key not in here is dropped
+# from overrides at write-time so a typo can't smuggle a hidden field.
+_VALID_OVERRIDE_KEYS = {
+    "enableTenantIsolation",
+    "blockShellTools",
+    "blockWebTools",
+    "resetMemoryBetweenUsers",
+    "hideOtherUsersData",
+    "recordSecurityEvents",
+    "l3Detectors",
+    "sharedPaths",
+    "failClosedOnMissingWorkspace",
+}
+
+
+class FirewallProfileResponse(BaseModel):
+    agent_id: str
+    security_profile: Optional[str] = None
+    overrides: Dict[str, Any] = Field(default_factory=dict)
+    updated_at: Optional[str] = None
+    updated_by: Optional[str] = None
+
+
+class FirewallProfileUpdate(BaseModel):
+    """Body for PUT /v1/admin/firewall/profile."""
+    security_profile: Optional[str] = None
+    overrides: Optional[Dict[str, Any]] = None
+
+
+@router.get("/v1/admin/firewall/profile")
+def get_firewall_profile(
+    agent_id: str = "_default",
+    db: Database = Depends(get_db),
+) -> FirewallProfileResponse:
+    """Return the active firewall profile + per-toggle overrides for
+    the given agent. Defaults to the ``_default`` row when no
+    agent-specific config exists. Returned shape is what the plugin
+    expects to merge.
+
+    **Auth**: gated by the global ``BearerAuthMiddleware``. When
+    ``LUMIN_API_TOKEN`` is set, callers must include
+    ``Authorization: Bearer <token>``. When unset, this endpoint is
+    open — fine for ``localhost``-bound dev, NOT for any deployment
+    that exposes the API beyond loopback.
+    """
+    rows = db.fetchall_dict(
+        "SELECT id, security_profile, overrides, updated_at, updated_by "
+        "FROM firewall_settings WHERE id = ?",
+        [agent_id],
+    )
+    if not rows:
+        # Fall back to _default if the requested agent has no row.
+        rows = db.fetchall_dict(
+            "SELECT id, security_profile, overrides, updated_at, updated_by "
+            "FROM firewall_settings WHERE id = '_default'",
+            [],
+        )
+    if not rows:
+        # Brand-new install — nothing in DB. Return an empty profile.
+        return FirewallProfileResponse(agent_id=agent_id, overrides={})
+    row = rows[0]
+    raw = row.get("overrides")
+    parsed: Dict[str, Any] = {}
+    if raw:
+        try:
+            parsed = _json.loads(raw) if isinstance(raw, str) else dict(raw)
+        except Exception:
+            parsed = {}
+    return FirewallProfileResponse(
+        agent_id=row.get("id") or agent_id,
+        security_profile=row.get("security_profile"),
+        overrides=parsed,
+        updated_at=str(row.get("updated_at")) if row.get("updated_at") else None,
+        updated_by=row.get("updated_by"),
+    )
+
+
+@router.put("/v1/admin/firewall/profile")
+def put_firewall_profile(
+    body: FirewallProfileUpdate,
+    agent_id: str = "_default",
+    db: Database = Depends(get_db),
+) -> FirewallProfileResponse:
+    """Upsert the firewall profile + overrides. Validates the profile
+    name and filters overrides to known toggle keys so a typo or
+    malicious payload can't smuggle hidden fields. Plugin picks up
+    the change on its next poll (~30s by default).
+    """
+    if body.security_profile is not None:
+        if body.security_profile not in _VALID_PROFILES:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"unknown profile {body.security_profile!r}; "
+                    f"must be one of {sorted(_VALID_PROFILES)}"
+                ),
+            )
+    overrides = {}
+    if body.overrides is not None:
+        # Drop any unknown key — defense against typo'd toggles
+        # silently being persisted forever.
+        for k, v in body.overrides.items():
+            if k in _VALID_OVERRIDE_KEYS:
+                overrides[k] = v
+
+    # DELETE + INSERT. DuckDB's ON CONFLICT … CURRENT_TIMESTAMP gives
+    # a Binder error (treats it as a column ref), so we round-trip
+    # the timestamp through Python instead. Idempotent under
+    # concurrent calls because both branches run inside the
+    # Database lock.
+    overrides_json = _json.dumps(overrides)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.execute(
+        "DELETE FROM firewall_settings WHERE id = ?",
+        [agent_id],
+    )
+    db.execute(
+        """
+        INSERT INTO firewall_settings
+            (id, security_profile, overrides, updated_at, updated_by)
+        VALUES (?, ?, ?, ?, 'dashboard')
+        """,
+        [agent_id, body.security_profile, overrides_json, now],
+    )
+    return get_firewall_profile(agent_id=agent_id, db=db)

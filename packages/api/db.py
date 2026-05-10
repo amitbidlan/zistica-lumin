@@ -103,6 +103,20 @@ CREATE TABLE IF NOT EXISTS policy_audit (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Operator-managed firewall settings, written via the dashboard's
+-- /settings/firewall page (Slice 5). One row per agentId. Default
+-- row (id="_default") applies when no agent-specific row exists.
+-- Plugin polls /v1/admin/firewall/profile at register time and
+-- merges the values into its resolved settings, overriding any
+-- openclaw.json values when present.
+CREATE TABLE IF NOT EXISTS firewall_settings (
+    id VARCHAR PRIMARY KEY,                   -- agentId, or "_default"
+    security_profile VARCHAR,                  -- strict / standard / light / logging-only
+    overrides JSON,                            -- per-toggle overrides
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_by VARCHAR                         -- "dashboard" / "api" / actor
+);
+
 CREATE TABLE IF NOT EXISTS policy_violations (
     -- `id` is deterministic — sha256(policy_name + trace_id + (span_id or ''))
     -- truncated to 32 hex chars. PRIMARY KEY gives free deduplication
