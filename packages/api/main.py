@@ -156,6 +156,23 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         except Exception:
             logger.exception("could not start retention cleanup task")
 
+    # Backup destination — POST /v1/admin/backups writes snapshots to
+    # ``${LUMIN_BACKUP_DIR}`` or ``${LUMIN_DATA_DIR}/backups``. Without
+    # this mkdir the first backup attempt fails with ENOENT, and
+    # /v1/admin/health surfaces a permanent "backup_dir missing or not
+    # writable" degradation on a fresh install — even though the rest
+    # of the system is fine. Idempotent: ``exist_ok=True``.
+    try:
+        from routers.admin import _backup_dir  # local import: avoids
+        # a circular at module-load time (routers/admin imports from
+        # this module via FastAPI app wiring).
+        _backup_dir().mkdir(parents=True, exist_ok=True)
+    except Exception:
+        # Don't fail startup over the backup dir — log and continue. A
+        # read-only /data mount is a legitimate (if degraded)
+        # deployment shape; the health endpoint still surfaces it.
+        logger.exception("could not create backup dir at startup")
+
     # Phase 4 — one-shot YAML→DB bootstrap. Runs only when the policies
     # table is empty AND LUMIN_POLICY_FILE is set; subsequent restarts
     # see the now-populated DB and skip this entirely. After bootstrap
