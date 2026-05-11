@@ -4,6 +4,10 @@ export const metadata = {
   title: 'Agent',
 };
 
+// AgentDetail reads ``?window`` via the URL-state hooks, which requires
+// dynamic rendering. Matches /agents and /agents/framework/[key].
+export const dynamic = 'force-dynamic';
+
 interface PageProps {
   params: { name: string };
 }

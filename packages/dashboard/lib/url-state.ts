@@ -25,7 +25,7 @@
  */
 
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 
 function setOrDelete(
@@ -41,21 +41,55 @@ function setOrDelete(
 }
 
 
+/** Options shared by every URL-state hook. */
+export interface UrlStateOptions {
+  /** Persist the value to ``localStorage[storageKey]`` so the choice
+   *  survives navigation through links that don't carry the URL
+   *  query (e.g. the top nav). Read precedence is URL > localStorage
+   *  > default — explicit deep links always win, so an operator-
+   *  shared link renders exactly what it says. */
+  storageKey?: string;
+}
+
+
 export function useUrlString(
   key: string,
   defaultValue: string,
+  options: UrlStateOptions = {},
 ): [string, (next: string) => void] {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
-  const value = params.get(key) ?? defaultValue;
+  const { storageKey } = options;
+
+  // Hydrate the sticky fallback after mount — reading localStorage on
+  // the first render would diverge from the server-rendered HTML and
+  // trip a hydration warning. Until the useEffect runs the fallback
+  // is null, so the initial paint matches the server.
+  const [sticky, setSticky] = useState<string | null>(null);
+  useEffect(() => {
+    if (!storageKey || typeof window === 'undefined') return;
+    setSticky(window.localStorage.getItem(storageKey));
+  }, [storageKey]);
+
+  const value = params.get(key) ?? sticky ?? defaultValue;
+
   const setValue = useCallback(
     (next: string) => {
       const updated = setOrDelete(params, key, next, defaultValue);
       const qs = updated.toString();
       router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+      if (storageKey && typeof window !== 'undefined') {
+        if (!next || next === defaultValue) {
+          window.localStorage.removeItem(storageKey);
+          setSticky(null);
+        } else {
+          window.localStorage.setItem(storageKey, next);
+          setSticky(next);
+        }
+      }
     },
-    [params, pathname, router, key, defaultValue],
+    [params, pathname, router, key, defaultValue, storageKey],
   );
   return [value, setValue];
 }
@@ -64,8 +98,9 @@ export function useUrlString(
 export function useUrlNumber(
   key: string,
   defaultValue: number,
+  options: UrlStateOptions = {},
 ): [number, (next: number) => void] {
-  const [str, setStr] = useUrlString(key, String(defaultValue));
+  const [str, setStr] = useUrlString(key, String(defaultValue), options);
   const parsed = Number.parseInt(str, 10);
   const value = Number.isFinite(parsed) ? parsed : defaultValue;
   const setValue = useCallback((next: number) => setStr(String(next)), [setStr]);
@@ -76,12 +111,13 @@ export function useUrlNumber(
 export function useUrlBoolean(
   key: string,
   defaultValue: boolean,
+  options: UrlStateOptions = {},
 ): [boolean, (next: boolean) => void] {
   // Encode booleans as "1"/"0" so the URL stays terse. We treat any
   // non-"1" / non-"true" value as false — generous parsing for hand-
   // typed deep links.
   const def = defaultValue ? '1' : '0';
-  const [str, setStr] = useUrlString(key, def);
+  const [str, setStr] = useUrlString(key, def, options);
   const value = str === '1' || str === 'true';
   const setValue = useCallback(
     (next: boolean) => setStr(next ? '1' : '0'),
