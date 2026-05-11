@@ -194,6 +194,49 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     except Exception:
         logger.exception("policy engine eager-load failed (continuing)")
 
+    # Detector availability — every optional ML / NER / classifier
+    # detector exposes a module-level ``available: bool``. When the
+    # backing dependency isn't installed it stays False and the
+    # detector silently returns score 0.0, so any policy condition
+    # that references it (``prompt_guard_score(...)``,
+    # ``llama_guard_unsafe(...)``, ``embedding_similar(...)``, ...)
+    # becomes a permanent no-op. The OWASP starter pack ships rules
+    # that depend on these. Without this warning the operator has no
+    # way to know their LLM01 / LLM05 protections aren't actually
+    # running — promote-to-enforce later and they STILL won't fire.
+    # Surface it once at startup; the /v1/admin/health endpoint
+    # exposes the same data for ongoing monitoring.
+    _DETECTOR_INSTALL_HINTS = {
+        "prompt_guard":     "pip install transformers torch",
+        "llama_guard":      "pip install transformers torch accelerate",
+        "embedding":        "pip install sentence-transformers",
+        "local_classifier": "pip install scikit-learn",
+        "presidio":         "pip install presidio-analyzer presidio-anonymizer "
+                            "&& python -m spacy download en_core_web_lg",
+        "llm_judge":        "set LUMIN_LLM_JUDGE_ENDPOINT to an OpenAI-compatible "
+                            "URL (e.g. an Ollama / vLLM endpoint)",
+    }
+    try:
+        from importlib import import_module
+        for _name, _hint in _DETECTOR_INSTALL_HINTS.items():
+            try:
+                _mod = import_module(f"firewall.detectors.{_name}")
+            except Exception:
+                logger.warning(
+                    "detector unavailable: %s — module failed to import "
+                    "(install: %s)",
+                    _name, _hint,
+                )
+                continue
+            if not bool(getattr(_mod, "available", False)):
+                logger.warning(
+                    "detector unavailable: %s — rules referencing it will "
+                    "silently no-op (install: %s)",
+                    _name, _hint,
+                )
+    except Exception:
+        logger.exception("detector availability check failed (continuing)")
+
     # Pull the firewall panic-disable bit forward across restarts so
     # an operator who flipped the kill-switch yesterday isn't surprised
     # by a hot engine after a deploy. Best-effort: a missing table or
