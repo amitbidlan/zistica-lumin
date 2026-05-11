@@ -1513,8 +1513,47 @@ export default definePluginEntry({
     //      runtime changes propagating without a gateway restart.
     // Both branches mutate ``settings`` in place; all hooks captured
     // the reference and see updates immediately.
-    const settings = resolveSecuritySettings(cfg);
-    const enforceEnabled = settings.enforce;
+    //
+    // v0.7.x — ``settings`` is now a globalThis singleton instead of a
+    // per-register const. openclaw appends ``before_tool_call`` hooks
+    // to ``registry.typedHooks`` without de-duping by pluginId, and on
+    // every plugin hot-reload our ``register()`` ran again — leaving a
+    // stack of N closures, each with its own ``settings`` object and
+    // its own setInterval. ``runBeforeToolCall`` iterates handlers in
+    // priority/insertion order and short-circuits on the FIRST
+    // ``block: true`` result (hook-runner-global.js:574-590). So the
+    // oldest register's settings — refreshed by ITS setInterval on
+    // ITS phase — could still hold the previous profile's deniedTools
+    // for up to 60s after a dashboard change, while newer registers
+    // had already converged on the new profile. Result: legitimate
+    // tool calls blocked by stale settings of a long-forgotten
+    // register. Hoisting ``settings`` to globalThis means every hook
+    // handler — across every past or future register() — reads from
+    // and writes to the same object. Same pattern v0.6.1 already used
+    // for ``__lumin_sessionToSender`` (see the comment block further
+    // down for the original justification).
+    interface LuminPluginGlobals {
+      __lumin_sessionToSender?: Map<string, string>;
+      __lumin_sessionRecentBlock?: Map<string, number>;
+      __lumin_settings?: ResolvedProfile;
+      __lumin_settingsRefreshTimer?: ReturnType<typeof setInterval>;
+    }
+    const __luminPluginGlobals = globalThis as unknown as LuminPluginGlobals;
+    if (!__luminPluginGlobals.__lumin_settings) {
+      __luminPluginGlobals.__lumin_settings = resolveSecuritySettings(cfg);
+    } else {
+      // A previous register() already created the singleton. Re-resolve
+      // from this register's cfg in case openclaw.json was edited
+      // between hot-reloads, then mutate the singleton in place so the
+      // hooks from EVERY register (including older ones) see the new
+      // base. Dashboard polling overrides this on the periodic tick
+      // either way; this just keeps the cfg-derived defaults current.
+      Object.assign(
+        __luminPluginGlobals.__lumin_settings,
+        resolveSecuritySettings(cfg),
+      );
+    }
+    const settings = __luminPluginGlobals.__lumin_settings;
 
     const dashboardHost = (cfg.host || DEFAULT_HOST).replace(/\/+$/, "");
     const refreshSettingsFromDashboard = async (
@@ -1590,12 +1629,22 @@ export default definePluginEntry({
     // running. Picks up dashboard changes without a restart. The
     // interval is unref'd so it doesn't keep the process alive on
     // shutdown.
+    //
+    // v0.7.x — the timer handle is stashed on globalThis so subsequent
+    // register() calls (hot reloads) don't pile up additional timers.
+    // One register's setInterval is enough — it mutates the singleton
+    // ``settings`` that every register's hook closures share, so all
+    // handlers stay in sync without N redundant HTTP requests every
+    // 30s.
     const refreshIntervalMs = 30_000;
-    const dashboardRefreshTimer = setInterval(() => {
-      void refreshSettingsFromDashboard("periodic");
-    }, refreshIntervalMs);
-    // unref isn't on all timer types in Node; guard.
-    (dashboardRefreshTimer as unknown as { unref?: () => void }).unref?.();
+    if (!__luminPluginGlobals.__lumin_settingsRefreshTimer) {
+      const dashboardRefreshTimer = setInterval(() => {
+        void refreshSettingsFromDashboard("periodic");
+      }, refreshIntervalMs);
+      // unref isn't on all timer types in Node; guard.
+      (dashboardRefreshTimer as unknown as { unref?: () => void }).unref?.();
+      __luminPluginGlobals.__lumin_settingsRefreshTimer = dashboardRefreshTimer;
+    }
     const pending = new PendingLlmRegistry();
     const toolPending = new PendingToolCallRegistry();
     // v0.5.3 — input-side firewall block markers, consumed by
@@ -1827,7 +1876,7 @@ export default definePluginEntry({
         // proven leaky (TENANT_ISOLATION_SPEC.md §0); prevention
         // happens at L1 (storage sandbox) and L3 (input
         // redaction). This call's verdict is observation only.
-        if (enforceEnabled) {
+        if (settings.enforce) {
           const assistantText = Array.isArray(event.assistantTexts)
             ? event.assistantTexts
                 .filter((s): s is string => typeof s === "string")
@@ -1902,7 +1951,7 @@ export default definePluginEntry({
         });
 
         // ----- firewall decision (v0.2.0) ---------------------------
-        if (!enforceEnabled) return;
+        if (!settings.enforce) return;
 
         // ----- v0.7.0 L1.5 deny-by-default (TENANT_ISOLATION_SPEC §2.2) ---
         // Tools that bypass the filesystem sandbox by definition.
@@ -2111,7 +2160,7 @@ export default definePluginEntry({
         // Fail-mode: fall back to ``onFirewallError`` setting. We
         // re-route through the same translator that the happy path
         // uses so the response shape is identical.
-        if (enforceEnabled && (cfg.onFirewallError ?? "allow") === "deny") {
+        if (settings.enforce && (cfg.onFirewallError ?? "allow") === "deny") {
           return {
             block: true,
             blockReason: "firewall_handler_error",
@@ -2191,7 +2240,7 @@ export default definePluginEntry({
         // before_prompt_build (mutation only), before_message_write
         // (history only), before_agent_reply (wrong order), message_sending
         // and before_dispatch (don't fire on Telegram path).
-        if (!enforceEnabled) return undefined;
+        if (!settings.enforce) return undefined;
         if (!replyOnInputBlock) {
           // Operators who want to see the LLM's actual reply on
           // flagged input opt out via replyOnInputBlock=false. We
@@ -2323,7 +2372,7 @@ export default definePluginEntry({
       // return { handled: true, text: cannedMessage }. OpenClaw uses
       // that as the final reply; LLM never runs. ONE message reaches
       // the user. The user's vision realized.
-      if (!enforceEnabled) return undefined;
+      if (!settings.enforce) return undefined;
       try {
         const event = rawEvent as {
           content?: string;
@@ -2575,7 +2624,7 @@ export default definePluginEntry({
         // path was observational because the channel send happens
         // concurrently with that hook). Block / rewrite verdicts
         // overwrite event.content; allow / flag pass through.
-        if (!enforceEnabled) return undefined;
+        if (!settings.enforce) return undefined;
         const outboundText =
           typeof event?.content === "string" ? event.content : "";
         if (!outboundText) return undefined;
@@ -2743,7 +2792,7 @@ export default definePluginEntry({
       await awaitInitialDashboardMerge();
       // Per-agent settings refresh when the active agent changes.
       await ensureAgentSettings((rawCtx as HookContext | undefined)?.agentId);
-      if (!enforceEnabled) return undefined;
+      if (!settings.enforce) return undefined;
       try {
         const event = rawEvent as {
           prompt?: string;
@@ -2960,7 +3009,7 @@ export default definePluginEntry({
     // CAN short-circuit the reply via ``{ handled: true, reply }``,
     // so this is a hard-blocking hook unlike before_prompt_build.
     apiAny.on("before_agent_reply", async (rawEvent: unknown, rawCtx: unknown) => {
-      if (!enforceEnabled) return undefined;
+      if (!settings.enforce) return undefined;
       try {
         const event = rawEvent as { cleanedBody: string };
         const ctx = rawCtx as HookContext | undefined;
@@ -3030,7 +3079,7 @@ export default definePluginEntry({
     });
 
     log?.info?.(
-      `lumin-diagnostics: subscribed to llm_input + llm_output + before_prompt_build + before_agent_reply + before_tool_call + after_tool_call + inbound_claim + before_message_write + message_sending → ${cfg.host || DEFAULT_HOST}/v1/spans (project=${cfg.project || DEFAULT_PROJECT}, firewall=${enforceEnabled ? "enforce" : "observe-only"}, fail=${cfg.onFirewallError ?? "allow"}, admins=${adminSenders.size})`,
+      `lumin-diagnostics: subscribed to llm_input + llm_output + before_prompt_build + before_agent_reply + before_tool_call + after_tool_call + inbound_claim + before_message_write + message_sending → ${cfg.host || DEFAULT_HOST}/v1/spans (project=${cfg.project || DEFAULT_PROJECT}, firewall=${settings.enforce ? "enforce" : "observe-only"}, fail=${cfg.onFirewallError ?? "allow"}, admins=${adminSenders.size})`,
     );
   },
 });
