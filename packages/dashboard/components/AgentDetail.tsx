@@ -1,7 +1,6 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
 import useSWR from 'swr';
 import {
   AgentDetail as AgentDetailType,
@@ -14,6 +13,7 @@ import {
   PolicyListResponse,
 } from '@/lib/api';
 import Sparkline from '@/components/Sparkline';
+import { useUrlNumber } from '@/lib/url-state';
 
 const WINDOW_OPTIONS = [
   { hours: 1,  label: '1h'  },
@@ -22,7 +22,12 @@ const WINDOW_OPTIONS = [
 ];
 
 export default function AgentDetail({ name }: { name: string }) {
-  const [window_, setWindow] = useState(24);
+  // Shared with /agents (AgentList) via the same storage key — picking 7d
+  // on the list page and clicking into an agent keeps the window at 7d.
+  // URL still wins when present so deep links render exactly as written.
+  const [window_, setWindow] = useUrlNumber('window', 24, {
+    storageKey: 'lumin.agents.window',
+  });
 
   const params = new URLSearchParams();
   params.set('window_hours', String(window_));
@@ -55,11 +60,15 @@ export default function AgentDetail({ name }: { name: string }) {
     return <div className="card p-8 text-center text-[var(--muted)]">Loading…</div>;
   }
 
+  // Preserve the window pill on the way back to /agents so the round-trip
+  // doesn't flash the default before localStorage rehydrates.
+  const backHref = window_ === 24 ? '/agents' : `/agents?window=${window_}`;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <Link
-          href="/agents"
+          href={backHref}
           className="text-[var(--muted)] text-xs hover:text-[var(--foreground)] transition-colors"
         >
           ← All agents

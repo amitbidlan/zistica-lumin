@@ -81,10 +81,20 @@ export default function AgentList({
   // (route param) takes precedence over the URL ``project`` filter
   // because the dedicated /agents/framework/[key] route IS the
   // hard-narrowed view.
-  const [window_, setWindow] = useUrlNumber('window', 24);
+  // The window pill is shared with /agents/[name] and /agents/framework/*.
+  // Backing it with localStorage means a 7d selection on the list page
+  // survives a click into /agents/openclaw AND a later top-nav return to
+  // /agents (the nav <Link> drops query params).
+  const [window_, setWindow] = useUrlNumber('window', 24, {
+    storageKey: 'lumin.agents.window',
+  });
   const [search, setSearch] = useUrlString('q', '');
-  const [projectFilterRaw, setProjectFilter] = useUrlString('project', 'all');
-  const [providerFilter, setProviderFilter] = useUrlString('provider', 'all');
+  const [projectFilterRaw, setProjectFilter] = useUrlString('project', 'all', {
+    storageKey: 'lumin.agents.project',
+  });
+  const [providerFilter, setProviderFilter] = useUrlString('provider', 'all', {
+    storageKey: 'lumin.agents.provider',
+  });
   const projectFilter = lockedFramework ?? projectFilterRaw;
 
   const params = new URLSearchParams();
@@ -405,6 +415,7 @@ export default function AgentList({
                         key={`${a.project}::${a.name}`}
                         agent={a}
                         liveOverride={liveAgents.has(a.name)}
+                        window_={window_}
                       />
                     ))}
                     {hidden > 0 ? (
@@ -437,17 +448,25 @@ export default function AgentList({
 function AgentCard({
   agent,
   liveOverride = false,
+  window_,
 }: {
   agent: AgentSummary;
   liveOverride?: boolean;
+  /** Current window filter (hours). Forwarded to the detail URL so
+   *  the pill stays in sync without relying on the localStorage flash. */
+  window_: number;
 }) {
   // WS-driven override: a span just landed for this agent → show as
   // "active" immediately, even if the cached server value is stale.
   const activity: ActivityLabel = liveOverride ? 'active' : agent.activity;
   const isThinking = (agent.active_traces ?? 0) > 0 || liveOverride;
+  const href =
+    window_ === 24
+      ? `/agents/${encodeURIComponent(agent.name)}`
+      : `/agents/${encodeURIComponent(agent.name)}?window=${window_}`;
   return (
     <Link
-      href={`/agents/${encodeURIComponent(agent.name)}`}
+      href={href}
       className="card card-interactive block p-5"
     >
       <div className="flex items-start justify-between gap-3">
