@@ -326,21 +326,17 @@ function ViolationRow({ v }: { v: PolicyViolation }) {
 }
 
 function SeverityBadge({ sev }: { sev: string }) {
-  const styles: Record<string, string> = {
-    low: 'bg-slate-700/40 text-slate-300 border-slate-600',
-    medium: 'bg-amber-900/30 text-amber-300 border-amber-700',
-    high: 'bg-red-900/40 text-red-300 border-red-700',
-    critical: 'bg-fuchsia-900/40 text-fuchsia-200 border-fuchsia-700',
+  // Use the shared `.badge badge-*` system so light/dark variants flip
+  // automatically via the CSS overrides in globals.css. Hardcoded
+  // Tailwind palettes here previously rendered as pale-on-pale and
+  // disappeared in light mode.
+  const cls: Record<string, string> = {
+    low:      'badge badge-slate',
+    medium:   'badge badge-amber',
+    high:     'badge badge-rose',
+    critical: 'badge badge-fuchsia',
   };
-  return (
-    <span
-      className={`inline-block text-[10px] uppercase tracking-wider px-1.5 py-0.5 border rounded ${
-        styles[sev] ?? styles.low
-      }`}
-    >
-      {sev}
-    </span>
-  );
+  return <span className={cls[sev] ?? cls.low}>{sev}</span>;
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
