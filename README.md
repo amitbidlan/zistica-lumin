@@ -53,17 +53,18 @@
    Open-source. Self-hosted in a single Docker container. No cloud, no telemetry, no vendor lock-in.
 </p>
 
-<!-- Demo video hosted on YouTube — clickable thumbnail uses the
-     repo-local poster so the README never depends on YouTube's CDN
-     for the still frame. Click → opens https://youtu.be/hgTntZniuv4 -->
+<!-- Animated GIF preview, click → full 52s video on YouTube.
+     GIF is 1000px/10fps/128-color palette to stay under 7MB —
+     small enough for the README to load fast, readable enough for
+     the dashboard panels and trace IDs to be legible. -->
 <p align="center">
    <a href="https://youtu.be/hgTntZniuv4">
-      <img alt="▶ Lumin demo — 52-second walkthrough (click to watch on YouTube)"
-           src="assets/demo-poster.jpg" width="100%">
+      <img alt="▶ Lumin demo — 52-second walkthrough (click to watch full on YouTube)"
+           src="assets/demo.gif" width="100%">
    </a>
 </p>
 <p align="center">
-   <sub>▶ <a href="https://youtu.be/hgTntZniuv4">Watch on YouTube</a> — 52-second walkthrough — Telegram user plants customer notes, Slack user tries to leak them, Lumin's 5 layers block every bypass route.</sub>
+   <sub>▶ <a href="https://youtu.be/hgTntZniuv4">Watch the full 52-second walkthrough on YouTube</a> — Telegram user plants customer notes, Slack user tries to leak them, Lumin's 5 layers block every bypass route.</sub>
 </p>
 
 ---
