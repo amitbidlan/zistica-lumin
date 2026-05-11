@@ -32,13 +32,68 @@ export default function PolicyList() {
     return <div className="card p-8 text-center text-[var(--muted)]">Loading…</div>;
   }
 
+  // Aggregate mode counts. The starter pack auto-installs all rules
+  // in ``shadow`` so a fresh dashboard shows "13 active policies" but
+  // nothing actually enforces — operators need to see the breakdown to
+  // avoid thinking they're protected when they aren't.
+  const modeCounts = data.policies.reduce<Record<string, number>>(
+    (acc, p) => {
+      const m = p.mode ?? '—';
+      acc[m] = (acc[m] ?? 0) + 1;
+      return acc;
+    },
+    {},
+  );
+  const enforceCount = modeCounts['enforce'] ?? 0;
+  const shadowCount = modeCounts['shadow'] ?? 0;
+  const flagCount = modeCounts['flag'] ?? 0;
+  const totalCount = data.policies.length;
+  const nothingEnforcing = totalCount > 0 && enforceCount === 0;
+
   return (
     <div className="space-y-6">
       <SourceBanner source={data.source} engineLoaded={data.engine_loaded} />
 
+      {nothingEnforcing ? (
+        <div
+          className="card p-3 text-sm"
+          style={{
+            background: 'rgba(245, 158, 11, 0.06)',
+            borderColor: 'rgba(245, 158, 11, 0.30)',
+          }}
+        >
+          <strong className="text-[var(--foreground)]">
+            No policies are enforcing.
+          </strong>{' '}
+          <span className="text-[var(--muted)]">
+            All {totalCount} rules are in <code className="font-mono">shadow</code>{' '}
+            mode — decisions are recorded but never block live traffic.
+            Open a rule and switch it to <code className="font-mono">enforce</code>{' '}
+            after reviewing what it would have done.
+          </span>
+        </div>
+      ) : null}
+
       <div className="flex items-center justify-between">
         <div className="text-sm text-[var(--muted)]">
-          {data.policies.length} active polic{data.policies.length === 1 ? 'y' : 'ies'}
+          <span className="text-[var(--foreground-soft)]">{totalCount}</span>{' '}
+          polic{totalCount === 1 ? 'y' : 'ies'}
+          {totalCount > 0 ? (
+            <span className="ml-2 text-[var(--muted-soft)]">
+              ·{' '}
+              <span
+                className={
+                  enforceCount > 0
+                    ? 'text-[var(--foreground-soft)]'
+                    : undefined
+                }
+              >
+                {enforceCount} enforcing
+              </span>
+              {flagCount > 0 ? <> · {flagCount} flag</> : null}
+              {shadowCount > 0 ? <> · {shadowCount} shadow</> : null}
+            </span>
+          ) : null}
         </div>
         <Link href="/policies/new" className="pill pill-active">
           + New policy
