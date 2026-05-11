@@ -6,8 +6,8 @@ name: Publish (Docker + npm + ClawHub)
 # job is just to push the published bits to:
 #
 #   - Docker Hub  (zistica/lumin image)
-#   - npm         (@lumin-io/{openclaw, mastra, voltagent,
-#                  openclaw-diagnostics})
+#   - npm         (@lumin-io/{sdk, openclaw, openclaw-diagnostics,
+#                  mastra, voltagent})
 #   - ClawHub     (lumin-diagnostics — OpenClaw plugin marketplace)
 #
 # Why tag-triggered (not main-push)?
@@ -128,14 +128,20 @@ jobs:
 
   # ----- npm publish -----------------------------------------------------
   #
-  # Publishes the four `@lumin-io/*` integration packages to npmjs.com.
-  # Each package is built fresh on the runner so the published `dist/`
-  # matches the tagged source — no relying on stale local build state.
-  # Skips workflow_dispatch (manual) runs since lockstep version bumps
-  # only land via tags; a hotfix re-publish via dispatch would push the
-  # same version twice and npm would reject it.
+  # Publishes the five `@lumin-io/*` packages to npmjs.com. Each package
+  # is built fresh on the runner so the published `dist/` matches the
+  # tagged source — no relying on stale local build state. Skips
+  # workflow_dispatch (manual) runs since lockstep version bumps only
+  # land via tags; a hotfix re-publish via dispatch would push the same
+  # version twice and npm would reject it.
+  #
+  # The matrix uses ``include`` (not a flat list) because @lumin-io/sdk
+  # lives at ``packages/sdk-typescript`` while the others live under
+  # ``packages/integrations/*``. Each entry carries the path it ships
+  # from so the working-directory is right per-package without an extra
+  # conditional.
   npm:
-    name: Publish ${{ matrix.package }} to npm
+    name: Publish @lumin-io/${{ matrix.package }} to npm
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
     needs: publish  # docker first; if image fails, npm shouldn't ship either
@@ -149,14 +155,20 @@ jobs:
       # can be retried tag-locally.
       fail-fast: false
       matrix:
-        package:
-          - openclaw
-          - openclaw-diagnostics
-          - mastra
-          - voltagent
+        include:
+          - package: sdk
+            dir: packages/sdk-typescript
+          - package: openclaw
+            dir: packages/integrations/openclaw
+          - package: openclaw-diagnostics
+            dir: packages/integrations/openclaw-diagnostics
+          - package: mastra
+            dir: packages/integrations/mastra
+          - package: voltagent
+            dir: packages/integrations/voltagent
     defaults:
       run:
-        working-directory: packages/integrations/${{ matrix.package }}
+        working-directory: ${{ matrix.dir }}
     steps:
       - uses: actions/checkout@v4
 
@@ -181,7 +193,7 @@ jobs:
           PKG_VERSION=$(node -p "require('./package.json').version")
           if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
             echo "::error::package.json version ($PKG_VERSION) does not match git tag ($TAG_VERSION)"
-            echo "Did you forget to bump packages/integrations/${{ matrix.package }}/package.json?"
+            echo "Did you forget to bump ${{ matrix.dir }}/package.json?"
             exit 1
           fi
           echo "version OK: $PKG_VERSION"
