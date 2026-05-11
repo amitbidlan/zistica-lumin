@@ -118,17 +118,59 @@ def admin_health(db: Database = Depends(get_db)) -> AdminHealth:
         )
 
     # Firewall engine
+    #
+    # ``policy_runtime.get_engine()`` is documented as Optional — it
+    # returns None when neither YAML nor DB managed to populate the
+    # engine, OR when the engine was first-loaded with an empty DB and
+    # the starter pack inserted rows after that first load without
+    # triggering ``reload_engine()``. The previous check dereferenced
+    # the result unconditionally, so the *health* endpoint crashed in
+    # both of those legitimate states and surfaced raw
+    # ``'NoneType' object has no attribute 'policies'`` to operators
+    # watching for actual problems. Distinguish three cases:
+    #   - engine loaded, rules present  -> ok
+    #   - engine None but DB has rules  -> degraded with remediation hint
+    #     (this is the post-bootstrap-no-reload case)
+    #   - engine None and DB empty       -> ok, no policies configured
     try:
         import policy_runtime
 
-        policies = policy_runtime.get_engine().policies
-        components.append(
-            HealthComponent(
-                name="policy_engine",
-                status="ok",
-                detail=f"{len(policies)} policy(ies) loaded",
+        eng = policy_runtime.get_engine()
+        if eng is not None:
+            components.append(
+                HealthComponent(
+                    name="policy_engine",
+                    status="ok",
+                    detail=f"{len(eng.policies)} policy(ies) loaded",
+                )
             )
-        )
+        else:
+            try:
+                row = db.fetchone(
+                    "SELECT COUNT(*) FROM policies WHERE enabled = TRUE"
+                )
+                db_count = int(row[0]) if row else 0
+            except Exception:
+                db_count = 0
+            if db_count > 0:
+                components.append(
+                    HealthComponent(
+                        name="policy_engine",
+                        status="degraded",
+                        detail=(
+                            f"{db_count} policy(ies) in DB but engine not "
+                            f"loaded; call POST /v1/policy/reload"
+                        ),
+                    )
+                )
+            else:
+                components.append(
+                    HealthComponent(
+                        name="policy_engine",
+                        status="ok",
+                        detail="no policies configured",
+                    )
+                )
     except Exception as e:
         components.append(
             HealthComponent(
