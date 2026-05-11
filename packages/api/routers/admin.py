@@ -216,6 +216,69 @@ def admin_health(db: Database = Depends(get_db)) -> AdminHealth:
             )
         )
 
+    # Detectors — every optional ML / NER / classifier detector exposes
+    # a module-level ``available: bool``. Surfaces in /admin/health so
+    # operators don't get silently no-op'd by a missing transformers /
+    # torch / sentence_transformers install: an OWASP rule that
+    # references ``prompt_guard_score(...)`` returns 0.0 forever and the
+    # rule never fires, even when promoted to enforce. Status is
+    # ``degraded`` (not ``down``) when any optional detector is missing
+    # — most deployments choose to ship without the larger ML deps to
+    # keep the image small, so this is informational not fatal.
+    try:
+        from importlib import import_module
+        _detector_names = (
+            "presidio",
+            "prompt_guard",
+            "llama_guard",
+            "embedding",
+            "local_classifier",
+            "ipi",
+            "llm_judge",
+            "regex_pack",
+        )
+        available_names: list[str] = []
+        missing_names: list[str] = []
+        for _name in _detector_names:
+            try:
+                _mod = import_module(f"firewall.detectors.{_name}")
+            except Exception:
+                missing_names.append(_name)
+                continue
+            if bool(getattr(_mod, "available", False)):
+                available_names.append(_name)
+            else:
+                missing_names.append(_name)
+        if not missing_names:
+            components.append(
+                HealthComponent(
+                    name="detectors",
+                    status="ok",
+                    detail=(
+                        f"{len(available_names)} available: "
+                        f"{', '.join(available_names)}"
+                    ),
+                )
+            )
+        else:
+            components.append(
+                HealthComponent(
+                    name="detectors",
+                    status="degraded",
+                    detail=(
+                        f"{len(available_names)}/{len(_detector_names)} "
+                        f"available; missing: {', '.join(missing_names)} "
+                        f"— rules referencing these silently no-op"
+                    ),
+                )
+            )
+    except Exception as e:
+        components.append(
+            HealthComponent(
+                name="detectors", status="degraded", detail=str(e)[:200],
+            )
+        )
+
     overall = "ok"
     if any(c.status == "down" for c in components):
         overall = "down"
