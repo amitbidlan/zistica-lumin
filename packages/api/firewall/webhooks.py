@@ -318,11 +318,19 @@ def fire_for_decision(
                 webhook=wh,
                 payload=payload,
                 decision_id=decision_id,
-                # Pass the duckdb path explicitly — the worker thread
-                # opens its own connection on failure paths because the
-                # main Database object isn't safe for cross-thread use.
-                duckdb_path=db.duckdb_path,
-                sqlite_path=db.sqlite_path,
+                # Pass the existing Database reference — every write goes
+                # through ``db.execute()`` which serializes via the
+                # Database's own ``_lock``. An earlier version opened a
+                # fresh ``Database(duckdb_path, sqlite_path)`` inside the
+                # worker, which crashed in production because DuckDB
+                # allows only one writer connection per file at a time:
+                # the API process already holds it, so the worker's
+                # ``duckdb.connect(path)`` raised IOException("Could not
+                # set lock"). Both ``_mark_fired`` and ``_record_dlq``
+                # then died in their ``logger.exception`` branch, the
+                # row never advanced, and the operator saw
+                # ``last_fired_at: None`` forever.
+                db=db,
             )
             scheduled += 1
         except Exception:
@@ -507,16 +515,21 @@ def _attempt_with_retries(
     webhook: WebhookConfig,
     payload: Dict[str, Any],
     decision_id: str,
-    duckdb_path: str,
-    sqlite_path: str,
+    db: "Database",
 ) -> None:
     """Try to deliver once, retry up to 2 more times with backoff,
-    record DLQ on final failure. Runs in the executor."""
+    record DLQ on final failure. Runs in the executor.
+
+    Writes (``_mark_fired``, ``_record_dlq``) go through the shared
+    ``Database`` instance: its ``_lock`` serializes them with the
+    main thread's writes, and we avoid the second DuckDB connection
+    that would fail with ``IOException("Could not set lock")``.
+    """
     last_error: Optional[str] = None
     for attempt in range(1, 4):
         try:
             _deliver_once(webhook, payload)
-            _mark_fired(duckdb_path, sqlite_path, webhook.id, error=None)
+            _mark_fired(db, webhook.id, error=None)
             return
         except Exception as e:
             last_error = f"{type(e).__name__}: {e}"
@@ -529,12 +542,12 @@ def _attempt_with_retries(
     # Exhausted retries — record DLQ entry.
     try:
         _record_dlq(
-            duckdb_path, sqlite_path,
+            db,
             webhook_id=webhook.id, decision_id=decision_id,
             attempt_count=3, last_error=last_error or "unknown",
             payload=payload,
         )
-        _mark_fired(duckdb_path, sqlite_path, webhook.id, error=last_error or "exhausted")
+        _mark_fired(db, webhook.id, error=last_error or "exhausted")
     except Exception:
         logger.exception("webhooks: failed to write DLQ row for %s", webhook.id)
 
@@ -636,12 +649,15 @@ def _deliver_email(webhook: WebhookConfig, payload: Dict[str, Any]) -> None:
 
 
 def _mark_fired(
-    duckdb_path: str, sqlite_path: str, webhook_id: str, *, error: Optional[str]
+    db: "Database", webhook_id: str, *, error: Optional[str]
 ) -> None:
-    """Update last_fired_at + last_error on the row. Opens its own
-    Database connection because the dispatcher runs in a worker
-    thread."""
-    db = Database(duckdb_path=duckdb_path, sqlite_path=sqlite_path)
+    """Update last_fired_at + last_error on the row.
+
+    Runs in the executor's worker thread. Uses the shared Database
+    instance (lock-serialized via ``db.execute``) rather than opening
+    a second DuckDB connection — DuckDB allows only one writer
+    connection per file, and the API process already holds it.
+    """
     try:
         db.execute(
             """
@@ -653,13 +669,10 @@ def _mark_fired(
         )
     except Exception:
         logger.exception("webhooks: _mark_fired failed for %s", webhook_id)
-    finally:
-        db.close()
 
 
 def _record_dlq(
-    duckdb_path: str,
-    sqlite_path: str,
+    db: "Database",
     *,
     webhook_id: str,
     decision_id: str,
@@ -667,27 +680,26 @@ def _record_dlq(
     last_error: str,
     payload: Dict[str, Any],
 ) -> None:
-    db = Database(duckdb_path=duckdb_path, sqlite_path=sqlite_path)
+    """Write a dead-letter row when a webhook delivery exhausts its
+    retries. Uses the shared Database instance (lock-serialized) for
+    the same reason as ``_mark_fired`` — DuckDB single-writer."""
     try:
-        try:
-            payload_str = json.dumps(payload, default=str)[:_TRUNCATE_PAYLOAD_AT]
-        except Exception:
-            payload_str = str(payload)[:_TRUNCATE_PAYLOAD_AT]
-        db.execute(
-            """
-            INSERT INTO firewall_webhook_failures (
-                id, webhook_id, decision_id, attempt_count,
-                last_error, payload_truncated, failed_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                "fail_" + uuid.uuid4().hex[:24],
-                webhook_id, decision_id, attempt_count,
-                last_error[:500], payload_str, _utc_now_naive(),
-            ],
-        )
-    finally:
-        db.close()
+        payload_str = json.dumps(payload, default=str)[:_TRUNCATE_PAYLOAD_AT]
+    except Exception:
+        payload_str = str(payload)[:_TRUNCATE_PAYLOAD_AT]
+    db.execute(
+        """
+        INSERT INTO firewall_webhook_failures (
+            id, webhook_id, decision_id, attempt_count,
+            last_error, payload_truncated, failed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            "fail_" + uuid.uuid4().hex[:24],
+            webhook_id, decision_id, attempt_count,
+            last_error[:500], payload_str, _utc_now_naive(),
+        ],
+    )
 
 
 def list_failures(db: Database, *, limit: int = 100) -> List[Dict[str, Any]]:
