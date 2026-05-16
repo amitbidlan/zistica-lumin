@@ -20,6 +20,9 @@ name: Publish (Docker + npm + ClawHub)
 #   DOCKERHUB_USERNAME / DOCKERHUB_TOKEN — Docker Hub publish
 #   NPM_TOKEN                            — npm publish (auto-token, public scope)
 #   CLAWHUB_TOKEN                        — ClawHub publish (registry-issued)
+#   PYPI_API_TOKEN                       — PyPI publish for `lumin-io`
+#                                          (or set up PyPI Trusted
+#                                          Publishing and drop the token)
 
 on:
   push:
@@ -196,6 +199,68 @@ jobs:
           echo "### :package: Published \`@lumin-io/${{ matrix.package }}@${GITHUB_REF_NAME#v}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "Install with: \`npm install @lumin-io/${{ matrix.package }}@${GITHUB_REF_NAME#v}\`" >> "$GITHUB_STEP_SUMMARY"
+
+
+  # ----- PyPI publish ----------------------------------------------------
+  #
+  # Publishes the Python SDK (`packages/sdk-python`) to PyPI as
+  # `lumin-io`. This is the install on-ramp behind `pip install lumin-io`
+  # → `lumin demo`. Tag-triggered + version-guarded like the npm jobs so
+  # a tag can never ship a wheel whose version disagrees with it.
+  #
+  # Auth: PYPI_API_TOKEN secret (project-scoped token). If you'd rather
+  # not store a token, configure PyPI Trusted Publishing for this repo +
+  # workflow and delete the `password:` line — the OIDC `id-token`
+  # permission below already satisfies it.
+  pypi:
+    name: Publish lumin-io to PyPI
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    needs: publish  # don't ship the SDK if the image build failed
+    permissions:
+      contents: read
+      id-token: write  # PyPI Trusted Publishing (OIDC), if enabled
+    defaults:
+      run:
+        working-directory: packages/sdk-python
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify package version matches tag
+        # Same hard guard as the npm jobs: pyproject version must equal
+        # the git tag, or we'd publish a mislabelled wheel that pip
+        # would resolve wrongly forever (PyPI versions are immutable).
+        run: |
+          set -e
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PKG_VERSION=$(python -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::pyproject version ($PKG_VERSION) != git tag ($TAG_VERSION) — bump packages/sdk-python/pyproject.toml"
+            exit 1
+          fi
+          echo "version OK: $PKG_VERSION"
+
+      - name: Build sdist + wheel
+        run: |
+          python -m pip install --upgrade build
+          python -m build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: packages/sdk-python/dist/
+          # Delete this line if you switch to PyPI Trusted Publishing.
+          password: ${{ secrets.PYPI_API_TOKEN }}
+
+      - name: Summary
+        run: |
+          echo "### :snake: Published \`lumin-io@${GITHUB_REF_NAME#v}\` to PyPI" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Install with: \`pip install lumin-io==${GITHUB_REF_NAME#v}\` then \`lumin demo\`" >> "$GITHUB_STEP_SUMMARY"
 
 
   # ----- ClawHub publish -------------------------------------------------

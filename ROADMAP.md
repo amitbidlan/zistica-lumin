@@ -12,10 +12,12 @@ if it's not here, it's not promised.
 
 The bar before we post anywhere. These gate the launch, in order:
 
-- [ ] **Distribution name.** `pip install lumin` resolves to an unrelated PyPI
-      project. Decide and ship one of: a vanity name (`lumin-ai`),
-      `pipx`/`uvx run`, or a one-line installer script. *Frictionless install
-      is the #1 conversion lever — this blocks it.*
+- [x] **Distribution name.** Decided: **`lumin-io`** (brand-consistent with
+      the `@lumin-io/*` npm scope; command + import stay `lumin`). pyproject
+      renamed, README updated, and a tag-triggered PyPI publish job added to
+      `publish.yml`. `pip install lumin-io` works from the next tagged
+      release (set the `PYPI_API_TOKEN` secret, or enable PyPI Trusted
+      Publishing, then push a `v*` tag).
 - [x] **`lumin` CLI** — `lumin up` / `lumin demo` / `lumin doctor`. The demo
       fires a real attack at the live firewall and shows real blocks. No keys.
 - [ ] **One-thing demo GIF (≤15s)** — attack fired → red BLOCK row → trace
