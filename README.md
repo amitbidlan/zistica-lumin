@@ -252,6 +252,7 @@ pip install "lumin @ git+https://github.com/amitbidlan/zistica-lumin#subdirector
 lumin up         # starts the container, opens http://localhost:3000
 lumin demo       # instruments a real agent + watch the firewall block a live attack
 lumin scorecard  # grade your firewall vs the OWASP LLM Top-10 attack suite
+lumin scorecard --target http://localhost:11434/v1  # grade ANY agent → shareable badge
 lumin doctor     # connectivity + which rules are enforcing
 ```
 

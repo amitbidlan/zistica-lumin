@@ -27,10 +27,12 @@ The bar before we post anywhere. These gate the launch, in order:
 
 ## 🏗️ Next — the wedge
 
-- [x] **Agent Security Scorecard** — `lumin scorecard` replays the OWASP
-      LLM Top-10 attack suite at your firewall, grades coverage (enforced vs
-      potential), and writes a shareable `SCORECARD.md` + shields badge.
-      *Next: aim it at an external agent endpoint, not just the policy set.*
+- [x] **Agent Security Scorecard** — `lumin scorecard` grades firewall
+      coverage (enforced vs potential) **and** `--target <url>` grades a real
+      external OpenAI-compatible agent (delivers the OWASP attack suite,
+      judges replies with Lumin's output detectors → "AI agent OWASP safety
+      X%"). Writes shareable `SCORECARD.md` + shields badge; `--json` for CI.
+      Verified live end-to-end. *Next: a hosted gallery of public scores.*
 - [ ] **Zero-switch OTel/Langfuse compat, marketed** — the OTLP receiver +
       proxy already exist; ship a one-page "keep your stack, gain the
       firewall" migration guide.
