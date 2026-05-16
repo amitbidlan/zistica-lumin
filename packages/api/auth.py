@@ -1,9 +1,13 @@
 """Bearer-token authentication middleware (Slice 5B).
 
-Default-off. When ``LUMIN_API_TOKEN`` is unset, the middleware is a
-no-op and the API behaves exactly like it did before — every
-endpoint is reachable without credentials. This preserves the
-zero-friction localhost-dev story.
+Default-off for localhost. When ``LUMIN_API_TOKEN`` is unset, every
+endpoint is reachable without credentials **from loopback** — the
+zero-friction localhost-dev story is unchanged. But an instance with
+no token that is reachable from a non-loopback address refuses remote
+requests (HTTP 403) instead of silently serving every trace, prompt,
+and the firewall control plane to the network. Operators opt back into
+the old wide-open behavior with ``LUMIN_ALLOW_INSECURE=1``; the right
+fix is to set ``LUMIN_API_TOKEN``.
 
 When ``LUMIN_API_TOKEN`` is set, every request to ``/v1/*``,
 ``/ws/*``, and ``/health/admin`` requires:
@@ -38,6 +42,7 @@ fires.
 from __future__ import annotations
 
 import hmac
+import ipaddress
 import logging
 import os
 from typing import Iterable, Optional, Tuple
@@ -47,6 +52,10 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
 logger = logging.getLogger("lumin.api.auth")
+
+# One-time latch so a remote-exposed-without-auth instance logs its
+# posture once (at the first offending request) instead of every time.
+_warned_insecure_exposure = False
 
 
 # Paths that are ALWAYS reachable without a token. Order doesn't
@@ -73,6 +82,37 @@ def _expected_token() -> Optional[str]:
 
 def auth_enabled() -> bool:
     return _expected_token() is not None
+
+
+def insecure_allowed() -> bool:
+    """Operator escape hatch: ``LUMIN_ALLOW_INSECURE=1`` accepts the
+    risk of serving the API to non-loopback clients without a token
+    (e.g. a trusted private network, or auth terminated at a proxy)."""
+    return os.environ.get("LUMIN_ALLOW_INSECURE", "").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+
+def _client_is_local(request: Request) -> bool:
+    """True when the request's transport peer is loopback.
+
+    This is the socket peer the ASGI server reports — NOT a
+    user-controllable header — so it can't be spoofed by a remote
+    client. Behind a reverse proxy every request looks loopback;
+    those deployments must set ``LUMIN_API_TOKEN`` (the proxy can't
+    be the security boundary for the trace store). Unknown / non-IP
+    peers (Starlette TestClient's ``testclient``, ``localhost``, or a
+    missing client on some ASGI servers) are treated as local so the
+    zero-friction localhost story and the test suite are unaffected.
+    """
+    client = request.client
+    if client is None or not client.host:
+        return True
+    host = client.host
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return host in ("localhost", "testclient")
 
 
 def _is_public_path(path: str) -> bool:
@@ -109,11 +149,48 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
     forget the header?" from "did the rotated token get pushed?"."""
 
     async def dispatch(self, request: Request, call_next):  # type: ignore[no-untyped-def]
-        expected = _expected_token()
-        if expected is None:
-            return await call_next(request)
-
         path = request.url.path
+        expected = _expected_token()
+
+        if expected is None:
+            # No token configured. Localhost keeps the zero-friction
+            # story (open, exactly as before). But a Lumin bound to a
+            # public interface with no token would serve every trace,
+            # prompt, and the firewall control plane to the world —
+            # refuse non-loopback clients unless the operator has
+            # explicitly accepted the risk. Public paths (healthcheck,
+            # spec) stay open so probes and the container healthcheck
+            # don't break.
+            if (
+                _is_public_path(path)
+                or _client_is_local(request)
+                or insecure_allowed()
+            ):
+                return await call_next(request)
+            global _warned_insecure_exposure
+            if not _warned_insecure_exposure:
+                _warned_insecure_exposure = True
+                logger.warning(
+                    "Refusing non-loopback request from %s with no "
+                    "LUMIN_API_TOKEN set. Set a token to allow remote "
+                    "access, or LUMIN_ALLOW_INSECURE=1 to accept the risk.",
+                    getattr(request.client, "host", "?"),
+                )
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "error": "remote_access_requires_auth",
+                    "detail": (
+                        "This Lumin is reachable from a non-loopback "
+                        "address but has no LUMIN_API_TOKEN set, so it "
+                        "won't serve traces/policies to remote clients. "
+                        "Set LUMIN_API_TOKEN (recommended) and send "
+                        "Authorization: Bearer <token>, or set "
+                        "LUMIN_ALLOW_INSECURE=1 to accept the risk."
+                    ),
+                },
+            )
+
         if _is_public_path(path):
             return await call_next(request)
 
@@ -140,4 +217,8 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-__all__ = ["BearerAuthMiddleware", "auth_enabled"]
+__all__ = [
+    "BearerAuthMiddleware",
+    "auth_enabled",
+    "insecure_allowed",
+]

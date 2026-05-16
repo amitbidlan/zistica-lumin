@@ -172,3 +172,63 @@ def test_constant_time_compare_used(client: TestClient, monkeypatch) -> None:
     assert short.status_code == 403
     assert same_len.status_code == 403
     assert longer.status_code == 403
+
+
+# ----- safe-by-default: remote exposure without a token --------------------
+#
+# No token + loopback = open (unchanged). No token + a non-loopback peer
+# = refuse, so a Lumin accidentally bound to 0.0.0.0 on a VPS doesn't
+# serve every trace + the firewall control plane to the internet.
+
+
+@pytest.fixture
+def remote_client():
+    """A TestClient whose transport peer is a public IP (not loopback)."""
+    db = Database(duckdb_path=":memory:", sqlite_path=":memory:")
+    main.app.dependency_overrides[main.get_db] = lambda: db
+    yield TestClient(main.app, client=("203.0.113.7", 44441))
+    main.app.dependency_overrides.clear()
+    db.close()
+
+
+def test_remote_v1_blocked_when_no_token(remote_client, monkeypatch) -> None:
+    _clear_token(monkeypatch)
+    monkeypatch.delenv("LUMIN_ALLOW_INSECURE", raising=False)
+    resp = remote_client.get("/v1/traces")
+    assert resp.status_code == 403
+    assert resp.json()["error"] == "remote_access_requires_auth"
+
+
+def test_remote_health_still_open_when_no_token(remote_client, monkeypatch) -> None:
+    """Probes / container healthcheck must survive remote exposure."""
+    _clear_token(monkeypatch)
+    monkeypatch.delenv("LUMIN_ALLOW_INSECURE", raising=False)
+    assert remote_client.get("/health").status_code == 200
+
+
+def test_remote_allowed_with_insecure_optin(remote_client, monkeypatch) -> None:
+    _clear_token(monkeypatch)
+    monkeypatch.setenv("LUMIN_ALLOW_INSECURE", "1")
+    resp = remote_client.get("/v1/traces")
+    assert resp.status_code not in (401, 403)
+
+
+def test_remote_allowed_with_token(remote_client, monkeypatch) -> None:
+    """Setting a token is the recommended fix — remote then works
+    with the bearer header, exactly like the localhost case."""
+    _set_token(monkeypatch, "right-token")
+    blocked = remote_client.get("/v1/traces")
+    assert blocked.status_code == 401  # token path, not the remote 403
+    ok = remote_client.get(
+        "/v1/traces", headers={"Authorization": "Bearer right-token"},
+    )
+    assert ok.status_code not in (401, 403)
+
+
+def test_localhost_still_open_when_no_token(client: TestClient, monkeypatch) -> None:
+    """Regression guard: the zero-friction localhost story is intact —
+    the default TestClient peer is treated as local."""
+    _clear_token(monkeypatch)
+    monkeypatch.delenv("LUMIN_ALLOW_INSECURE", raising=False)
+    resp = client.get("/v1/traces")
+    assert resp.status_code not in (401, 403)
