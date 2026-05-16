@@ -56,7 +56,7 @@
 </p>
 
 ```bash
-pip install "lumin @ git+https://github.com/amitbidlan/zistica-lumin#subdirectory=packages/sdk-python"
+pip install lumin-io        # the PyPI name is lumin-io; the command stays `lumin`
 lumin up && lumin demo
 ```
 
@@ -248,7 +248,7 @@ Compatible with anything that speaks OpenTelemetry (Logfire, Phoenix, Datadog Ge
 The fastest path — the `lumin` CLI wraps Docker, waits for health, opens the dashboard, then fires a real attack demo:
 
 ```bash
-pip install "lumin @ git+https://github.com/amitbidlan/zistica-lumin#subdirectory=packages/sdk-python"
+pip install lumin-io   # PyPI dist is `lumin-io`; the command + import stay `lumin`
 lumin up         # starts the container, opens http://localhost:3000
 lumin demo       # instruments a real agent + watch the firewall block a live attack
 lumin scorecard  # grade your firewall vs the OWASP LLM Top-10 attack suite
@@ -256,7 +256,11 @@ lumin scorecard --target http://localhost:11434/v1  # grade ANY agent → sharea
 lumin doctor     # connectivity + which rules are enforcing
 ```
 
-> The PyPI name `lumin` is held by an unrelated project, so install from Git for now. Securing a distribution name (`lumin-ai`, `pipx`/`uvx`, or a vanity domain) is a pre-Show-HN blocker — see `ROADMAP.md`.
+> The PyPI distribution is **`lumin-io`** (the bare name `lumin` is an unrelated project) — brand-consistent with the `@lumin-io/*` npm scope. The command and import stay `lumin`. Published on each tagged release; to run ahead of a release, install from source:
+>
+> ```bash
+> pip install "lumin-io @ git+https://github.com/amitbidlan/zistica-lumin#subdirectory=packages/sdk-python"
+> ```
 
 Or drive Docker yourself:
 
@@ -441,7 +445,7 @@ Single Docker container runs the API on `:8000` and the Next.js standalone dashb
 
 One-shot installer: creates `packages/api/.venv`, installs the local Python SDK editable, installs API dependencies, runs `npm ci` across all 5 Node packages.
 
-The API imports `lumin` from the sibling `packages/sdk-python/`, NOT from PyPI (where an unrelated package shares the name). Don't `pip install lumin` from PyPI inside this workspace.
+The API imports `lumin` from the sibling `packages/sdk-python/`, NOT from PyPI. Note the bare name `lumin` on PyPI is an unrelated project — the Lumin distribution is `lumin-io` (`pip install lumin-io`, `import lumin`). Inside this workspace always use the local editable install (`./setup.sh`), never `pip install lumin`.
 
 ### Python SDK only
 

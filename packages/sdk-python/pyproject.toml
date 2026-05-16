@@ -3,9 +3,13 @@ requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "lumin"
+# Distribution name is `lumin-io` (the PyPI name `lumin` is held by an
+# unrelated project). Brand-consistent with the `@lumin-io/*` npm scope.
+# The import package and the CLI command both stay `lumin` —
+# `pip install lumin-io` then `import lumin` / `lumin demo`.
+name = "lumin-io"
 version = "0.7.1"
-description = "Local-first AI agent observability SDK"
+description = "Lumin — local-first observability + firewall for AI agents"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Apache-2.0" }
@@ -26,7 +30,7 @@ dependencies = [
 ]
 
 [project.scripts]
-# `pip install lumin` puts a `lumin` command on PATH:
+# `pip install lumin-io` puts a `lumin` command on PATH:
 #   lumin up      start the container + open the dashboard
 #   lumin demo    fire a real attack at the live firewall
 #   lumin doctor  connectivity + detector check
