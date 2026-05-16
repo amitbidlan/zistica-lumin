@@ -914,6 +914,33 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     else:
         bad("could not read /v1/policies", f"HTTP {code}")
 
+    # Detector availability — the command's headline promise. An OWASP
+    # rule referencing prompt_guard_score(...) silently no-ops forever if
+    # the ML deps aren't installed, even when promoted to enforce, so this
+    # is the single most useful thing `doctor` can surface.
+    code, body = _get(client, "/v1/admin/health")
+    if code == 200 and isinstance(body, dict):
+        comps = {c.get("name"): c for c in body.get("components", [])
+                 if isinstance(c, dict)}
+        det = comps.get("detectors")
+        if det:
+            st = det.get("status")
+            detail = det.get("detail", "")
+            if st == "ok":
+                ok("detectors", detail)
+            else:
+                warn("detectors", detail)
+                out(muted("   regex/structural detectors still work; the ML"))
+                out(muted("   ones above no-op until their deps are installed"))
+        for cname, c in comps.items():
+            if cname == "detectors":
+                continue
+            cs = c.get("status")
+            (ok if cs == "ok" else warn if cs == "degraded" else bad)(
+                cname, c.get("detail", cs or ""))
+    else:
+        out(muted(f"detector health unavailable (HTTP {code}) — older API?"))
+
     code, body = _get(client, "/v1/firewall/panic_disable")
     if code == 200 and isinstance(body, dict):
         if body.get("disabled"):

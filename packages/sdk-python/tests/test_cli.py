@@ -220,6 +220,32 @@ def test_scorecard_target_mode_scores_agent_safety(monkeypatch, capsys):
     cli.set_quiet(False)
 
 
+def test_doctor_reports_detectors(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "_api_reachable", lambda host: True)
+    monkeypatch.setattr(cli, "_client", lambda host: object())
+
+    def fake_get(client, path):
+        if path == "/v1/policies":
+            return 200, {"policies": [{"mode": "enforce"}, {"mode": "shadow"}]}
+        if path == "/v1/admin/health":
+            return 200, {"status": "degraded", "components": [
+                {"name": "detectors", "status": "degraded",
+                 "detail": "2/8 available; missing: prompt_guard, llama_guard"},
+                {"name": "db", "status": "ok", "detail": "duckdb"},
+            ]}
+        if path.endswith("/panic_disable"):
+            return 200, {"disabled": False}
+        return 200, {}
+
+    monkeypatch.setattr(cli, "_get", fake_get)
+    rc = cli.main(["doctor", "--host", "http://x"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "detectors" in out
+    assert "prompt_guard" in out          # missing detector surfaced
+    assert "1 enforcing" in out
+
+
 def test_scorecard_target_skips_unreachable_replies(monkeypatch, capsys):
     attacks = [{"category": "jailbreak",
                 "messages": [{"role": "user", "content": "x"}]}]
