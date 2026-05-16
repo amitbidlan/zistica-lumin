@@ -10,6 +10,8 @@ Marketing + community content shipped alongside the Slice 4 release.
 | `landing_page_competitor_diff.md` | 17.4 | Comparison-table copy for the landing page — Lumin vs. Lakera / NeMo Guardrails / LangChain / Helicone / Phoenix. |
 | `blog_posts/` | 17.5 | Four launch blog drafts (markdown). Drop into the company blog or HN-friendly platforms. |
 | `clawhub_listing.md` | 17.6 | Copy + metadata for the ClawHub plugin marketplace featured listing. |
+| `record_demo.sh` | — | Deterministic recorder: clean Lumin → one `lumin demo` run → `out/lumin-demo.cast` (+ GIF via `agg`). The Show-HN visual, reproducible. |
+| `show_hn_post.md` | — | Show HN title options, body, pre-emptive first comment, posting order. Honest about limitations on purpose. |
 
 ## How these are meant to be used
 
