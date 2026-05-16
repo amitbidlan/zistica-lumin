@@ -318,6 +318,27 @@ That's it. No account, no API key, and **Lumin itself never sends your traces an
 
 ---
 
+## 🧰 The `lumin` CLI
+
+`pip install` puts a `lumin` command on your PATH. Four commands, zero config:
+
+| Command | What it does |
+| --- | --- |
+| `lumin up` | Start the container (compose or `docker run`), wait for health, open the dashboard. |
+| `lumin demo` | Instrument two real traces, arm two OWASP rules, then drive a benign + two attack tool-calls through the **live** firewall. Real blocks, no keys. |
+| `lumin scorecard` | Replay the OWASP LLM Top-10 attack suite at your firewall; grade **enforced vs potential** coverage; write a shareable `SCORECARD.md` + shields badge. `--json` for CI. |
+| `lumin scorecard --target <url>` | Point it at **any** OpenAI-compatible agent. Lumin delivers the attack suite and judges every reply with its own output detectors → an **"AI agent OWASP safety X%"** badge you can post. |
+| `lumin doctor` | Connectivity, rules loaded/enforcing, panic state, and which ML detectors are actually available (so a rule isn't silently no-op'ing). |
+
+```bash
+# grade the agent behind Ollama, write a badge, no LLM key needed for the judge
+lumin scorecard --target http://localhost:11434/v1 --out SCORECARD.md
+```
+
+Every number above is produced locally — nothing leaves the machine.
+
+---
+
 ## 🛡️ Add the firewall (multi-user bots)
 
 If your bot serves multiple users (Slack, Telegram, Discord, internal SaaS), turn on tenant isolation:
@@ -523,6 +544,7 @@ Streaming and non-streaming both work. Pass W3C `traceparent` header for span st
 ## 📖 Where things live
 
 - **[Quickstart](#-quickstart)** — start Lumin, trace your first call, open the dashboard
+- **[The `lumin` CLI](#-the-lumin-cli)** — `up`, `demo`, `scorecard`, `scorecard --target`, `doctor`
 - **[Four Pillars](#%EF%B8%8F-four-pillars--observe-govern-defend-operate)** — Observe, Govern, Defend, Operate at a glance
 - **[OWASP LLM Top 10 guardrails](#%EF%B8%8F-owasp-llm-top-10-guardrails--at-runtime)** — the Defend pillar in depth (8 detectors, starter packs, tenant isolation)
 - **[Integrations](#-integrations)** — 16 first-party + OTLP for everything else
