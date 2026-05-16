@@ -1,0 +1,65 @@
+name: New framework integration
+description: Add (or request) a Lumin integration for an agent framework. Great first contribution.
+title: "Integration: add <framework>"
+labels: ["integration", "good-first-issue", "help-wanted"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **This is the single best way to make your first Lumin contribution.**
+
+        Every integration is self-contained: copy an existing one, swap the hook
+        surface, add a test. No need to understand the firewall or the dashboard.
+
+        Reference implementations to copy from (pick the closest shape):
+        - Callback handler → `packages/sdk-python/lumin/integrations/langchain.py`
+        - Multi-agent crew → `packages/sdk-python/lumin/integrations/crewai.py`
+        - Provider client wrap → `packages/sdk-python/lumin/integrations/anthropic.py`
+        - OTel exporter (TS) → `packages/integrations/voltagent/`
+
+        If you just want to *request* one, fill in the framework + links and
+        leave the checklist for whoever picks it up.
+
+  - type: input
+    id: framework
+    attributes:
+      label: Framework
+      description: Name + link to its docs / repo.
+      placeholder: "Strands Agents — https://github.com/strands-agents/sdk-python"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: language
+    attributes:
+      label: Language
+      options: [Python, TypeScript, Both]
+    validations:
+      required: true
+
+  - type: input
+    id: hook
+    attributes:
+      label: Instrumentation surface
+      description: The hook/callback/middleware Lumin would attach to (if known).
+      placeholder: "BaseCallbackHandler-style: on_llm_start / on_tool_start / on_chain_end"
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Contributor checklist (acceptance criteria)
+      description: A PR closing this issue should tick all of these.
+      options:
+        - label: "`integrations/<framework>.py` (or TS equivalent) — emits spans via the existing exporter, no new wire format"
+        - label: "Root agent run → root span; LLM calls → child spans; tool calls → child spans; parent/child IDs correct"
+        - label: "Zero-config env toggle where the framework supports it (mirror `LUMIN_TRACING=true` from the LangChain integration)"
+        - label: "An optional-dependency extra in `packages/sdk-python/pyproject.toml` (e.g. `lumin[<framework>]`)"
+        - label: "One test under `packages/sdk-python/tests/` that asserts the span tree shape (copy an existing integration test)"
+        - label: "One row added to the Integrations table in `README.md` and `INTEGRATIONS.md`"
+        - label: "A 6-line usage snippet in the PR description"
+
+  - type: markdown
+    attributes:
+      value: |
+        Stuck? Drop a comment — maintainers respond to `good-first-issue`
+        threads within 24h. We will not let your PR rot.

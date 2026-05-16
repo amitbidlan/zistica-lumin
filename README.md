@@ -50,9 +50,18 @@
 </p>
 
 <p align="center">
-   <strong>The open-source operational platform for LLM agents in production.</strong><br/>
-   Observe every trace · govern with policies · defend with OWASP LLM Top 10 guardrails · operate with audit, alerts, and approvals.<br/>
-   Works with every major framework. Single self-hosted Docker container. No cloud, no telemetry, no vendor lock-in.
+   <strong>See everything your AI agent does — and stop it before it does something catastrophic.</strong><br/>
+   A full trace of every LLM call, tool, and decision, plus a real-time firewall that blocks credential exfil, cross-tenant leaks, and destructive tool calls.<br/>
+   100% local. No account, no API key, no data egress. One command.
+</p>
+
+```bash
+pip install "lumin @ git+https://github.com/amitbidlan/zistica-lumin#subdirectory=packages/sdk-python"
+lumin up && lumin demo
+```
+
+<p align="center">
+   <sub><code>lumin demo</code> instruments a real agent, then prompt-injects it into wiping data and stealing credentials — and you watch the firewall block it live, on your machine. ~30 seconds, no keys.</sub>
 </p>
 
 <!-- Animated GIF preview, click → full 52s video on YouTube.
@@ -67,6 +76,10 @@
 </p>
 <p align="center">
    <sub>▶ <a href="https://youtu.be/hgTntZniuv4">Watch the full 52-second walkthrough on YouTube</a> — instrumenting an agent, inspecting a trace, promoting a shadow policy, and watching the firewall block a live cross-session leak.</sub>
+</p>
+
+<p align="center">
+   <sub>⭐ <strong>If watching a firewall block a live agent attack made you go "oh" — star the repo.</strong> It's the single signal that tells us to keep shipping this in the open.</sub>
 </p>
 
 ---
@@ -231,6 +244,20 @@ Compatible with anything that speaks OpenTelemetry (Logfire, Phoenix, Datadog Ge
 ## 🚀 Quickstart
 
 ### 1️⃣ Start Lumin
+
+The fastest path — the `lumin` CLI wraps Docker, waits for health, opens the dashboard, then fires a real attack demo:
+
+```bash
+pip install "lumin @ git+https://github.com/amitbidlan/zistica-lumin#subdirectory=packages/sdk-python"
+lumin up         # starts the container, opens http://localhost:3000
+lumin demo       # instruments a real agent + watch the firewall block a live attack
+lumin scorecard  # grade your firewall vs the OWASP LLM Top-10 attack suite
+lumin doctor     # connectivity + which rules are enforcing
+```
+
+> The PyPI name `lumin` is held by an unrelated project, so install from Git for now. Securing a distribution name (`lumin-ai`, `pipx`/`uvx`, or a vanity domain) is a pre-Show-HN blocker — see `ROADMAP.md`.
+
+Or drive Docker yourself:
 
 ```bash
 git clone https://github.com/amitbidlan/zistica-lumin
@@ -508,8 +535,10 @@ Streaming and non-streaming both work. Pass W3C `traceparent` header for span st
 
 ## 🤝 Community
 
+- **[Roadmap](ROADMAP.md)** — what's shipping next, one screen, public source of truth
 - **[GitHub Discussions](https://github.com/amitbidlan/zistica-lumin/discussions)** — questions, ideas, integrations
 - **[GitHub Issues](https://github.com/amitbidlan/zistica-lumin/issues)** — bug reports, feature requests
+- **[Good first issues](https://github.com/amitbidlan/zistica-lumin/issues?q=is%3Aissue+is%3Aopen+label%3Agood-first-issue)** — start with a framework integration; maintainers reply within 24h
 - **[Pull Requests](https://github.com/amitbidlan/zistica-lumin/pulls)** — contributions welcome; see `CONTRIBUTING.md`
 
 ---

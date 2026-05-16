@@ -25,6 +25,13 @@ dependencies = [
     "pyyaml>=6.0",
 ]
 
+[project.scripts]
+# `pip install lumin` puts a `lumin` command on PATH:
+#   lumin up      start the container + open the dashboard
+#   lumin demo    fire a real attack at the live firewall
+#   lumin doctor  connectivity + detector check
+lumin = "lumin.cli:main"
+
 [project.optional-dependencies]
 test = [
     "pytest>=7.0",
