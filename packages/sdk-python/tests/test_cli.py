@@ -52,9 +52,20 @@ def test_version(capsys):
     assert "lumin" in capsys.readouterr().out
 
 
-def test_no_command_prints_help(capsys):
+def test_no_command_shows_branded_splash(capsys):
     rc = cli.main([])
     assert rc == 0
+    out = capsys.readouterr().out
+    assert "LUMIN" in out                       # branded header, not argparse
+    for cmd in ("lumin up", "lumin demo", "lumin scorecard", "lumin doctor"):
+        assert cmd in out
+    assert "usage:" not in out                  # splash, not raw argparse
+
+
+def test_dash_h_still_shows_argparse_usage(capsys):
+    with pytest.raises(SystemExit) as e:        # argparse exits on -h
+        cli.main(["-h"])
+    assert e.value.code == 0
     assert "usage:" in capsys.readouterr().out
 
 

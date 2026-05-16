@@ -1012,6 +1012,24 @@ def _build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _splash() -> None:
+    """Branded getting-started shown for a bare `lumin` — a premium tool
+    earns its first screen instead of dumping argparse."""
+    header()
+    print()
+    for cmd, desc in (
+        ("lumin up", "start Lumin, open the dashboard"),
+        ("lumin demo", "watch the firewall block a live attack"),
+        ("lumin scorecard", "grade your firewall vs OWASP LLM Top-10"),
+        ("lumin doctor", "connectivity + which detectors are live"),
+    ):
+        out(f"  {accent(f'{cmd:<24}', True)}{muted(desc)}")
+    print()
+    out(muted("first time?  ") + accent("lumin up && lumin demo", True))
+    out(muted("full options: ") + "lumin <command> --help")
+    print()
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -1025,7 +1043,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 0
 
     if not getattr(args, "command", None):
-        parser.print_help()
+        _splash()
         return 0
 
     try:
