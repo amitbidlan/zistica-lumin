@@ -38,8 +38,13 @@ The bar before we post anywhere. These gate the launch, in order:
       firewall" migration guide.
 - [ ] **Reproducible public benchmark** — Lumin vs. a named prompt-injection
       corpus, numbers + methodology in `/bench`.
-- [ ] **Dashboard auth, on by default for non-localhost binds** — the
-      mechanism exists (`LUMIN_DASHBOARD_PASSWORD`); make safe the default.
+- [x] **API safe-by-default for non-localhost binds** — no token + a
+      non-loopback client → `403 remote_access_requires_auth` (loopback
+      stays zero-friction; `LUMIN_ALLOW_INSECURE=1` to opt out). 729 API
+      tests green.
+- [ ] **Dashboard auth on by default** — same posture for the `:3000`
+      Next.js app (`LUMIN_DASHBOARD_PASSWORD` mechanism exists; mirror the
+      API's loopback-vs-remote default in `middleware.ts`).
 
 ## 🌅 Later — the moat
 

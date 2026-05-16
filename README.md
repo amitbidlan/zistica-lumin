@@ -201,7 +201,7 @@ docker run -d \
   zistica/lumin:latest
 ```
 
-⚠️ **Public VPS deployment**: the dashboard at `:3000` has **no authentication today**. Bind ports to `127.0.0.1` (as shown) and reach the dashboard via SSH tunnel: `ssh -L 3000:localhost:3000 user@vps`. Auth lands in Slice 5B.
+⚠️ **Public VPS deployment**: the API (`:8000`) is **safe by default** — with no `LUMIN_API_TOKEN` set it serves loopback only and returns `403 remote_access_requires_auth` to non-loopback clients, so an instance accidentally bound to `0.0.0.0` won't leak your traces or the firewall control plane. For real remote access set `LUMIN_API_TOKEN` (then send `Authorization: Bearer <token>`); to deliberately run open on a trusted network set `LUMIN_ALLOW_INSECURE=1`. The dashboard (`:3000`) still has no built-in login — set `LUMIN_DASHBOARD_PASSWORD`, bind to `127.0.0.1` (as shown), and tunnel: `ssh -L 3000:localhost:3000 user@vps`.
 
 ### Smaller image (size-constrained VPS)
 
