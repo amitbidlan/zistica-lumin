@@ -299,8 +299,7 @@ def test_deliver_failure_writes_dlq(disk_db: Database) -> None:
             ),
             payload=payload,
             decision_id="dec_test",
-            duckdb_path=db.duckdb_path,
-            sqlite_path=db.sqlite_path,
+            db=db,
         )
 
     failures = fw_webhooks.list_failures(db)
@@ -325,10 +324,92 @@ def test_deliver_success_no_dlq(disk_db: Database) -> None:
             ),
             payload={"x": 1},
             decision_id="dec_a",
-            duckdb_path=db.duckdb_path,
-            sqlite_path=db.sqlite_path,
+            db=db,
         )
     assert fw_webhooks.list_failures(db) == []
+
+
+def test_successful_delivery_marks_last_fired_at(disk_db: Database) -> None:
+    """Regression for issue #114: a successful webhook delivery must
+    update ``last_fired_at`` on the webhook row. The previous worker
+    opened a fresh ``Database(duckdb_path, sqlite_path)`` from inside
+    the executor thread — which silently failed (DuckDB single-writer
+    semantics) so ``_mark_fired`` raised, the logger swallowed it,
+    and the row stayed at ``last_fired_at=NULL`` forever even though
+    the HTTP delivery succeeded."""
+    db = disk_db
+    wh = fw_webhooks.create_webhook(
+        db, name="ok-channel", kind="slack",
+        config={"webhook_url": "https://hooks.slack.com/x"},
+    )
+    # Sanity: brand-new row has no fire timestamp yet.
+    before = db.fetchone(
+        "SELECT last_fired_at FROM firewall_webhooks WHERE id = ?", [wh.id]
+    )
+    assert before is not None and before[0] is None
+
+    with patch.object(fw_webhooks, "_deliver_once", return_value=None):
+        fw_webhooks._attempt_with_retries(
+            webhook=fw_webhooks.WebhookConfig(
+                id=wh.id, name=wh.name, kind=wh.kind, config=wh.config,
+                severity_min=wh.severity_min, project_filter=wh.project_filter,
+                active=True,
+            ),
+            payload={"hello": "world"},
+            decision_id="dec_success",
+            db=db,
+        )
+
+    after = db.fetchone(
+        "SELECT last_fired_at, last_error FROM firewall_webhooks WHERE id = ?",
+        [wh.id],
+    )
+    assert after is not None
+    assert after[0] is not None, (
+        "last_fired_at must be set after a successful delivery; "
+        "if this is None the worker thread's write to firewall_webhooks "
+        "is being silently swallowed (issue #114)"
+    )
+    assert after[1] is None, "last_error must be None on success"
+    assert fw_webhooks.list_failures(db) == []
+
+
+def test_fire_for_decision_dispatches_for_rewrite(disk_db: Database) -> None:
+    """Regression for issue #114: a ``rewrite`` decision must dispatch
+    a webhook just like ``block``. The README documents webhooks fire
+    on ``every block, redaction, or policy hit``; ``decide.py`` (L997)
+    confirms the intent (``decision in {block, require_approval,
+    rewrite}``). The bug was that the dispatch ran but the worker
+    thread couldn't write back, so externally it looked like rewrite
+    silently skipped webhooks."""
+    db = disk_db
+    wh = fw_webhooks.create_webhook(
+        db, name="rewrite-listener", kind="slack",
+        config={"webhook_url": "https://hooks.slack.com/x"},
+        severity_min="low",  # accept anything
+    )
+
+    with patch.object(fw_webhooks, "_deliver_once", return_value=None):
+        scheduled = fw_webhooks.fire_for_decision(
+            db,
+            decision_id="dec_rewrite_probe",
+            decision="rewrite",
+            severity="high",
+            policy_name="owasp_llm02_pii_disclosure",
+            project=None,
+            reason="probe",
+            trace_id="00000000-0000-0000-0000-0000000000aa",
+            mode_at_decision="enforce",
+        )
+        fw_webhooks.shutdown_for_tests()
+
+    assert scheduled == 1, "rewrite decision must schedule the webhook"
+    after = db.fetchone(
+        "SELECT last_fired_at FROM firewall_webhooks WHERE id = ?", [wh.id]
+    )
+    assert after is not None and after[0] is not None, (
+        "last_fired_at must advance after a rewrite dispatch (#114)"
+    )
 
 
 # ----- HTTP surface --------------------------------------------------------
